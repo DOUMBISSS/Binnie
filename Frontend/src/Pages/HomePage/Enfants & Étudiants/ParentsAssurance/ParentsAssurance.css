@@ -1,0 +1,27 @@
+.parents-assurance {
+  max-width: 1000px;
+  margin: 2rem auto;
+  text-align: center;
+}
+.trust-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  margin: 2rem 0;
+}
+.trust-card {
+  background: white;
+  border-radius: 24px;
+  padding: 1.5rem;
+  width: 220px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+.trust-card .icon { font-size: 2rem; }
+.testimonial {
+  background: #fef3c7;
+  border-radius: 24px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+  font-style: italic;
+}

@@ -1,0 +1,264 @@
+/* ModernServices.css */
+.modern-services {
+  padding: 5rem 1.5rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  font-family: 'Montserrat', 'Segoe UI', sans-serif;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Grille des cartes */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  margin-bottom: 5rem;
+}
+
+.feature-card {
+  background: white;
+  border-radius: 28px;
+  padding: 2rem 1.8rem;
+  text-align: center;
+  box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.05);
+  transition: all 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(0px);
+  border: 1px solid rgba(203, 213, 225, 0.3);
+}
+
+.feature-card:hover {
+  transform: translateY(-12px);
+  box-shadow: 0 30px 45px -15px rgba(11, 42, 74, 0.2);
+  border-color: rgba(15, 59, 109, 0.2);
+}
+
+.card-icon {
+  font-size: 3.5rem;
+  margin-bottom: 1.5rem;
+  display: inline-block;
+  background: linear-gradient(135deg, #0b2a4a, #0f3b6d);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  transition: transform 0.3s ease;
+}
+
+.feature-card:hover .card-icon {
+  transform: scale(1.1);
+}
+
+.feature-card h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  background: linear-gradient(120deg, #0b2a4a, #1e4a76);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.feature-card p {
+  color: #334155;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.card-hover-effect {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  transform: scaleX(0);
+  transition: transform 0.4s ease;
+  border-radius: 0 0 28px 28px;
+}
+
+.feature-card:hover .card-hover-effect {
+  transform: scaleX(1);
+}
+
+/* Bloc certification agréé */
+.certification-block {
+  background: white;
+  border-radius: 40px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  transition: transform 0.3s ease;
+}
+
+.certification-block:hover {
+  transform: scale(1.01);
+}
+
+.cert-badge {
+  display: inline-block;
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  color: white;
+  padding: 0.5rem 1.5rem;
+  border-radius: 0 0 20px 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  margin: 0 0 0 2rem;
+}
+
+.cert-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  padding: 2.5rem;
+}
+
+.cert-left {
+  flex: 2;
+  min-width: 250px;
+}
+
+.cert-left h2 {
+  font-size: 2.5rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #0b2a4a, #0f3b6d);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  margin-bottom: 1rem;
+  letter-spacing: -0.5px;
+}
+
+.cert-left p {
+  color: #334155;
+  line-height: 1.6;
+  margin-bottom: 2rem;
+  font-size: 1rem;
+}
+
+.btn-savoir {
+  background: transparent;
+  border: 2px solid #0b2a4a;
+  color: #0b2a4a;
+  padding: 0.8rem 2rem;
+  border-radius: 40px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-savoir:hover {
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  color: white;
+  border-color: transparent;
+  transform: translateX(5px);
+  box-shadow: 0 10px 20px -5px rgba(11, 42, 74, 0.3);
+}
+
+.cert-right {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.cert-illustration {
+  width: 180px;
+  height: 180px;
+  background: linear-gradient(145deg, #eef2ff, #e0e7ff);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.cert-illustration::before {
+  content: "🎓";
+  font-size: 5rem;
+  opacity: 0.8;
+}
+
+.circle-animation {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px dashed #0f3b6d;
+  animation: spin 20s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .features-grid {
+    gap: 1.5rem;
+  }
+  .feature-card h3 {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .features-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .cert-content {
+    flex-direction: column;
+    text-align: center;
+    padding: 2rem 1.5rem;
+  }
+
+  .cert-left {
+    text-align: center;
+  }
+
+  .cert-badge {
+    margin: 0 auto;
+    display: table;
+  }
+
+  .cert-illustration {
+    width: 140px;
+    height: 140px;
+  }
+
+  .cert-illustration::before {
+    font-size: 3.5rem;
+  }
+
+  .btn-savoir {
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .modern-services {
+    padding: 3rem 1rem;
+  }
+
+  .feature-card {
+    padding: 1.5rem;
+  }
+
+  .cert-left h2 {
+    font-size: 2rem;
+  }
+}

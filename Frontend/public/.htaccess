@@ -1,0 +1,20 @@
+# Force Apache à toujours servir index.html pour les routes React Router
+<IfModule mod_rewrite.c>
+  Options -MultiViews
+  RewriteEngine On
+
+  # Si la requête ne correspond pas à un fichier physique
+  RewriteCond %{REQUEST_FILENAME} !-f
+  # ni à un dossier physique
+  RewriteCond %{REQUEST_FILENAME} !-d
+  # on renvoie index.html (qui laissera React Router gérer la route)
+  RewriteRule ^ index.html [QSA,L]
+</IfModule>
+
+# (Facultatif) Cache longue durée pour les assets fingerprintés
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css             "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/*              "access plus 1 year"
+</IfModule>

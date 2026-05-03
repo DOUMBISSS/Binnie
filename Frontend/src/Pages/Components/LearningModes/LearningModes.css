@@ -1,0 +1,211 @@
+/* LearningModes.css */
+.learning-modes {
+  padding: 5rem 1.5rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  position: relative;
+}
+
+.modes-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* En-tête */
+.section-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.section-badge {
+  display: inline-block;
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  color: white;
+  padding: 0.4rem 1.2rem;
+  border-radius: 40px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  margin-bottom: 1rem;
+}
+
+.section-header h2 {
+  font-size: 2.5rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #0b2a4a, #1e4a76);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  margin-bottom: 1rem;
+}
+
+.header-line {
+  width: 80px;
+  height: 4px;
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  margin: 0 auto;
+  border-radius: 4px;
+}
+
+/* Grille */
+.modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+/* Cartes */
+.mode-card {
+  background: white;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.05);
+  transition: all 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+  border: 1px solid rgba(203, 213, 225, 0.3);
+}
+
+.mode-card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 30px 45px -15px rgba(11, 42, 74, 0.2);
+  border-color: rgba(15, 59, 109, 0.2);
+}
+
+.card-image {
+  position: relative;
+  height: 200px;
+  overflow: hidden;
+}
+
+.card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.mode-card:hover .card-image img {
+  transform: scale(1.08);
+}
+
+.card-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(11,42,74,0.4), rgba(15,59,109,0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mode-card:hover .card-overlay {
+  opacity: 1;
+}
+
+.mode-icon {
+  background: white;
+  width: 65px;
+  height: 65px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.card-content {
+  padding: 1.8rem;
+}
+
+.card-content h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(120deg, #0b2a4a, #1e4a76);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.card-content p {
+  color: #475569;
+  line-height: 1.5;
+  margin-bottom: 1.2rem;
+  font-size: 0.95rem;
+}
+
+.features-list {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 1.5rem;
+}
+
+.features-list li {
+  color: #334155;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.features-list li::before {
+  content: "✓";
+  color: #0f3b6d;
+  font-weight: bold;
+}
+
+.mode-btn {
+  background: transparent;
+  border: 2px solid #0b2a4a;
+  color: #0b2a4a;
+  padding: 0.7rem 1.2rem;
+  border-radius: 40px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.mode-btn:hover {
+  background: linear-gradient(90deg, #0b2a4a, #0f3b6d);
+  color: white;
+  border-color: transparent;
+  transform: translateX(5px);
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .modes-grid {
+    gap: 1.5rem;
+  }
+  .card-content h3 {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .modes-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  .section-header h2 {
+    font-size: 2rem;
+  }
+  .card-image {
+    height: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .learning-modes {
+    padding: 3rem 1rem;
+  }
+  .card-content {
+    padding: 1.5rem;
+  }
+}

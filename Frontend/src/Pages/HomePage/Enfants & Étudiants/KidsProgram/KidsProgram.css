@@ -1,0 +1,29 @@
+.kids-program {
+  max-width: 800px;
+  margin: 2rem auto;
+  text-align: center;
+}
+.age-selector {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+}
+.age-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 40px;
+  border: 1px solid #f59e0b;
+  background: white;
+  cursor: pointer;
+}
+.age-btn.active {
+  background: #f59e0b;
+  color: white;
+}
+.program-card {
+  background: white;
+  border-radius: 32px;
+  padding: 2rem;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+}

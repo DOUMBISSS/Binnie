@@ -1,0 +1,42 @@
+Le rôle de l'Assistante Onboarding est en réalité très précis dans votre chaîne de valeur. Voici comment le comprendre :
+
+Ce qu'elle est : La courroie de transmission entre le département Commercial et le département Pédagogique. Elle "réceptionne" l'apprenant converti et le prépare à démarrer sa formation.
+
+Son workflow complet :
+
+
+Coach assigné par le Responsable Péda
+         ↓  [DÉCLENCHEUR]
+Assistante Onboarding reçoit une alerte
+         ↓
+         1. ACCUEIL — Envoie le message/email de bienvenue à l'apprenant
+             Crée ses accès à l'EspaceApprenant
+             Lui remet le règlement intérieur + kit de démarrage
+
+2. PROGRAMMATION — Contacte le coach pour caler les disponibilités
+                   Crée le planning des séances (jours, heures, présentiel/online)
+                   Envoie le planning à l'apprenant ET au coach
+
+3. DOSSIER PÉDAGOGIQUE — Compile le résultat du test de niveau
+                          Prépare la fiche apprenant pour le coach
+                          (objectifs, profil, contexte professionnel)
+                          4. SUIVI DÉMARRAGE — Confirme que la 1ère séance a bien eu lieu
+                     Vérifie que l'apprenant a ses accès et ressources
+                     Alerte le Responsable Péda si problème
+
+5. BILAN & RENOUVELLEMENT — En fin de cycle, prépare le bilan
+                             Envoie l'alerte à la Commerciale pour relance
+
+
+
+
+                             Son dashboard aurait donc ces onglets :
+
+Onglet	Contenu
+Tableau de bord	:Apprenants en attente d'onboarding, tâches du jour, alertes
+Nouveaux apprenants	: Liste des apprenants convertis non encore onboardés
+Programmation	:Créer/voir les plannings de séances par apprenant
+Dossiers	: Fiches apprenants à préparer pour les coachs
+Suivi démarrage	: Checklist par apprenant (accès créés ? 1ère séance faite ? kit envoyé ?)
+Bilans & Renouvellements	Apprenants en fin de cycle → alerte commerciale
+Messages	Communication avec coachs, apprenants, commercial, resp. Pédagogique

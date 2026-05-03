@@ -1,0 +1,22 @@
+.kids-registration {
+  max-width: 600px;
+  margin: 2rem auto;
+  background: white;
+  padding: 2rem;
+  border-radius: 32px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+}
+.kids-registration h3 {
+  margin: 1rem 0 0.5rem;
+  color: #1e3a8a;
+}
+.kids-registration input, .kids-registration select, .kids-registration textarea {
+  width: 100%;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 40px;
+}
+.kids-registration textarea {
+  border-radius: 20px;
+}

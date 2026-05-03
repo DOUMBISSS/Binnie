@@ -1,0 +1,43 @@
+.corporate-landing, .corporate-offers, .corporate-form, .confirmation {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 2rem;
+  text-align: center;
+}
+.offers-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  margin: 2rem 0;
+}
+.offer-card {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  width: 260px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.corporate-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+.corporate-form input, .corporate-form select, .corporate-form textarea {
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 40px;
+}
+.btn-primary, .btn-outline {
+  padding: 0.75rem 1.5rem;
+  border-radius: 40px;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-primary { background: #1e3a8a; color: white; }
+.btn-outline { background: transparent; border: 2px solid #1e3a8a; color: #1e3a8a; }
+.confirmation-card { background: #e6f7e6; padding: 2rem; border-radius: 24px; }
+.link-btn { background: none; border: none; color: #1e3a8a; text-decoration: underline; cursor: pointer; }

@@ -1,0 +1,12 @@
+.program-sheet {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 32px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+}
+.program-sheet h1 { color: #1e3a8a; }
+.details { display: flex; gap: 2rem; margin: 1rem 0; font-weight: bold; }
+.syllabus { margin-top: 1rem; }
+.actions { margin-top: 2rem; text-align: center; }

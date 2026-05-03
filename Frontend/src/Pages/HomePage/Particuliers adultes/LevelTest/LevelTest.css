@@ -1,0 +1,28 @@
+.level-test, .level-test-result {
+  max-width: 700px;
+  margin: 2rem auto;
+  background: white;
+  padding: 2rem;
+  border-radius: 32px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+}
+.question {
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 1rem;
+}
+.options {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.result-badge {
+  background: #1e3a8a;
+  color: white;
+  font-size: 1.5rem;
+  padding: 0.5rem;
+  border-radius: 40px;
+  display: inline-block;
+  margin: 1rem 0;
+}

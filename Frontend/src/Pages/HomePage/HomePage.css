@@ -1,0 +1,41 @@
+.hero {
+  background: linear-gradient(135deg, #0f2b5c, #1e3a8a);
+  color: white;
+  text-align: center;
+  padding: 4rem 2rem;
+}
+.dual-pathway {
+  padding: 3rem 1rem;
+  background: #f9fafb;
+}
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.pathway-cards {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.card {
+  background: white;
+  border-radius: 24px;
+  padding: 2rem;
+  width: 300px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+  text-align: center;
+  transition: transform 0.2s;
+}
+.card:hover { transform: translateY(-5px); }
+.icon { font-size: 3rem; margin-bottom: 1rem; }
+.btn-individual, .btn-corporate {
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 40px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+.btn-individual { background: #3b82f6; color: white; }
+.btn-corporate { background: #10b981; color: white; }
