@@ -7,15 +7,128 @@ const router = express.Router();
 
 console.log("✅ Route coachs chargée");
 
+// ── Auth middleware pour les coachs (JWT Supabase) ──────────
+const authenticateCoach = async (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Non authentifié" });
+  const token = auth.slice(7);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return res.status(401).json({ error: "Token invalide" });
+  if (data.user.app_metadata?.role !== "coach") return res.status(403).json({ error: "Accès réservé aux coachs" });
+  req.coachId = data.user.id;
+  next();
+};
+
+// ── GET disponibilités du coach connecté ───────────────────
+router.get("/disponibilites", authenticateCoach, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("coach_disponibilites")
+      .select("*")
+      .eq("coach_id", req.coachId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ disponibilites: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+// ── POST upsert disponibilités (slots non verrouillés) ─────
+router.post("/disponibilites", authenticateCoach, async (req, res) => {
+  try {
+    const { slots } = req.body;
+    if (!Array.isArray(slots)) return res.status(400).json({ error: "slots doit être un tableau" });
+
+    // Récupérer les créneaux verrouillés existants
+    const { data: existing } = await supabase
+      .from("coach_disponibilites")
+      .select("jour, creneau, verrouille")
+      .eq("coach_id", req.coachId);
+
+    const lockedKeys = new Set(
+      (existing || []).filter(r => r.verrouille).map(r => `${r.jour}|${r.creneau}`)
+    );
+
+    const toUpsert = slots
+      .filter(s => !lockedKeys.has(`${s.jour}|${s.creneau}`))
+      .map(s => ({
+        coach_id:   req.coachId,
+        jour:       s.jour,
+        creneau:    s.creneau,
+        debut:      s.debut,
+        fin:        s.fin,
+        dispo:      s.dispo,
+        verrouille: false,
+        updated_at: new Date().toISOString(),
+      }));
+
+    if (toUpsert.length === 0) {
+      return res.json({ message: "Aucun créneau modifiable (tous verrouillés)", updated: 0 });
+    }
+
+    const { error } = await supabase
+      .from("coach_disponibilites")
+      .upsert(toUpsert, { onConflict: "coach_id,jour,creneau" });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: "Disponibilités enregistrées", updated: toUpsert.length });
+  } catch (err) {
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+// ── Lecture publique : coachs actifs (site frontend) ────────
+router.get("/publics", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("coachs")
+      .select("id, nom, prenom, grade, photo_url")
+      .eq("actif", true)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Lister tous les coachs ──────────────────────────────────
 router.get("/", authenticateAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("coachs")
-      .select("*")
-      .order("nom");
+      .select("id, nom, prenom, grade, photo_url, actif, email_professionnel, biographie, created_at")
+      .order("created_at", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ coachs: data || [] });
+    // Normalise actif → statut pour compatibilité frontend
+    const normalized = (data || []).map(c => ({ ...c, statut: c.actif ? "actif" : "inactif" }));
+    res.json({ coachs: normalized });
+  } catch (err) {
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+// ── Créer un coach affichage uniquement (sans compte auth) ──
+router.post("/display", authenticateAdmin, async (req, res) => {
+  try {
+    const { nom, prenom, grade, photo_url } = req.body;
+    if (!nom) return res.status(400).json({ error: "Le nom est requis" });
+
+    const { data, error } = await supabase
+      .from("coachs")
+      .insert({
+        id:        crypto.randomUUID(),
+        nom:       nom.trim(),
+        prenom:    (prenom || "").trim() || null,
+        grade:     grade    || "Coach",
+        photo_url: photo_url || null,
+        actif:     true,
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
   }
@@ -156,6 +269,12 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
     const updates = { ...req.body };
     delete updates.id;
     delete updates.created_at;
+    delete updates.statut; // colonne inexistante, remplacée par actif
+
+    // Convertit statut → actif si envoyé
+    if (req.body.statut !== undefined) {
+      updates.actif = req.body.statut === "actif";
+    }
 
     const { error } = await supabase
       .from("coachs")

@@ -4,6 +4,7 @@ import multer         from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
 import { authenticateAdmin } from "../middlewares/requireAdmin.js";
+import { authenticateUser }  from "../middlewares/auth.js";
 
 const router = express.Router();
 
@@ -104,8 +105,8 @@ function fileResponse(file) {
 
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
 
-// POST /api/upload/avatar   — photo de profil (apprenant, coach, admin)
-router.post("/avatar", authenticateAdmin, (req, res) => {
+// POST /api/upload/avatar   — photo de profil (apprenant, prospect, coach, admin)
+router.post("/avatar", authenticateUser, (req, res) => {
   uploadAvatar.single("file")(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });

@@ -5,6 +5,8 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
+
 /* ═══════════════════════════════════════════════════════
    CONSTANTES (NOUVELLE CHARTE)
 ═══════════════════════════════════════════════════════ */
@@ -537,6 +539,59 @@ export default function EspaceApprenant() {
   const [speakUrl, setSpeakUrl]           = useState(null);
   const [speakTasks, setSpeakTasks]       = useState(SPEAKING_TASKS);
   const [micError, setMicError]           = useState(false);
+
+  // ── Témoignage ────────────────────────────────────────
+  const estCertifie = MES_CERTIFICATIONS.filter(c => c.valide).length > 0;
+  const certifPrincipale = MES_CERTIFICATIONS.find(c => c.valide);
+  const [temoExistant,   setTemoExistant]   = useState(null);   // null = chargement
+  const [temoLoading,    setTemoLoading]    = useState(false);
+  const [temoSubmitting, setTemoSubmitting] = useState(false);
+  const [temoForm, setTemoForm] = useState({
+    etoiles: 5, avatar: "🎓", texte: "",
+    role: `${MON_PROFIL.poste} · ${MON_PROFIL.entreprise}`,
+    score: certifPrincipale ? `${certifPrincipale.titre.split("—")[0].trim()}` : "",
+  });
+
+  const EMOJI_TEMO = ["🎓","🌟","💪","🏆","👩🏽‍💻","👨🏿‍💼","👩🏾‍⚖️","👨🏽‍🎓","✨","👑"];
+
+  const loadTemoignage = useCallback(async () => {
+    setTemoLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages/soumettre`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      // On charge depuis Supabase via le backend en filtrant par apprenant_id (simulé ici)
+    } catch {}
+    finally { setTemoLoading(false); }
+  }, []);
+
+  const submitTemoignage = async () => {
+    if (!temoForm.texte.trim() || temoForm.texte.trim().length < 30) {
+      toast.error("Votre témoignage doit faire au moins 30 caractères.");
+      return;
+    }
+    setTemoSubmitting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages/soumettre`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apprenant_id: MON_PROFIL.id,
+          texte:  temoForm.texte,
+          etoiles: temoForm.etoiles,
+          role:   temoForm.role,
+          score:  temoForm.score,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Erreur lors de la soumission"); return; }
+      toast.success("Témoignage soumis ! Il sera publié après validation par notre équipe.");
+      setTemoExistant({ statut: "en_attente", texte: temoForm.texte, etoiles: temoForm.etoiles, role: temoForm.role });
+    } catch { toast.error("Erreur réseau, réessayez."); }
+    finally { setTemoSubmitting(false); }
+  };
+
   const mediaRecorderRef  = useRef(null);
   const speakTimerRef     = useRef(null);
   const chunksRef         = useRef([]);
@@ -776,6 +831,7 @@ export default function EspaceApprenant() {
     { key:"boutique",       label:"Boutique",        icon:"🛒", count:PRODUITS_BOUTIQUE.length },
     { key:"messages",       label:"Messages",        icon:"💬", count:msgNonLus || null, danger:msgNonLus > 0 },
     { key:"paiement",       label:"Paiement",        icon:"💳", count:MON_PROFIL.paiements.filter(p=>p.statut==="attente").length || null, danger:MON_PROFIL.paiements.some(p=>p.statut==="attente") },
+    { key:"temoignage",     label:"Mon témoignage",  icon:"⭐", count:null },
   ];
 
   const handleSubmitRequest = () => {
@@ -1754,6 +1810,180 @@ export default function EspaceApprenant() {
                 <div style={{ marginTop:16, padding:"10px 14px", borderRadius:8, background:"#fef3c7", border:"1px solid #fcd34d", fontSize:12, color:"#92400e" }}>
                   ⚠️ Pour toute question concernant un paiement, contactez le service clientèle : <strong>client@bet-formation.com</strong>
                 </div>
+              </div>
+            )}
+
+            {/* ════ MON TÉMOIGNAGE ════ */}
+            {activeTab === "temoignage" && (
+              <div style={{ maxWidth:640, margin:"0 auto" }}>
+                {/* Header */}
+                <div style={{ marginBottom:24 }}>
+                  <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>⭐ Mon témoignage</h2>
+                  <p style={{ margin:"4px 0 0", fontSize:13, color:"#9ca3af" }}>
+                    Partagez votre expérience BET — votre témoignage sera publié sur notre site après validation.
+                  </p>
+                </div>
+
+                {/* Non certifié */}
+                {!estCertifie && (
+                  <div style={{ background:"#fff", borderRadius:16, border:"2px dashed #e2e8f0", padding:36, textAlign:"center" }}>
+                    <div style={{ fontSize:52, marginBottom:12 }}>🔒</div>
+                    <h3 style={{ margin:"0 0 8px", fontSize:17, fontWeight:800, color:"#0f172a" }}>
+                      Témoignage disponible après certification
+                    </h3>
+                    <p style={{ fontSize:13, color:"#6b7280", lineHeight:1.7, maxWidth:400, margin:"0 auto 20px" }}>
+                      Obtenez votre certification BET (TOEIC, TOEFL, IELTS…) pour débloquer cette fonctionnalité et partager votre succès avec la communauté.
+                    </p>
+                    <button onClick={() => setActiveTab("certifications")}
+                      style={{ padding:"10px 22px", background:PRIMARY_COLOR, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                      Voir mes certifications
+                    </button>
+                  </div>
+                )}
+
+                {/* Déjà soumis */}
+                {estCertifie && temoExistant && (
+                  <div style={{ background:"#fff", borderRadius:16, border:"1.5px solid #e5e7eb", overflow:"hidden" }}>
+                    <div style={{ height:4, background: temoExistant.statut==="actif" ? "#22c55e" : temoExistant.statut==="en_attente" ? "#f59e0b" : "#ef4444" }} />
+                    <div style={{ padding:24 }}>
+                      {/* Statut badge */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+                        <div style={{ fontWeight:800, fontSize:16, color:"#0f172a" }}>Votre témoignage</div>
+                        <span style={{
+                          padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:700,
+                          background: temoExistant.statut==="actif" ? "#dcfce7" : temoExistant.statut==="en_attente" ? "#fef3c7" : "#fee2e2",
+                          color:      temoExistant.statut==="actif" ? "#166534" : temoExistant.statut==="en_attente" ? "#92400e" : "#991b1b",
+                        }}>
+                          {temoExistant.statut==="actif" ? "✅ Publié" : temoExistant.statut==="en_attente" ? "⏳ En attente de validation" : "❌ Rejeté"}
+                        </span>
+                      </div>
+                      {/* Aperçu */}
+                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18, border:"1px solid #e2e8f0" }}>
+                        <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:12 }}>
+                          <div style={{ width:44, height:44, borderRadius:"50%", background:"#1e4080", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>
+                            {temoExistant.avatar || "🎓"}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight:700, color:"#0f172a" }}>{MON_PROFIL.prenom} {MON_PROFIL.nom}</div>
+                            <div style={{ fontSize:11, color:"#9ca3af" }}>{temoExistant.role}</div>
+                          </div>
+                        </div>
+                        <div style={{ color:"#f59e0b", fontSize:18, marginBottom:8 }}>
+                          {"★".repeat(temoExistant.etoiles||5)}
+                          <span style={{ color:"#e5e7eb" }}>{"☆".repeat(5-(temoExistant.etoiles||5))}</span>
+                        </div>
+                        <p style={{ fontSize:13, color:"#374151", fontStyle:"italic", lineHeight:1.65, margin:0 }}>
+                          « {temoExistant.texte} »
+                        </p>
+                      </div>
+                      {temoExistant.statut==="en_attente" && (
+                        <p style={{ fontSize:12, color:"#9ca3af", marginTop:14, textAlign:"center" }}>
+                          Notre équipe examine votre témoignage. Vous serez notifié une fois publié.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Formulaire (certifié + pas encore soumis) */}
+                {estCertifie && !temoExistant && (
+                  <div style={{ background:"#fff", borderRadius:16, border:"1.5px solid #e5e7eb", overflow:"hidden" }}>
+                    {/* Bandeau certification */}
+                    <div style={{ background:"linear-gradient(135deg,#1e4080,#e93747)", padding:"14px 20px", display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🏅</div>
+                      <div>
+                        <div style={{ color:"#fff", fontWeight:700, fontSize:14 }}>
+                          Certifié BET — {certifPrincipale?.titre?.split("—")[1]?.trim() || certifPrincipale?.titre}
+                        </div>
+                        <div style={{ color:"rgba(255,255,255,0.75)", fontSize:11 }}>
+                          Score {certifPrincipale?.score}/100 · {new Date(certifPrincipale?.date).toLocaleDateString("fr-FR")}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ padding:24 }}>
+                      {/* Étoiles */}
+                      <div style={{ marginBottom:20 }}>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>
+                          Votre note globale *
+                        </label>
+                        <div style={{ display:"flex", gap:8 }}>
+                          {[1,2,3,4,5].map(n => (
+                            <div key={n} onClick={() => setTemoForm(f=>({...f,etoiles:n}))}
+                              style={{ fontSize:28, cursor:"pointer", color: n<=temoForm.etoiles ? "#f59e0b" : "#e5e7eb", transition:"color .15s, transform .12s", transform: n<=temoForm.etoiles ? "scale(1.15)" : "scale(1)" }}>
+                              ★
+                            </div>
+                          ))}
+                          <span style={{ marginLeft:4, fontSize:13, color:"#9ca3af", alignSelf:"center" }}>
+                            {["","Mauvais","Passable","Bien","Très bien","Excellent"][temoForm.etoiles]}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Avatar */}
+                      <div style={{ marginBottom:20 }}>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>Avatar</label>
+                        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                          {EMOJI_TEMO.map(e => (
+                            <div key={e} onClick={() => setTemoForm(f=>({...f,avatar:e}))}
+                              style={{ width:40, height:40, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, cursor:"pointer", border:`2px solid ${temoForm.avatar===e?"#1e4080":"#e5e7eb"}`, background:temoForm.avatar===e?"#e0e7ff":"#f8fafc", transition:"border-color .15s, background .15s, transform .12s", transform:temoForm.avatar===e?"scale(1.1)":"scale(1)" }}>
+                              {e}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Rôle */}
+                      <div style={{ marginBottom:16 }}>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:6 }}>Votre titre / poste</label>
+                        <input value={temoForm.role} onChange={e => setTemoForm(f=>({...f,role:e.target.value}))}
+                          placeholder="Ex: Chef de projet · Orange CI"
+                          style={{ width:"100%", padding:"10px 14px", border:"1px solid #e5e7eb", borderRadius:9, fontSize:13, boxSizing:"border-box", outline:"none", transition:"border-color .15s" }}
+                          onFocus={e=>e.target.style.borderColor="#1e4080"} onBlur={e=>e.target.style.borderColor="#e5e7eb"} />
+                      </div>
+
+                      {/* Texte */}
+                      <div style={{ marginBottom:20 }}>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:6 }}>
+                          Votre témoignage * <span style={{ fontSize:11, color:"#9ca3af", fontWeight:400 }}>({temoForm.texte.length}/500 caractères, min. 30)</span>
+                        </label>
+                        <textarea value={temoForm.texte} onChange={e => setTemoForm(f=>({...f,texte:e.target.value.slice(0,500)}))}
+                          rows={5} placeholder="Racontez votre expérience avec BET English Training : les méthodes, les résultats, ce qui vous a le plus aidé…"
+                          style={{ width:"100%", padding:"10px 14px", border:"1px solid #e5e7eb", borderRadius:9, fontSize:13, resize:"vertical", boxSizing:"border-box", outline:"none", lineHeight:1.65, transition:"border-color .15s" }}
+                          onFocus={e=>e.target.style.borderColor="#1e4080"} onBlur={e=>e.target.style.borderColor="#e5e7eb"} />
+                      </div>
+
+                      {/* Aperçu */}
+                      {temoForm.texte.trim().length > 0 && (
+                        <div style={{ marginBottom:22, padding:16, borderRadius:12, background:"linear-gradient(135deg,#f0f4ff,#fdf2f8)", border:"1px solid #e0e7ff" }}>
+                          <div style={{ fontSize:11, color:"#9ca3af", marginBottom:10, fontWeight:600, letterSpacing:.5 }}>APERÇU</div>
+                          <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
+                            <div style={{ width:40, height:40, borderRadius:"50%", background:"#1e4080", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{temoForm.avatar}</div>
+                            <div>
+                              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{MON_PROFIL.prenom} {MON_PROFIL.nom}</div>
+                              <div style={{ fontSize:11, color:"#9ca3af" }}>{temoForm.role}</div>
+                            </div>
+                          </div>
+                          <div style={{ color:"#f59e0b", fontSize:15, marginBottom:6 }}>
+                            {"★".repeat(temoForm.etoiles)}<span style={{ color:"#e5e7eb" }}>{"☆".repeat(5-temoForm.etoiles)}</span>
+                          </div>
+                          <p style={{ fontSize:12, color:"#374151", fontStyle:"italic", lineHeight:1.65, margin:0 }}>
+                            « {temoForm.texte} »
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Bouton */}
+                      <button onClick={submitTemoignage} disabled={temoSubmitting || temoForm.texte.trim().length < 30}
+                        style={{ width:"100%", padding:"13px", background: temoForm.texte.trim().length < 30 ? "#e5e7eb" : PRIMARY_COLOR, color: temoForm.texte.trim().length < 30 ? "#9ca3af" : "#fff", border:"none", borderRadius:10, cursor: temoForm.texte.trim().length < 30 ? "not-allowed" : "pointer", fontWeight:800, fontSize:15, transition:"background .2s" }}>
+                        {temoSubmitting ? "Envoi en cours…" : "📤 Soumettre mon témoignage"}
+                      </button>
+                      <p style={{ fontSize:11, color:"#9ca3af", textAlign:"center", marginTop:10 }}>
+                        Votre témoignage sera examiné par notre équipe avant publication sur le site.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

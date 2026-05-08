@@ -91,7 +91,7 @@ router.post("/login", async (req, res) => {
 router.put("/profile", authenticateUser, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { nom, prenom, telephone, niveau_anglais, acces_mediatheque } = req.body;
+    const { nom, prenom, telephone, niveau_anglais, acces_mediatheque, avatar_url } = req.body;
 
     // Récupérer les métadonnées actuelles
     const { data: { user }, error: fetchError } = await supabase.auth.admin.getUserById(userId);
@@ -100,17 +100,27 @@ router.put("/profile", authenticateUser, async (req, res) => {
     const currentMeta = user.user_metadata || {};
     const updatedMetadata = {
       ...currentMeta,
-      nom: nom ?? currentMeta.nom,
-      prenom: prenom ?? currentMeta.prenom,
-      telephone: telephone ?? currentMeta.telephone,
-      niveau_anglais: niveau_anglais ?? currentMeta.niveau_anglais,
-      acces_mediatheque: acces_mediatheque ?? currentMeta.acces_mediatheque
+      nom:               nom               ?? currentMeta.nom,
+      prenom:            prenom            ?? currentMeta.prenom,
+      telephone:         telephone         ?? currentMeta.telephone,
+      niveau_anglais:    niveau_anglais    ?? currentMeta.niveau_anglais,
+      acces_mediatheque: acces_mediatheque ?? currentMeta.acces_mediatheque,
+      avatar_url:        avatar_url        ?? currentMeta.avatar_url,
     };
 
     const { data, error: updateError } = await supabase.auth.admin.updateUserById(userId, {
       user_metadata: updatedMetadata
     });
     if (updateError) throw updateError;
+
+    // Synchroniser aussi la table utilisateurs
+    const syncFields = {};
+    if (updatedMetadata.nom)       syncFields.nom       = updatedMetadata.nom;
+    if (updatedMetadata.prenom)    syncFields.prenom    = updatedMetadata.prenom;
+    if (updatedMetadata.telephone) syncFields.telephone = updatedMetadata.telephone;
+    if (Object.keys(syncFields).length > 0) {
+      await supabase.from("utilisateurs").update(syncFields).eq("id", userId);
+    }
 
     res.json({
       message: "Profil mis à jour",

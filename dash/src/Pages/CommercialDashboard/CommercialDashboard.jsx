@@ -2,6 +2,9 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
+import MessagerieTab from "../../Components/MessagerieTab";
+import NotificationBell from "../../Components/NotificationBell";
+import { useNotifPoller } from "../../hooks/useNotifPoller";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const authHeaders = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token")}` });
@@ -119,21 +122,6 @@ const INIT_DOSSIERS = [
   { id:4, client:"Total CI",    offre:"Formation Entreprise",dateReception:"2025-12-06",statut:"refusé",   commentaire:"Budget non confirmé", documents:[] },
 ];
 
-/* ── NOUVEAU : Messages clients ── */
-const INIT_CONVERSATIONS = [
-  { id:1, client:"Orange CI",   email:"k.aya@orange.ci",    avatar:"OC", messages:[
-    { from:"client",    text:"Bonjour, je souhaitais avoir plus d'infos sur la formation B2.",       date:"2025-12-10 09:12" },
-    { from:"commercial",text:"Bonjour M. Kouamé ! Bien sûr, voici notre programme détaillé...",    date:"2025-12-10 10:05" },
-    { from:"client",    text:"Merci, cela correspond bien à nos besoins. Pouvez-vous envoyer un devis ?", date:"2025-12-10 14:30" },
-  ], nonLu:0 },
-  { id:2, client:"BNP Paribas", email:"d.ibra@bnp.ci",      avatar:"BP", messages:[
-    { from:"client",    text:"Nous avons bien reçu le devis. Quelles sont les modalités de paiement ?", date:"2025-12-09 11:20" },
-    { from:"commercial",text:"Vous pouvez régler en 2 fois sans frais ou par virement unique.",     date:"2025-12-09 11:45" },
-  ], nonLu:1 },
-  { id:3, client:"Nestlé CI",   email:"ab.kone@nestle.ci",  avatar:"NC", messages:[
-    { from:"client",    text:"Bonjour, nous avons un besoin urgent pour 15 collaborateurs.",         date:"2025-12-08 08:00" },
-  ], nonLu:2 },
-];
 
 /* ── Newsletters reçues ── */
 const INIT_NEWSLETTERS = [
@@ -251,6 +239,9 @@ export default function CommercialDashboard() {
     navigate("/login-admin", { replace: true });
   };
 
+  // Notifications polling
+  useNotifPoller({ userId: profil?.id, sources: ["tests", "contacts"] });
+
   const [activeTab, setActiveTab]           = useState("dashboard");
   const [leads, setLeads]                   = useState(INIT_LEADS);
   const [devis, setDevis]                   = useState(INIT_DEVIS);
@@ -262,6 +253,21 @@ export default function CommercialDashboard() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const myCommercialId = profil?.id || null;
+
+  const [centreName, setCentreName] = useState("");
+
+  useEffect(() => {
+    const scope = profil?.scope || [];
+    if (!scope.length || scope.includes("national")) return;
+    fetch(`${API_URL}/api/centres`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d?.centres) return;
+        const matched = d.centres.filter(c => scope.includes(c.id));
+        if (matched.length > 0) setCentreName(matched.map(c => c.nom).join(" · "));
+      })
+      .catch(() => {});
+  }, []);
 
   const offreParNiveau = (level) => {
     const map = { A1:"Cours débutant / Alphabétisation", A2:"Anglais Essentiel A2", B1:"Anglais Pro B1", B2:"Anglais Pro B2", C1:"Business English", C2:"Anglais Expert C2" };
@@ -284,13 +290,20 @@ export default function CommercialDashboard() {
       profil:           r.profile || "Particulier",
       niveau:           r.level || "—",
       score:            scorePct,
+      points_earned:    r.points_earned || 0,
+      points_total:     r.points_total  || 0,
       correct_answers:  r.correct_answers,
       total_questions:  r.total_questions,
+      time_taken_seconds: r.time_taken_seconds || 0,
       date:             r.submitted_at ? r.submitted_at.split("T")[0] : "",
       commercial_id:    r.commercial_id || null,
       statut:           "nouveau",
       notes:            "",
       offreRecommandee: offreParNiveau(r.level),
+      by_category:      r.by_category   || {},
+      by_cefr:          r.by_cefr       || {},
+      answers_details:  r.answers_details || [],
+      audio_answers:    r.audio_answers  || {},
     };
   };
 
@@ -390,7 +403,6 @@ export default function CommercialDashboard() {
   const sourceClient = (email) => sondages.find(s => s.email === email)?.source || null;
 
   const [dossiers, setDossiers]             = useState(INIT_DOSSIERS);
-  const [conversations, setConversations]   = useState(INIT_CONVERSATIONS);
   const [newsletters, setNewsletters]       = useState(INIT_NEWSLETTERS);
   const [filtreNewsCat, setFiltreNewsCat]   = useState("Tous");
   const [selectedNewsletter, setSelectedNewsletter] = useState(null);
@@ -418,9 +430,6 @@ export default function CommercialDashboard() {
   const [selectedInscription, setSelectedInscription]  = useState(null);
   const [editingItem, setEditingItem]                   = useState(null);
 
-  // Messagerie
-  const [activeConvId, setActiveConvId]   = useState(INIT_CONVERSATIONS[0].id);
-  const [newMessage, setNewMessage]       = useState("");
 
   // Planification
   const [planifConfig, setPlanifConfig] = useState({ frequence:"hebdomadaire", emails:"", format:"pdf" });
@@ -451,7 +460,7 @@ export default function CommercialDashboard() {
     return list;
   }, [devis, leads, paiements, tests]);
 
-  const totalNonLu = useMemo(() => conversations.reduce((s, c) => s + c.nonLu, 0), [conversations]);
+  const totalNonLu = 0; // géré par MessagerieTab (Firebase)
 
   // Convertir un message client en Lead
   const convertirLeadFromMessage = (msg) => {
@@ -702,17 +711,6 @@ export default function CommercialDashboard() {
     toast.success(`📎 ${doc.nom} téléchargé`);
   };
 
-  // ── Messagerie ───────────────────────────────────────
-  const activeConv = conversations.find(c => c.id === activeConvId);
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
-    setConversations(prev => prev.map(c => c.id === activeConvId ? {
-      ...c,
-      messages: [...c.messages, { from:"commercial", text:newMessage.trim(), date:new Date().toLocaleString("fr-FR") }]
-    } : c));
-    setNewMessage("");
-  };
-  const markAsRead = (id) => setConversations(prev => prev.map(c => c.id === id ? { ...c, nonLu:0 } : c));
 
   // ── Export ───────────────────────────────────────────
   const exportCSV = (data, filename) => {
@@ -777,13 +775,17 @@ export default function CommercialDashboard() {
               <div style={{ fontSize:11, color:"#7dd3fc", fontWeight:600, letterSpacing:"0.08em" }}>Bonjour 👋</div>
               <h1 style={{ margin:0, fontSize:22, fontWeight:800 }}>{nomComplet}</h1>
               <div style={{ fontSize:12, color:"#bae6fd", marginTop:3 }}>Commercial · {profil?.email || "Leads · Devis · Paiements"}</div>
+              {centreName && <div style={{ fontSize:11, color:"#7dd3fc", marginTop:2, fontWeight:600 }}>📍 {centreName}</div>}
             </div>
           </div>
-          <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 16px", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", backdropFilter:"blur(4px)", transition:"background .2s" }}
-            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.2)"}
-            onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
-            <span>🚪</span> Déconnexion
-          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <NotificationBell userId={profil?.id} />
+            <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 16px", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", backdropFilter:"blur(4px)", transition:"background .2s" }}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.2)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
+              <span>🚪</span> Déconnexion
+            </button>
+          </div>
         </div>
         <div style={{ display:"flex", gap:0, background:"rgba(0,0,0,0.15)", borderRadius:"12px 12px 0 0", overflow:"hidden" }}>
           {[
@@ -806,7 +808,7 @@ export default function CommercialDashboard() {
           {/* TABS */}
           <div style={{ display:"flex", gap:0, borderBottom:"1px solid #e5e7eb", overflowX:"auto", background:"#fafafa" }}>
             {TABS.map(tab => (
-              <button key={tab.key} onClick={() => { setActiveTab(tab.key); if(tab.key==="messages" && activeConvId) markAsRead(activeConvId); }} style={{
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
                 padding:"12px 16px", border:"none", borderBottom: activeTab===tab.key ? `3px solid ${BET_COLOR}` : "3px solid transparent",
                 cursor:"pointer", fontWeight:600, fontSize:12, whiteSpace:"nowrap",
                 background:"transparent", color:activeTab===tab.key ? BET_COLOR : "#6b7280",
@@ -1449,72 +1451,8 @@ export default function CommercialDashboard() {
               </div>
             )}
 
-            {/* ══ MESSAGERIE (NOUVEAU) ══ */}
-            {activeTab === "messages" && (
-              <div style={{ display:"flex", gap:0, height:520, border:"1px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
-                {/* Liste conversations */}
-                <div style={{ width:240, borderRight:"1px solid #e5e7eb", overflowY:"auto", background:"#fafafa" }}>
-                  <div style={{ padding:"12px 14px", borderBottom:"1px solid #e5e7eb", fontSize:12, fontWeight:700, color:"#374151" }}>Conversations</div>
-                  {conversations.map(conv => (
-                    <div key={conv.id} onClick={() => { setActiveConvId(conv.id); markAsRead(conv.id); }} style={{
-                      padding:"12px 14px", borderBottom:"1px solid #f1f5f9", cursor:"pointer",
-                      background: activeConvId === conv.id ? BET_LIGHT : "transparent",
-                      display:"flex", alignItems:"center", gap:10
-                    }}>
-                      <div style={{ width:36, height:36, borderRadius:"50%", background:BET_COLOR, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, flexShrink:0 }}>{conv.avatar}</div>
-                      <div style={{ minWidth:0, flex:1 }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:"#111827" }}>{conv.client}</div>
-                        <div style={{ fontSize:10, color:"#9ca3af", overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>
-                          {conv.messages[conv.messages.length-1]?.text}
-                        </div>
-                      </div>
-                      {conv.nonLu > 0 && (
-                        <span style={{ background:"#ef4444", color:"#fff", borderRadius:99, fontSize:9, fontWeight:800, padding:"1px 5px" }}>{conv.nonLu}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Zone messages */}
-                {activeConv && (
-                  <div style={{ flex:1, display:"flex", flexDirection:"column" }}>
-                    <div style={{ padding:"12px 16px", borderBottom:"1px solid #e5e7eb", background:"#fff", display:"flex", alignItems:"center", gap:12 }}>
-                      <div style={{ width:36, height:36, borderRadius:"50%", background:BET_COLOR, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800 }}>{activeConv.avatar}</div>
-                      <div>
-                        <div style={{ fontSize:13, fontWeight:700 }}>{activeConv.client}</div>
-                        <div style={{ fontSize:11, color:"#9ca3af" }}>{activeConv.email}</div>
-                      </div>
-                    </div>
-                    <div style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:"#f8fafc" }}>
-                      {activeConv.messages.map((msg, i) => (
-                        <div key={i} style={{ display:"flex", justifyContent: msg.from==="commercial" ? "flex-end" : "flex-start" }}>
-                          <div style={{
-                            maxWidth:"70%", padding:"10px 14px", borderRadius:12, fontSize:12,
-                            background: msg.from==="commercial" ? BET_COLOR : "#fff",
-                            color: msg.from==="commercial" ? "#fff" : "#111827",
-                            boxShadow:"0 1px 4px rgba(0,0,0,0.06)",
-                            borderRadius: msg.from==="commercial" ? "12px 12px 0 12px" : "12px 12px 12px 0"
-                          }}>
-                            <div>{msg.text}</div>
-                            <div style={{ fontSize:9, marginTop:4, opacity:0.6, textAlign:"right" }}>{msg.date}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ padding:"12px 16px", borderTop:"1px solid #e5e7eb", display:"flex", gap:8, background:"#fff" }}>
-                      <input
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        onKeyDown={e => e.key === "Enter" && sendMessage()}
-                        placeholder="Écrire un message..."
-                        style={{ flex:1, padding:"9px 12px", borderRadius:20, border:"1px solid #e5e7eb", fontSize:12, outline:"none" }}
-                      />
-                      <button onClick={sendMessage} style={{ padding:"9px 18px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:20, cursor:"pointer", fontWeight:700, fontSize:12 }}>Envoyer</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* ══ MESSAGERIE FIREBASE TEMPS RÉEL ══ */}
+            {activeTab === "messages" && <MessagerieTab />}
             {/* ══ NEWSLETTERS ══ */}
             {activeTab === "newsletters" && (() => {
               const CAT_META = {
@@ -1777,55 +1715,164 @@ export default function CommercialDashboard() {
         </Modal>
       )}
       {/* ══ MODAL DÉTAIL TEST DE NIVEAU ══ */}
-      {showTestDetailModal && selectedTest && (
-        <Modal title={`🔍 Test de niveau — ${selectedTest.prenom} ${selectedTest.nom}`} onClose={() => { setShowTestDetailModal(false); setSelectedTest(null); }} wide>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:18 }}>
-            <div style={{ padding:16, borderRadius:10, background:"#f0f9ff", border:"1px solid #bae6fd" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#0369a1", marginBottom:10 }}>👤 Informations candidat</div>
-              {[["Nom complet",`${selectedTest.prenom} ${selectedTest.nom}`],["Email",selectedTest.email],["Téléphone",selectedTest.telephone||"—"],["Profil",selectedTest.profil],["Date du test",formatDate(selectedTest.date)]].map(([l,v])=>(
-                <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:12 }}>
-                  <span style={{ color:"#6b7280" }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ padding:16, borderRadius:10, background:"#f0fdf4", border:"1px solid #bbf7d0" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:"#15803d", marginBottom:10 }}>📊 Résultats du test</div>
-              <div style={{ textAlign:"center", marginBottom:12 }}>
-                <div style={{ fontSize:42, fontWeight:900, color: selectedTest.score>=70?"#22c55e":selectedTest.score>=50?"#f59e0b":"#ef4444" }}>{selectedTest.score}%</div>
-                <div style={{ fontSize:20, fontWeight:800, color:BET_COLOR }}>{selectedTest.niveau}</div>
-                <div style={{ fontSize:11, color:"#9ca3af" }}>Niveau CECRL</div>
+      {showTestDetailModal && selectedTest && (() => {
+        const t = selectedTest;
+        const scoreColor = t.score >= 70 ? "#22c55e" : t.score >= 50 ? "#f59e0b" : "#ef4444";
+        const cats = Object.entries(t.by_category || {});
+        const cefrs = Object.entries(t.by_cefr || {});
+        const answers = Array.isArray(t.answers_details) ? t.answers_details : [];
+        const audioAnswers = t.audio_answers || {};
+        const hasAudio = Object.keys(audioAnswers).length > 0;
+        const mins = Math.floor((t.time_taken_seconds||0)/60);
+        const secs = (t.time_taken_seconds||0) % 60;
+        const CAT_ICONS = { Grammaire:"📖", Vocabulaire:"💬", Compréhension:"🧠", Listening:"🎧", Speaking:"🎤", Writing:"✍️", Reading:"📚" };
+        const CEFR_COLORS = { A1:"#94a3b8", A2:"#f59e0b", B1:"#1e3a8a", B2:"#7c3aed", C1:"#059669", C2:"#dc2626" };
+
+        return (
+          <Modal title={`🔍 Test de niveau — ${t.prenom} ${t.nom}`} onClose={() => { setShowTestDetailModal(false); setSelectedTest(null); }} wide>
+
+            {/* ── Candidat + Score global ── */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:16 }}>
+              <div style={{ padding:14, borderRadius:10, background:"#f0f9ff", border:"1px solid #bae6fd" }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#0369a1", marginBottom:10 }}>👤 Candidat</div>
+                {[
+                  ["Nom",`${t.prenom} ${t.nom}`],
+                  ["Email", t.email],
+                  ["Téléphone", t.telephone||"—"],
+                  ["Profil", t.profil],
+                  ["Date", formatDate(t.date)],
+                  ["Durée", `${mins}m ${secs}s`],
+                  ["Réponses", `${t.correct_answers||0} / ${t.total_questions||0} correctes`],
+                ].map(([l,v])=>(
+                  <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:5, fontSize:12 }}>
+                    <span style={{ color:"#6b7280" }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span>
+                  </div>
+                ))}
               </div>
-              <div style={{ height:8, background:"#e5e7eb", borderRadius:4, overflow:"hidden" }}>
-                <div style={{ height:"100%", width:`${selectedTest.score}%`, background:selectedTest.score>=70?"#22c55e":selectedTest.score>=50?"#f59e0b":"#ef4444", borderRadius:4 }} />
+              <div style={{ padding:14, borderRadius:10, background:"#f0fdf4", border:"1px solid #bbf7d0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+                <div style={{ fontSize:48, fontWeight:900, color:scoreColor, lineHeight:1 }}>{t.score}%</div>
+                <div style={{ fontSize:22, fontWeight:800, color:BET_COLOR, margin:"6px 0 2px" }}>{t.niveau}</div>
+                <div style={{ fontSize:11, color:"#9ca3af", marginBottom:12 }}>Niveau CECRL</div>
+                <div style={{ width:"100%", height:10, background:"#e5e7eb", borderRadius:5, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${t.score}%`, background:scoreColor, borderRadius:5 }} />
+                </div>
+                <div style={{ fontSize:11, color:"#6b7280", marginTop:6 }}>{t.points_earned} / {t.points_total} pts</div>
               </div>
             </div>
-          </div>
-          <div style={{ padding:14, borderRadius:10, background:"#fef9ee", border:"1px solid #fde68a", marginBottom:16 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"#92400e", marginBottom:8 }}>💡 Offre recommandée & actions à mener</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-              {[
-                [`📚 Offre conseillée : ${selectedTest.offreRecommandee||"à déterminer"}`,"Proposez cette offre en priorité lors du contact"],
-                ["📞 Appel de suivi","Contactez le candidat dans les 24h pour présenter l'offre"],
-                ["📄 Créer le devis","Convertissez en Lead puis générez un devis adapté"],
-                ["📁 Ouvrir le dossier","Préparez le dossier d'inscription après accord du prospect"],
-              ].map(([titre,desc],i)=>(
-                <div key={i} style={{ padding:"8px 12px", borderRadius:8, background:"#fff", border:"1px solid #e5e7eb", fontSize:12 }}>
-                  <div style={{ fontWeight:700, color:"#374151" }}>{titre}</div>
-                  <div style={{ color:"#9ca3af", fontSize:11 }}>{desc}</div>
+
+            {/* ── Scores par catégorie ── */}
+            {cats.length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>📊 Scores par compétence</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:8 }}>
+                  {cats.map(([cat, val])=>{
+                    const pct = val.total > 0 ? Math.round((val.earned/val.total)*100) : 0;
+                    const c = pct>=70?"#22c55e":pct>=50?"#f59e0b":"#ef4444";
+                    return (
+                      <div key={cat} style={{ padding:"10px 12px", borderRadius:9, background:"#f8fafc", border:"1px solid #e5e7eb" }}>
+                        <div style={{ fontSize:11, color:"#6b7280", marginBottom:4 }}>{CAT_ICONS[cat]||"•"} {cat}</div>
+                        <div style={{ fontSize:18, fontWeight:800, color:c }}>{pct}%</div>
+                        <div style={{ height:5, background:"#e5e7eb", borderRadius:3, marginTop:5 }}>
+                          <div style={{ height:"100%", width:`${pct}%`, background:c, borderRadius:3 }} />
+                        </div>
+                        <div style={{ fontSize:10, color:"#9ca3af", marginTop:4 }}>{val.earned}/{val.total} pts</div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </div>
-          {selectedTest.notes && <div style={{ padding:"10px 14px", borderRadius:8, background:"#f8fafc", border:"1px solid #e5e7eb", fontSize:12, color:"#374151", marginBottom:16 }}>📝 Notes : {selectedTest.notes}</div>}
-          <div style={{ display:"flex", gap:10 }}>
-            {selectedTest.statut !== "converti" && selectedTest.statut !== "archivé" && (
-              <button onClick={() => { convertirTestEnLead(selectedTest); setShowTestDetailModal(false); }} style={{ ...btnPrimary, background:"#22c55e" }}>→ Convertir en Lead</button>
+              </div>
             )}
-            <button onClick={() => { setEditingItem(selectedTest); setShowTestModal(true); setShowTestDetailModal(false); }} style={btnSecondary}>✏️ Modifier</button>
-            <button onClick={() => setShowTestDetailModal(false)} style={btnSecondary}>Fermer</button>
-          </div>
-        </Modal>
-      )}
+
+            {/* ── Scores par niveau CEFR ── */}
+            {cefrs.length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>🎯 Scores par niveau CECRL</div>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {cefrs.map(([lvl, val])=>{
+                    const pct = val.total > 0 ? Math.round((val.earned/val.total)*100) : 0;
+                    return (
+                      <div key={lvl} style={{ padding:"8px 14px", borderRadius:8, background:"#f8fafc", border:`2px solid ${CEFR_COLORS[lvl]||"#e5e7eb"}`, minWidth:80, textAlign:"center" }}>
+                        <div style={{ fontSize:15, fontWeight:800, color:CEFR_COLORS[lvl]||"#374151" }}>{lvl}</div>
+                        <div style={{ fontSize:13, fontWeight:700, color:"#374151" }}>{pct}%</div>
+                        <div style={{ fontSize:10, color:"#9ca3af" }}>{val.earned}/{val.total}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Enregistrements audio (Speaking) ── */}
+            {hasAudio && (
+              <div style={{ marginBottom:16, padding:14, borderRadius:10, background:"#fdf4ff", border:"1px solid #e9d5ff" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#7e22ce", marginBottom:10 }}>🎤 Réponses orales (Speaking)</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {Object.entries(audioAnswers).map(([qId, url])=>(
+                    <div key={qId} style={{ background:"#fff", borderRadius:8, padding:"10px 14px", border:"1px solid #e9d5ff" }}>
+                      <div style={{ fontSize:11, color:"#7e22ce", fontWeight:600, marginBottom:6 }}>Question #{qId}</div>
+                      <audio controls src={url} style={{ width:"100%", height:36 }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Détail des réponses par question ── */}
+            {answers.length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>📋 Détail question par question</div>
+                <div style={{ maxHeight:280, overflowY:"auto", border:"1px solid #e5e7eb", borderRadius:10 }}>
+                  {answers.map((a, idx)=>{
+                    const isAudio = a.user_answer === "[audio]";
+                    const audioUrl = isAudio ? audioAnswers[a.question_id] : null;
+                    return (
+                      <div key={idx} style={{ padding:"10px 14px", borderBottom:"1px solid #f1f5f9", background: a.is_correct ? "#f0fdf4" : "#fff8f8" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                          <div style={{ flex:1 }}>
+                            <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
+                              <span style={{ fontSize:10, fontWeight:700, color:"#6b7280" }}>Q{a.question_id}</span>
+                              <span style={{ fontSize:10, padding:"1px 7px", borderRadius:99, background:"#f0f9ff", color:"#0369a1", fontWeight:600 }}>{CAT_ICONS[a.category]||""} {a.category}</span>
+                              <span style={{ fontSize:10, padding:"1px 7px", borderRadius:99, background:"#f8fafc", color:CEFR_COLORS[a.cefr]||"#6b7280", fontWeight:700, border:`1px solid ${CEFR_COLORS[a.cefr]||"#e5e7eb"}` }}>{a.cefr}</span>
+                            </div>
+                            {isAudio && audioUrl ? (
+                              <audio controls src={audioUrl} style={{ width:"100%", height:32, marginTop:4 }} />
+                            ) : (
+                              <div style={{ fontSize:12 }}>
+                                <span style={{ color:"#6b7280" }}>Réponse : </span>
+                                <span style={{ fontWeight:600, color: a.is_correct ? "#15803d" : "#dc2626" }}>{a.user_answer || "—"}</span>
+                                {!a.is_correct && a.correct_answer && (
+                                  <span style={{ color:"#6b7280", marginLeft:8 }}>→ <span style={{ fontWeight:600, color:"#15803d" }}>{a.correct_answer}</span></span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ fontSize:18, flexShrink:0 }}>{a.is_correct ? "✅" : "❌"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Offre recommandée ── */}
+            <div style={{ padding:12, borderRadius:9, background:"#fef9ee", border:"1px solid #fde68a", marginBottom:14 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#92400e", marginBottom:6 }}>💡 Offre conseillée</div>
+              <div style={{ fontSize:13, fontWeight:700, color:"#374151" }}>📚 {t.offreRecommandee||"à déterminer"}</div>
+            </div>
+
+            {t.notes && <div style={{ padding:"10px 14px", borderRadius:8, background:"#f8fafc", border:"1px solid #e5e7eb", fontSize:12, color:"#374151", marginBottom:14 }}>📝 {t.notes}</div>}
+
+            <div style={{ display:"flex", gap:10 }}>
+              {t.statut !== "converti" && t.statut !== "archivé" && (
+                <button onClick={() => { convertirTestEnLead(t); setShowTestDetailModal(false); }} style={{ ...btnPrimary, background:"#22c55e" }}>→ Convertir en Lead</button>
+              )}
+              <button onClick={() => { setEditingItem(t); setShowTestModal(true); setShowTestDetailModal(false); }} style={btnSecondary}>✏️ Modifier</button>
+              <button onClick={() => setShowTestDetailModal(false)} style={btnSecondary}>Fermer</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* ══ MODAL DÉTAIL INSCRIPTION ══ */}
       {showInscDetailModal && selectedInscription && (

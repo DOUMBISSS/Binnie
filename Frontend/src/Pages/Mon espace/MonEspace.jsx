@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "../../config/supabase";
 import { getUTM } from "../../utils/utm";
 import Footer from "../Footer/Footer";
+import toast, { Toaster } from "react-hot-toast";
 
 /* ── Fonts & animations ─────────────────────────────── */
 if (!document.querySelector("#me-fonts")) {
@@ -135,6 +136,9 @@ const MonEspace = () => {
    VUE PROSPECT
 ══════════════════════════════════════════════════════ */
 const ProspectView = ({ user, session, activeTab, setActiveTab, prospectInfo }) => {
+  const [hasResult, setHasResult] = useState(false);
+  const [conseillereOk, setConseillereOk] = useState(!!user.user_metadata?.commercial_id);
+
   const TABS = [
     { id:"test",       label:"📊 Mon test de niveau" },
     { id:"conseiller", label:"🤝 Conseillère & Contact" },
@@ -143,8 +147,20 @@ const ProspectView = ({ user, session, activeTab, setActiveTab, prospectInfo }) 
     { id:"parametres", label:"⚙️ Paramètres" },
   ];
 
+  const TABS_LIBRES = ["test", "conseiller"]; // accessibles avant choix conseillère
+
+  const handleTabClick = (tabId) => {
+    if (!conseillereOk && hasResult && !TABS_LIBRES.includes(tabId)) {
+      toast.error("Choisissez d'abord votre conseillère BET avant d'accéder à cet onglet.", { duration: 3500 });
+      setActiveTab("test");
+      return;
+    }
+    setActiveTab(tabId);
+  };
+
   return (
     <>
+      <Toaster position="top-center" />
       {/* Bandeau apprenant si statut changé */}
       {prospectInfo.is_apprenant && (
         <div style={{ background:"linear-gradient(135deg,#059669,#0891b2)", borderRadius:14, padding:"16px 22px", marginBottom:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
@@ -178,20 +194,27 @@ const ProspectView = ({ user, session, activeTab, setActiveTab, prospectInfo }) 
 
       {/* Onglets */}
       <div className="me-tabs" style={S.tabs}>
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            className="me-tab-btn"
-            style={{ ...S.tabBtn, ...(activeTab === t.id ? S.tabActive : {}) }}
-            onClick={() => setActiveTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+        {TABS.map(t => {
+          const locked = !conseillereOk && hasResult && !TABS_LIBRES.includes(t.id);
+          return (
+            <button
+              key={t.id}
+              className="me-tab-btn"
+              style={{ ...S.tabBtn, ...(activeTab === t.id ? S.tabActive : {}), ...(locked ? { opacity:.5, cursor:"not-allowed" } : {}) }}
+              onClick={() => handleTabClick(t.id)}
+              title={locked ? "Choisissez d'abord votre conseillère" : undefined}
+            >
+              {t.label}{locked ? " 🔒" : ""}
+            </button>
+          );
+        })}
       </div>
 
       <div style={{ animation:"meFU .4s ease" }}>
-        {activeTab === "test"        && <TabTestNiveau user={user} />}
+        {activeTab === "test"        && <TabTestNiveau user={user}
+          onConseillereAssigned={(id) => { setConseillereOk(true); }}
+          onResultLoaded={(hasR) => setHasResult(hasR)}
+        />}
         {activeTab === "conseiller"  && <TabConseillereContact user={user} />}
         {activeTab === "catalogue"   && <TabCatalogue />}
         {activeTab === "profil"      && <TabProfil user={user} prospectInfo={prospectInfo} />}
@@ -307,14 +330,19 @@ const SondageCard = ({ user }) => {
 };
 
 /* ── Onglet 1 : Résultat test de niveau ───────────────── */
-const TabTestNiveau = ({ user }) => {
+const TabTestNiveau = ({ user, onConseillereAssigned, onResultLoaded }) => {
   const [result,  setResult]  = useState(null);
   const [loading, setLoading] = useState(true);
+  const [conseillereAssigned, setConseillereAssigned] = useState(!!user.user_metadata?.commercial_id);
 
   useEffect(() => {
     fetch(`${API}/api/level-test/result?email=${encodeURIComponent(user.email)}`)
       .then(r => r.json())
-      .then(d => { setResult(d.result || null); setLoading(false); })
+      .then(d => {
+        setResult(d.result || null);
+        setLoading(false);
+        if (onResultLoaded) onResultLoaded(!!d.result);
+      })
       .catch(() => setLoading(false));
   }, [user.email]);
 
@@ -404,15 +432,38 @@ const TabTestNiveau = ({ user }) => {
       {/* Sondage "Comment nous avez-vous connu ?" */}
       <SondageCard user={user} />
 
+      {/* ── Bloc obligatoire conseillère ── */}
+      {!conseillereAssigned && (
+        <div style={{ marginBottom:24, border:"2.5px solid #f97316", borderRadius:16, overflow:"hidden" }}>
+          <div style={{ background:"linear-gradient(135deg,#ea580c,#dc2626)", padding:"16px 22px", display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:"1.5rem" }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight:800, color:"#fff", fontSize:".95rem" }}>Étape obligatoire — Choisissez votre conseillère</div>
+              <div style={{ color:"rgba(255,255,255,.8)", fontSize:".8rem", marginTop:2 }}>
+                Votre conseillère recevra votre résultat et vous contactera pour un programme personnalisé. Vous ne pouvez pas accéder à votre espace complet sans cette étape.
+              </div>
+            </div>
+          </div>
+          <div style={{ padding:"20px 22px", background:"#fff" }}>
+            <TabConseiller user={user} onSelected={(id) => {
+              setConseillereAssigned(true);
+              if (onConseillereAssigned) onConseillereAssigned(id);
+            }} />
+          </div>
+        </div>
+      )}
+
       {/* CTA */}
-      <div style={{ ...S.scoreCard, background:"linear-gradient(135deg,#0f172a,#1e3a8a)", textAlign:"center" }}>
-        <p style={{ color:"rgba(255,255,255,.8)", fontSize:".9rem", marginBottom:16 }}>
-          Prêt à passer au niveau supérieur ? Nos coachs certifiés vous accompagnent.
-        </p>
-        <Link to="/parcours/particulier">
-          <button style={{ ...S.ctaBtn, background:"#dc2626" }}>Démarrer ma formation →</button>
-        </Link>
-      </div>
+      {conseillereAssigned && (
+        <div style={{ ...S.scoreCard, background:"linear-gradient(135deg,#0f172a,#1e3a8a)", textAlign:"center" }}>
+          <p style={{ color:"rgba(255,255,255,.8)", fontSize:".9rem", marginBottom:16 }}>
+            Prêt à passer au niveau supérieur ? Nos coachs certifiés vous accompagnent.
+          </p>
+          <Link to="/parcours/particulier">
+            <button style={{ ...S.ctaBtn, background:"#dc2626" }}>Démarrer ma formation →</button>
+          </Link>
+        </div>
+      )}
     </div>
   );
 };
@@ -434,17 +485,28 @@ const BET_CENTRES = [
 ];
 
 const TabConseiller = ({ user, onSelected }) => {
-  const [commerciaux,  setCommerciaux]  = useState([]);
-  const [loading,      setLoading]      = useState(false);
-  const [saving,       setSaving]       = useState(false);
-  const [saved,        setSaved]        = useState(false);
-  const [error,        setError]        = useState("");
-  const [centreChoisi, setCentreChoisi] = useState("");
-  const [selectedId,   setSelectedId]   = useState(
+  const [commerciaux,       setCommerciaux]       = useState([]);
+  const [loading,           setLoading]           = useState(false);
+  const [saving,            setSaving]            = useState(false);
+  const [saved,             setSaved]             = useState(false);
+  const [error,             setError]             = useState("");
+  const [centreChoisi,      setCentreChoisi]      = useState("");
+  const [selectedId,        setSelectedId]        = useState(
     user.user_metadata?.commercial_id || ""
   );
+  const [assignedCommercial, setAssignedCommercial] = useState(null);
   const alreadyAssigned = !!user.user_metadata?.commercial_id;
-  const [showGrid,     setShowGrid]     = useState(!alreadyAssigned);
+  const [showGrid,          setShowGrid]          = useState(!alreadyAssigned);
+
+  // Charger directement les infos de la conseillère assignée (persistance au rechargement)
+  useEffect(() => {
+    const savedId = user.user_metadata?.commercial_id;
+    if (!savedId) return;
+    fetch(`${API}/api/level-test/commerciaux?id=${encodeURIComponent(savedId)}`)
+      .then(r => r.json())
+      .then(d => { if (d.commerciaux?.[0]) setAssignedCommercial(d.commerciaux[0]); })
+      .catch(() => {});
+  }, [user.user_metadata?.commercial_id]);
 
   // Charger les conseillères du centre sélectionné
   useEffect(() => {
@@ -456,7 +518,7 @@ const TabConseiller = ({ user, onSelected }) => {
       .catch(() => setLoading(false));
   }, [centreChoisi]);
 
-  const assigned = commerciaux.find(c => c.id === selectedId);
+  const assigned = assignedCommercial || commerciaux.find(c => c.id === selectedId);
 
   const initiales = (c) =>
     ((c.prenom?.[0] || "") + (c.nom?.[0] || "")).toUpperCase() || "?";
@@ -466,7 +528,7 @@ const TabConseiller = ({ user, onSelected }) => {
     try {
       // 1. Sauvegarder dans Supabase user_metadata
       const { error: supaErr } = await supabase.auth.updateUser({
-        data: { commercial_id: id },
+        data: { commercial_id: id, centre_id: centreChoisi || null },
       });
       if (supaErr) throw supaErr;
 
@@ -474,7 +536,7 @@ const TabConseiller = ({ user, onSelected }) => {
       const res = await fetch(`${API}/api/level-test/assign-commercial`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_email: user.email, commercial_id: id }),
+        body: JSON.stringify({ client_email: user.email, commercial_id: id, centre_id: centreChoisi || null }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -482,6 +544,7 @@ const TabConseiller = ({ user, onSelected }) => {
       }
 
       setSelectedId(id);
+      setAssignedCommercial(commerciaux.find(c => c.id === id) || null);
       setShowGrid(false);
       setSaved(true);
       if (onSelected) onSelected(id);
@@ -725,6 +788,7 @@ const TabContact = ({ user, commercialId }) => {
           sujet:         form.sujet,
           message:       messageComplet,
           commercial_id,
+          centre_id:     meta.centre_id || null,
         }),
       });
       if (!res.ok) throw new Error();
@@ -899,8 +963,84 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
   const meta     = user.user_metadata || {};
   const nom      = meta.nom      || "";
   const prenom   = meta.prenom   || "";
-  const tel      = meta.telephone|| "";
   const fullName = (nom && prenom) ? `${nom} ${prenom}` : user.displayName;
+
+  const [tel,          setTel]          = useState(meta.telephone || "");
+  const [saving,       setSaving]       = useState(false);
+  const [saveOk,       setSaveOk]       = useState(false);
+  const [saveErr,      setSaveErr]      = useState("");
+  const [avatarUrl,    setAvatarUrl]    = useState(meta.avatar_url || "");
+  const [avatarHov,    setAvatarHov]    = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [niveauReel,   setNiveauReel]   = useState(meta.niveau_anglais || null);
+
+  useEffect(() => {
+    fetch(`${API}/api/level-test/result?email=${encodeURIComponent(user.email)}`)
+      .then(r => r.json())
+      .then(d => { if (d.result?.level) setNiveauReel(d.result.level); })
+      .catch(() => {});
+  }, [user.email]);
+
+  const handleAvatarUpload = async (file) => {
+    setAvatarUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expirée");
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API}/api/upload/avatar`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur upload");
+      const url = data.file.url;
+      // Sauvegarde dans user_metadata
+      await supabase.auth.updateUser({ data: { avatar_url: url } });
+      await fetch(`${API}/api/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ nom, prenom, telephone: tel, avatar_url: url }),
+      });
+      setAvatarUrl(url);
+      toast.success("Photo de profil mise à jour !");
+    } catch (e) {
+      toast.error(e.message || "Erreur upload");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleSaveTel = async () => {
+    setSaving(true); setSaveOk(false); setSaveErr("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expirée");
+
+      // 1. Mise à jour via le backend (table utilisateurs + user_metadata via admin API)
+      const res = await fetch(`${API}/api/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` },
+        body: JSON.stringify({ nom, prenom, telephone: tel }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Erreur serveur"); }
+
+      // 2. Rafraîchir la session pour que user_metadata soit à jour au prochain rechargement
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr) {
+        // Fallback : mise à jour directe via client SDK
+        await supabase.auth.updateUser({ data: { telephone: tel } });
+      }
+
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 3000);
+    } catch (e) {
+      setSaveErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
@@ -908,16 +1048,46 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
         {/* Carte infos */}
         <div style={S.scoreCard}>
           <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
-            <div style={S.avatarLg}>{(fullName[0]||"?").toUpperCase()}</div>
+            {/* Avatar cliquable */}
+            <label htmlFor="avatar-upload"
+              onMouseEnter={() => setAvatarHov(true)}
+              onMouseLeave={() => setAvatarHov(false)}
+              style={{ position:"relative", cursor:"pointer", flexShrink:0 }}
+              title="Changer ma photo de profil"
+            >
+              {avatarUrl
+                ? <img src={avatarUrl} alt="profil"
+                    style={{ ...S.avatarLg, objectFit:"cover" }}
+                    onError={() => setAvatarUrl("")}
+                  />
+                : <div style={S.avatarLg}>{(fullName[0]||"?").toUpperCase()}</div>
+              }
+              <div style={{
+                position:"absolute", inset:0, borderRadius:"50%",
+                background:"rgba(0,0,0,0.45)",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                opacity: (avatarHov || avatarUploading) ? 1 : 0,
+                transition:"opacity .2s",
+              }}>
+                <span style={{ fontSize:20 }}>{avatarUploading ? "⏳" : "📷"}</span>
+              </div>
+              <input id="avatar-upload" type="file" accept="image/*" style={{ display:"none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarUpload(f); e.target.value = ""; }}
+              />
+            </label>
             <div>
               <h2 style={{ fontFamily:FF, fontWeight:800, color:"#0f172a", margin:"0 0 4px", fontSize:"1.2rem" }}>{fullName}</h2>
               <p style={{ color:"#64748b", fontSize:".82rem", margin:0 }}>
-                Niveau : {meta.niveau_anglais || "Non évalué"}
+                Niveau : {niveauReel
+                  ? <strong style={{ color:"#1e3a8a" }}>{niveauReel}</strong>
+                  : <span style={{ color:"#dc2626" }}>Non évalué</span>}
+              </p>
+              <p style={{ color:"#94a3b8", fontSize:".75rem", margin:"3px 0 0", fontStyle:"italic" }}>
+                Cliquez sur la photo pour la modifier
               </p>
             </div>
           </div>
           <div style={S.infoRow}><span>📧 Email</span><span style={{ color:"#0f172a", fontWeight:600 }}>{user.email}</span></div>
-          <div style={S.infoRow}><span>📞 Téléphone</span><span style={{ color:"#0f172a", fontWeight:600 }}>{tel || "Non renseigné"}</span></div>
           {prospectInfo.centre && (
             <div style={S.infoRow}>
               <span>🏢 Centre BET</span>
@@ -938,18 +1108,33 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
           </div>
         </div>
 
-        {/* Infos non modifiables */}
+        {/* Téléphone modifiable */}
         <div style={S.scoreCard}>
-          <h3 style={{ ...S.cardTitle, marginBottom:16 }}>Mes informations</h3>
-          <p style={{ color:"#64748b", fontSize:".85rem", lineHeight:1.7, marginBottom:20 }}>
-            Pour modifier vos informations personnelles (nom, téléphone…), contactez-nous via l'onglet <strong>Prise de contact</strong>.
+          <h3 style={{ ...S.cardTitle, marginBottom:6 }}>📞 Mon numéro de téléphone</h3>
+          <p style={{ color:"#64748b", fontSize:".83rem", lineHeight:1.6, marginBottom:16 }}>
+            Votre conseillère utilisera ce numéro pour vous contacter. Renseignez-le pour être joignable rapidement.
           </p>
-          <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:10, padding:"12px 16px", fontSize:".82rem", color:"#1e3a8a" }}>
-            💡 En devenant <strong>apprenant BET</strong>, vous aurez accès à l'édition de votre profil, vos cours et vos certifications.
-          </div>
+          <input
+            type="tel"
+            placeholder="+225 07 00 00 00 00"
+            value={tel}
+            onChange={e => { setTel(e.target.value); setSaveOk(false); setSaveErr(""); }}
+            style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1.5px solid #e2e8f0",
+              fontSize:".92rem", outline:"none", boxSizing:"border-box", fontFamily:FF,
+              transition:"border-color .15s" }}
+            onFocus={e => e.target.style.borderColor="#1e3a8a"}
+            onBlur={e  => e.target.style.borderColor="#e2e8f0"}
+          />
+          {saveErr && <p style={{ color:"#dc2626", fontSize:".8rem", margin:"6px 0 0", fontWeight:600 }}>⚠ {saveErr}</p>}
+          {saveOk  && <p style={{ color:"#059669", fontSize:".8rem", margin:"6px 0 0", fontWeight:600 }}>✅ Numéro enregistré</p>}
+          <button onClick={handleSaveTel} disabled={saving || !tel.trim()}
+            style={{ marginTop:14, padding:"10px 22px", background:"#1e3a8a", color:"#fff", border:"none",
+              borderRadius:8, fontWeight:700, fontSize:".88rem", cursor: (saving || !tel.trim()) ? "not-allowed" : "pointer",
+              opacity: (saving || !tel.trim()) ? .6 : 1, transition:"opacity .15s" }}>
+            {saving ? "Enregistrement…" : "Enregistrer le numéro"}
+          </button>
         </div>
       </div>
-
     </div>
   );
 };
@@ -1012,6 +1197,8 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
   const [activeTab,     setActiveTab]     = useState("espace");
   const [resetLinkSent, setResetLinkSent] = useState(false);
   const [resetError,    setResetError]    = useState("");
+  const [certifs,       setCertifs]       = useState(null);
+  const [niveauReel,    setNiveauReel]    = useState(null);
 
   const meta     = user.user_metadata || {};
   const nom      = meta.nom      || "";
@@ -1019,10 +1206,33 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
   const tel      = meta.telephone|| "";
   const fullName = nom && prenom ? `${nom} ${prenom}` : user.displayName;
 
+  // Charger le niveau réel depuis la DB
+  useEffect(() => {
+    fetch(`${API}/api/level-test/result?email=${encodeURIComponent(user.email)}`)
+      .then(r => r.json())
+      .then(d => { if (d.result?.level) setNiveauReel(d.result.level); })
+      .catch(() => {});
+  }, [user.email]);
+
+  // Charger les certifications de l'apprenant dès le montage
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("certifications")
+      .select("id, type, score, date_obtention")
+      .eq("apprenant_id", user.id)
+      .eq("valide", true)
+      .order("date_obtention", { ascending: false })
+      .then(({ data }) => setCertifs(data || []));
+  }, [user?.id]);
+
+  const estCertifie = Array.isArray(certifs) && certifs.length > 0;
+
   const TABS = [
-    { id:"espace",     label:"🖥️ Mon espace en ligne" },
-    { id:"profil",     label:"👤 Mon profil" },
-    { id:"parametres", label:"⚙️ Paramètres" },
+    { id:"espace",      label:"🖥️ Mon espace en ligne" },
+    { id:"temoignage",  label:"💬 Mon témoignage" },
+    { id:"profil",      label:"👤 Mon profil" },
+    { id:"parametres",  label:"⚙️ Paramètres" },
   ];
 
   const handleSendResetLink = async () => {
@@ -1093,19 +1303,44 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
 
             {/* Infos conseillère si disponible */}
             {prospectInfo.commercial && (
-              <div style={{ background:"#f5f3ff", border:"1.5px solid #c4b5fd", borderRadius:16, padding:"20px 24px" }}>
+              <div style={{ background:"#f5f3ff", border:"1.5px solid #c4b5fd", borderRadius:16, padding:"20px 24px", marginBottom:16 }}>
                 <h4 style={{ fontFamily:FF, fontWeight:800, color:"#0f172a", margin:"0 0 14px", fontSize:".95rem" }}>🤝 Votre conseillère BET</h4>
                 <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-                  <div style={{ width:48, height:48, borderRadius:"50%", background:"linear-gradient(135deg,#7c3aed,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".9rem", flexShrink:0 }}>
+                  <div style={{ width:48, height:48, borderRadius:"50%", background:"linear-gradient(135deg,#1e4080,#2563b8)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".9rem", flexShrink:0 }}>
                     {(prospectInfo.commercial.prenom?.[0] || "") + (prospectInfo.commercial.nom?.[0] || "")}
                   </div>
                   <div>
                     <div style={{ fontWeight:800, color:"#0f172a" }}>{prospectInfo.commercial.prenom} {prospectInfo.commercial.nom}</div>
-                    <div style={{ color:"#7c3aed", fontSize:".82rem", fontWeight:600 }}>Conseillère BET Languages</div>
+                    <div style={{ color:"#1e4080", fontSize:".82rem", fontWeight:600 }}>Conseillère BET Languages</div>
                     {prospectInfo.commercial.telephone && (
-                      <a href={`tel:${prospectInfo.commercial.telephone}`} style={{ color:"#0891b2", fontSize:".8rem", display:"block", marginTop:3, textDecoration:"none" }}>📞 {prospectInfo.commercial.telephone}</a>
+                      <a href={`tel:${prospectInfo.commercial.telephone}`} style={{ color:"#1e4080", fontSize:".8rem", display:"block", marginTop:3, textDecoration:"none" }}>📞 {prospectInfo.commercial.telephone}</a>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Carte témoignage */}
+            {certifs === null ? null : estCertifie ? (
+              <div
+                onClick={() => setActiveTab("temoignage")}
+                style={{ background:"linear-gradient(135deg,#1e4080,#e93747)", borderRadius:16, padding:"20px 24px", cursor:"pointer", display:"flex", alignItems:"center", gap:16, transition:"opacity .2s" }}
+                onMouseEnter={e=>e.currentTarget.style.opacity=".88"}
+                onMouseLeave={e=>e.currentTarget.style.opacity="1"}
+              >
+                <div style={{ fontSize:"2rem" }}>💬</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, color:"#fff", fontSize:".95rem" }}>Partagez votre expérience</div>
+                  <div style={{ color:"rgba(255,255,255,.75)", fontSize:".82rem", marginTop:2 }}>Votre témoignage inspire les futurs apprenants BET.</div>
+                </div>
+                <div style={{ color:"#fff", fontSize:"1.2rem" }}>→</div>
+              </div>
+            ) : (
+              <div style={{ background:"#f8fafc", border:"1.5px dashed #cbd5e1", borderRadius:16, padding:"18px 22px", display:"flex", alignItems:"center", gap:14 }}>
+                <div style={{ fontSize:"1.6rem" }}>🔒</div>
+                <div>
+                  <div style={{ fontWeight:700, color:"#334155", fontSize:".88rem" }}>Témoignage disponible après certification</div>
+                  <div style={{ color:"#94a3b8", fontSize:".78rem", marginTop:2 }}>Finalisez votre parcours TOEIC / TOEFL / IELTS pour débloquer cette fonctionnalité.</div>
                 </div>
               </div>
             )}
@@ -1114,23 +1349,79 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
       )}
 
       {activeTab === "profil" && (
-        <div className="me-two-col" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:32, animation:"meFU .4s ease" }}>
+        <div style={{ maxWidth:700, margin:"0 auto", animation:"meFU .4s ease", display:"flex", flexDirection:"column", gap:20 }}>
+          {/* Identité */}
           <div style={S.scoreCard}>
             <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
               <div style={S.avatarLg}>{(fullName[0]||"?").toUpperCase()}</div>
               <div>
                 <h2 style={{ fontFamily:FF, fontWeight:800, color:"#0f172a", margin:"0 0 4px" }}>{fullName}</h2>
-                <p style={{ color:"#64748b", fontSize:".82rem", margin:0 }}>Niveau : {meta.niveau_anglais || "Non évalué"}</p>
+                <span style={{ display:"inline-block", background:"#d1fae5", color:"#065f46", borderRadius:999, padding:"2px 12px", fontSize:".76rem", fontWeight:800 }}>✓ Apprenant BET</span>
               </div>
             </div>
             <div style={S.infoRow}><span>📧 Email</span><span>{user.email}</span></div>
             <div style={S.infoRow}><span>📞 Téléphone</span><span>{tel || "Non renseigné"}</span></div>
+            <div style={S.infoRow}><span>🎓 Niveau</span><span style={{ fontWeight:700, color: niveauReel ? "#1e3a8a" : "#dc2626" }}>{niveauReel || "Non évalué"}</span></div>
           </div>
+
+          {/* Centre BET */}
+          {prospectInfo.centre && (
+            <div style={{ background:"#fff", border:"1.5px solid #bae6fd", borderRadius:16, padding:"20px 24px" }}>
+              <h4 style={{ fontFamily:FF, fontWeight:800, color:"#0891b2", margin:"0 0 14px", fontSize:".93rem" }}>🏢 Votre centre BET</h4>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                <div style={S.infoRow}>
+                  <span>Centre</span>
+                  <span style={{ fontWeight:700, color:"#0f172a" }}>{prospectInfo.centre.nom} — {prospectInfo.centre.ville}</span>
+                </div>
+                {prospectInfo.centre.adresse && (
+                  <div style={S.infoRow}>
+                    <span>Adresse</span>
+                    <span style={{ color:"#475569" }}>{prospectInfo.centre.adresse}</span>
+                  </div>
+                )}
+                {prospectInfo.centre.telephone && (
+                  <div style={S.infoRow}>
+                    <span>Tél. centre</span>
+                    <a href={`tel:${prospectInfo.centre.telephone}`} style={{ color:"#0891b2", fontWeight:600, textDecoration:"none" }}>
+                      {prospectInfo.centre.telephone}
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Conseillère */}
+          {prospectInfo.commercial && (
+            <div style={{ background:"#f5f3ff", border:"1.5px solid #c4b5fd", borderRadius:16, padding:"20px 24px" }}>
+              <h4 style={{ fontFamily:FF, fontWeight:800, color:"#7c3aed", margin:"0 0 14px", fontSize:".93rem" }}>🤝 Votre conseillère BET</h4>
+              <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+                <div style={{ width:44, height:44, borderRadius:"50%", background:"linear-gradient(135deg,#7c3aed,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".85rem", flexShrink:0 }}>
+                  {(prospectInfo.commercial.prenom?.[0] || "") + (prospectInfo.commercial.nom?.[0] || "")}
+                </div>
+                <div>
+                  <div style={{ fontWeight:800, color:"#0f172a" }}>{prospectInfo.commercial.prenom} {prospectInfo.commercial.nom}</div>
+                  <div style={{ color:"#7c3aed", fontSize:".8rem", fontWeight:600 }}>Conseillère BET Languages</div>
+                  {prospectInfo.commercial.telephone && (
+                    <a href={`tel:${prospectInfo.commercial.telephone}`} style={{ color:"#0891b2", fontSize:".8rem", display:"block", marginTop:3, textDecoration:"none" }}>
+                      📞 {prospectInfo.commercial.telephone}
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modifier informations */}
           <div style={S.scoreCard}>
-            <h3 style={{ ...S.cardTitle, marginBottom:20 }}>Modifier mes informations</h3>
+            <h3 style={{ ...S.cardTitle, marginBottom:12 }}>Modifier mes informations</h3>
             <p style={{ color:"#64748b", fontSize:".85rem" }}>Pour modifier vos informations, contactez-nous ou utilisez la réinitialisation de mot de passe.</p>
           </div>
         </div>
+      )}
+
+      {activeTab === "temoignage" && (
+        <TabTemoignage user={user} certifs={certifs} estCertifie={estCertifie} />
       )}
 
       {activeTab === "parametres" && (
@@ -1140,15 +1431,244 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
             <p style={{ color:"#64748b", fontSize:".85rem", marginBottom:20 }}>
               Recevez un lien par email pour réinitialiser votre mot de passe de façon sécurisée.
             </p>
-            <button style={{ ...S.ctaBtn, background:"#dc2626", width:"100%", padding:"13px" }} onClick={handleSendResetLink}>
+            <button style={{ ...S.ctaBtn, background:"#e93747", width:"100%", padding:"13px" }} onClick={handleSendResetLink}>
               Envoyer le lien de réinitialisation
             </button>
             {resetLinkSent && <div style={{ background:"#d1fae5", color:"#065f46", padding:"10px 14px", borderRadius:8, fontSize:".82rem", marginTop:16 }}>✓ Email envoyé. Consultez votre boîte mail.</div>}
-            {resetError    && <div style={{ background:"#fee2e2", color:"#dc2626", padding:"10px 14px", borderRadius:8, fontSize:".82rem", marginTop:16 }}>❌ {resetError}</div>}
+            {resetError    && <div style={{ background:"#fee2e2", color:"#e93747", padding:"10px 14px", borderRadius:8, fontSize:".82rem", marginTop:16 }}>❌ {resetError}</div>}
           </div>
         </div>
       )}
     </>
+  );
+};
+
+/* ══════════════════════════════════════════════════════
+   ONGLET TÉMOIGNAGE (ApprenantView)
+══════════════════════════════════════════════════════ */
+const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🏆","💼","🌍","✨","🚀","💡","🎯"];
+
+const TabTemoignage = ({ user, certifs, estCertifie }) => {
+  const [existant,   setExistant]   = useState(null);  // témoignage déjà soumis
+  const [loadingEx,  setLoadingEx]  = useState(true);
+  const [form,       setForm]       = useState({ texte:"", etoiles:5, avatar:"🎓", role:"" });
+  const [submitting, setSubmitting] = useState(false);
+  const [msg,        setMsg]        = useState(null);  // { type:"ok"|"err", text }
+
+  const meta      = user.user_metadata || {};
+  const prenom    = meta.prenom || "";
+  const nom       = meta.nom    || "";
+  const fullName  = prenom && nom ? `${prenom} ${nom}` : user.email?.split("@")[0] || "";
+
+  // Charger le témoignage existant
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("temoignages")
+      .select("id, statut, texte, etoiles, avatar, role, score, actif, created_at")
+      .eq("apprenant_id", user.id)
+      .in("statut", ["en_attente","actif"])
+      .maybeSingle()
+      .then(({ data }) => { setExistant(data); setLoadingEx(false); });
+  }, [user?.id]);
+
+  const certifPrincipale = certifs?.[0];
+
+  const handleSubmit = async () => {
+    if (!form.texte.trim()) return;
+    setSubmitting(true); setMsg(null);
+    try {
+      const res = await fetch(`${API}/api/temoignages/soumettre`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json" },
+        body: JSON.stringify({
+          apprenant_id: user.id,
+          texte:   form.texte.trim(),
+          etoiles: form.etoiles,
+          role:    form.role.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMsg({ type:"ok", text: data.message });
+      // Recharger le témoignage existant
+      const { data: ex } = await supabase
+        .from("temoignages")
+        .select("id, statut, texte, etoiles, avatar, role, score, actif, created_at")
+        .eq("apprenant_id", user.id)
+        .in("statut", ["en_attente","actif"])
+        .maybeSingle();
+      setExistant(ex);
+    } catch (err) {
+      setMsg({ type:"err", text: err.message });
+    } finally { setSubmitting(false); }
+  };
+
+  // Chargement initial
+  if (loadingEx || certifs === null) {
+    return (
+      <div style={{ textAlign:"center", padding:"48px 24px" }}>
+        <div style={{ width:28, height:28, border:"3px solid #e2e8f0", borderTopColor:"#1e4080", borderRadius:"50%", animation:"meSpin .8s linear infinite", margin:"0 auto" }} />
+      </div>
+    );
+  }
+
+  // Non certifié
+  if (!estCertifie) {
+    return (
+      <div style={{ maxWidth:540, margin:"0 auto", animation:"meFU .4s ease" }}>
+        <div style={{ background:"linear-gradient(135deg,#0b1f40,#1e4080)", borderRadius:20, padding:"36px 32px", textAlign:"center" }}>
+          <div style={{ fontSize:"3rem", marginBottom:16 }}>🔒</div>
+          <h3 style={{ fontFamily:FF, color:"#fff", fontWeight:800, margin:"0 0 12px", fontSize:"1.3rem" }}>
+            Disponible après votre certification
+          </h3>
+          <p style={{ color:"rgba(255,255,255,.75)", fontSize:".88rem", lineHeight:1.7, margin:"0 0 24px" }}>
+            Finalisez votre parcours et obtenez votre certification BET (TOEIC, TOEFL, IELTS…) pour partager votre expérience avec la communauté.
+          </p>
+          <div style={{ background:"rgba(255,255,255,.1)", borderRadius:12, padding:"14px 20px", fontSize:".82rem", color:"rgba(255,255,255,.6)" }}>
+            💡 Votre témoignage sera vérifié par l'équipe BET avant publication.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Témoignage déjà soumis
+  if (existant) {
+    const statutStyle = existant.statut === "actif"
+      ? { bg:"#d1fae5", color:"#065f46", label:"✅ Publié sur le site" }
+      : { bg:"#fef9c3", color:"#92400e", label:"⏳ En attente de validation" };
+    return (
+      <div style={{ maxWidth:600, margin:"0 auto", animation:"meFU .4s ease" }}>
+        <div style={S.scoreCard}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+            <h3 style={{ ...S.cardTitle, margin:0 }}>💬 Votre témoignage</h3>
+            <span style={{ background:statutStyle.bg, color:statutStyle.color, borderRadius:999, padding:"4px 14px", fontSize:".76rem", fontWeight:800 }}>
+              {statutStyle.label}
+            </span>
+          </div>
+          <div style={{ background:"#f8fafc", borderRadius:12, padding:"20px 22px", borderLeft:"4px solid #1e4080", marginBottom:16 }}>
+            <div style={{ fontSize:"1.3rem", marginBottom:8, color:"#f59e0b" }}>{"★".repeat(existant.etoiles)}</div>
+            <p style={{ fontFamily:FF, fontSize:".95rem", color:"#334155", lineHeight:1.7, margin:0, fontStyle:"italic" }}>
+              "{existant.texte}"
+            </p>
+          </div>
+          <div style={{ display:"flex", gap:12, fontSize:".82rem", color:"#64748b", flexWrap:"wrap" }}>
+            {existant.score && <span>🏆 {existant.score}</span>}
+            {existant.role  && <span>💼 {existant.role}</span>}
+            <span>📅 {new Date(existant.created_at).toLocaleDateString("fr-FR")}</span>
+          </div>
+          {existant.statut !== "actif" && (
+            <div style={{ marginTop:16, background:"#eff6ff", borderRadius:10, padding:"12px 16px", fontSize:".82rem", color:"#1e4080" }}>
+              🕐 Votre témoignage est en cours d'examen par l'équipe BET. Vous recevrez une confirmation sous 24-48h.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Formulaire de soumission
+  return (
+    <div style={{ maxWidth:600, margin:"0 auto", animation:"meFU .4s ease" }}>
+      {/* Badge certification */}
+      <div style={{ background:"#d1fae5", border:"1.5px solid #6ee7b7", borderRadius:12, padding:"12px 18px", marginBottom:20, display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:"1.2rem" }}>🏆</span>
+        <div style={{ fontSize:".83rem", color:"#065f46", fontWeight:600 }}>
+          Certifié {certifPrincipale?.cert_type} — {certifPrincipale?.score || "Score enregistré"}
+          <span style={{ fontWeight:400, marginLeft:8, opacity:.7 }}>
+            · {new Date(certifPrincipale?.date_obtention).toLocaleDateString("fr-FR")}
+          </span>
+        </div>
+      </div>
+
+      <div style={S.scoreCard}>
+        <h3 style={{ ...S.cardTitle, marginBottom:4 }}>Partagez votre expérience 💬</h3>
+        <p style={{ color:"#64748b", fontSize:".83rem", marginBottom:24 }}>
+          Votre témoignage sera vérifié par l'équipe BET avant d'être publié sur le site.
+        </p>
+
+        {/* Note en étoiles */}
+        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:8 }}>Note *</label>
+        <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+          {[1,2,3,4,5].map(n => (
+            <button key={n} onClick={() => setForm(p => ({...p, etoiles:n}))} style={{
+              fontSize:"1.6rem", background:"none", border:"none", cursor:"pointer",
+              color: n <= form.etoiles ? "#f59e0b" : "#e2e8f0", transition:"color .15s",
+            }}>★</button>
+          ))}
+        </div>
+
+        {/* Avatar emoji */}
+        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:8 }}>Avatar</label>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
+          {EMOJI_LIST.map(e => (
+            <button key={e} onClick={() => setForm(p => ({...p, avatar:e}))} style={{
+              fontSize:"1.3rem", width:40, height:40, borderRadius:10, border:`2px solid ${form.avatar===e?"#1e4080":"#e2e8f0"}`,
+              background: form.avatar===e ? "#eff6ff" : "#fff", cursor:"pointer", transition:"all .15s",
+            }}>{e}</button>
+          ))}
+        </div>
+
+        {/* Rôle / titre */}
+        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:6 }}>
+          Votre rôle / situation <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnel)</span>
+        </label>
+        <input
+          className="me-inp"
+          placeholder="Ex : Étudiante en droit · HEC, Ingénieur IT · MTN…"
+          value={form.role}
+          onChange={e => setForm(p => ({...p, role: e.target.value}))}
+          style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:10, padding:"10px 14px", fontSize:".88rem", fontFamily:FF, marginBottom:20, boxSizing:"border-box" }}
+        />
+
+        {/* Texte */}
+        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:6 }}>Votre témoignage *</label>
+        <textarea
+          className="me-inp"
+          rows={5}
+          placeholder="Racontez votre parcours : vos progrès, ce qui vous a marqué, votre score…"
+          value={form.texte}
+          onChange={e => setForm(p => ({...p, texte: e.target.value}))}
+          style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:10, padding:"12px 14px", fontSize:".88rem", fontFamily:FF, resize:"vertical", boxSizing:"border-box", marginBottom:8 }}
+        />
+        <p style={{ color:"#94a3b8", fontSize:".75rem", marginBottom:20 }}>{form.texte.length}/600 caractères</p>
+
+        {/* Aperçu */}
+        {form.texte.length > 20 && (
+          <div style={{ background:"linear-gradient(135deg,#0b1f40,#1e4080)", borderRadius:14, padding:"20px 22px", marginBottom:20 }}>
+            <div style={{ color:"#f59e0b", fontSize:"1.1rem", marginBottom:8 }}>{"★".repeat(form.etoiles)}</div>
+            <p style={{ fontFamily:FF, color:"#fff", fontSize:".9rem", lineHeight:1.65, margin:"0 0 14px", fontStyle:"italic" }}>
+              "{form.texte}"
+            </p>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem" }}>{form.avatar}</div>
+              <div>
+                <div style={{ fontWeight:800, color:"#fff", fontSize:".85rem" }}>{fullName}</div>
+                {form.role && <div style={{ color:"rgba(255,255,255,.6)", fontSize:".75rem" }}>{form.role}</div>}
+              </div>
+              <div style={{ marginLeft:"auto", background:"#e93747", color:"#fff", borderRadius:999, padding:"3px 12px", fontSize:".72rem", fontWeight:800 }}>
+                {certifPrincipale?.cert_type} {certifPrincipale?.score || ""}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {msg && (
+          <div style={{ background: msg.type==="ok" ? "#d1fae5":"#fee2e2", color: msg.type==="ok" ? "#065f46":"#e93747", borderRadius:10, padding:"12px 16px", fontSize:".83rem", marginBottom:16 }}>
+            {msg.type==="ok" ? "✅" : "❌"} {msg.text}
+          </div>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || form.texte.trim().length < 20}
+          style={{ ...S.ctaBtn, background:"#1e4080", width:"100%", padding:"13px", opacity: (submitting || form.texte.trim().length < 20) ? .5 : 1, cursor: (submitting || form.texte.trim().length < 20) ? "not-allowed":"pointer" }}
+        >
+          {submitting ? "Envoi en cours…" : "Soumettre mon témoignage →"}
+        </button>
+      </div>
+    </div>
   );
 };
 

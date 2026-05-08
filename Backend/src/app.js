@@ -19,6 +19,8 @@ import coachsRouter       from "./routes/coachs.js";
 import messagesRouter     from "./routes/messages.js";
 import centresRouter      from "./routes/centres.js";
 import blogRouter         from "./routes/blog.js";
+import temoignagesRouter  from "./routes/temoignages.js";
+import equipePhotosRouter from "./routes/equipePhotos.js";
 
 const app = express();
 
@@ -57,6 +59,8 @@ app.use("/api/sondage",   sondageRouter);
 app.use("/api/coachs",    coachsRouter);
 app.use("/api/messages",  messagesRouter);
 app.use("/api/centres",   centresRouter);
-app.use("/api/blog",      blogRouter);
+app.use("/api/blog",         blogRouter);
+app.use("/api/temoignages",  temoignagesRouter);
+app.use("/api/equipe-photos", equipePhotosRouter);
 
 export default app;

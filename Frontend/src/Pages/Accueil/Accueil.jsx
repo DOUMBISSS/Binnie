@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import SEO from "../Components/SEO/SEO";
 import BlogSection from "../Components/BlogSection/BlogSection";
 import { insertInscriptionAdulte } from "../../services/formsService";
+import { supabase } from "../../config/supabase";
 
 /* ═══════════════════════════════════════════════════════════
    ACCUEIL.JSX — BET · Conversion-First · Particuliers
@@ -774,24 +775,36 @@ const ModeCard = ({ m, inView, delay }) => {
 /* ─────────────────────────────────────────────────────────
    6. TESTIMONIALS
 ───────────────────────────────────────────────────────── */
+/* Fallback statique — remplacé par Supabase dès le chargement */
 const TESTIS = [
-  { av: "👩🏾‍⚖️", name: "Awa Koné", role: "Étudiante en droit", score: "TOEIC 850", text: "En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", stars: 5, color: "#d97706" },
-  { av: "👨🏿‍💼", name: "Kouamé Brou", role: "Directeur Commercial · NSIA", score: "IELTS 7.5", text: "La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", stars: 5, color: "#0891b2" },
-  { av: "👩🏽‍💻", name: "Fatoumata Diallo", role: "Ingénieure IT · MTN CI", score: "TOEFL 104", text: "Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", stars: 5, color: "#7c3aed" },
-  { av: "👨🏽‍🎓", name: "Sonia Ravin", role: "Étudiante · Université HEC", score: "TOEIC 920", text: "Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", stars: 5, color: "#dc2626" },
+  { avatar: "👩🏾‍⚖️", nom: "Awa Koné",         role: "Étudiante en droit",          score: "TOEIC 850",  texte: "En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", etoiles: 5, couleur: "#d97706" },
+  { avatar: "👨🏿‍💼", nom: "Kouamé Brou",       role: "Directeur Commercial · NSIA",  score: "IELTS 7.5",  texte: "La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", etoiles: 5, couleur: "#0891b2" },
+  { avatar: "👩🏽‍💻", nom: "Fatoumata Diallo",  role: "Ingénieure IT · MTN CI",       score: "TOEFL 104",  texte: "Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", etoiles: 5, couleur: "#1e4080" },
+  { avatar: "👨🏽‍🎓", nom: "Sonia Ravin",       role: "Étudiante · Université HEC",   score: "TOEIC 920",  texte: "Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", etoiles: 5, couleur: "#e93747" },
 ];
 
 const TestimonialsSection = () => {
   const [ref, inView] = useInView();
-  const [active, setActive] = useState(0);
+  const [active,  setActive]  = useState(0);
+  const [testis,  setTestis]  = useState(TESTIS); // fallback immédiat sur les mocks
 
   useEffect(() => {
-    if (!inView) return;
-    const t = setInterval(() => setActive(p => (p + 1) % TESTIS.length), 5000);
-    return () => clearInterval(t);
-  }, [inView]);
+    supabase
+      .from("temoignages")
+      .select("id, nom, role, score, texte, avatar, couleur, etoiles, ordre")
+      .eq("actif", true)
+      .eq("statut", "actif")
+      .order("ordre", { ascending: true })
+      .then(({ data }) => { if (data?.length) setTestis(data); });
+  }, []);
 
-  const t = TESTIS[active];
+  useEffect(() => {
+    if (!inView || testis.length === 0) return;
+    const t = setInterval(() => setActive(p => (p + 1) % testis.length), 5000);
+    return () => clearInterval(t);
+  }, [inView, testis.length]);
+
+  const t = testis[active] ?? testis[0];
 
   return (
     <section ref={ref} style={{ padding: "80px 0", background: "#fff" }}>
@@ -805,49 +818,58 @@ const TestimonialsSection = () => {
         <div className="bet-testi-row" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 48, alignItems: "center" }}>
           {/* Avatars liste */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {TESTIS.map((ti, i) => (
-              <button key={i} onClick={() => setActive(i)} style={{
+            {testis.map((ti, i) => (
+              <button key={ti.id ?? i} onClick={() => setActive(i)} style={{
                 display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 14,
-                border: `2px solid ${i === active ? ti.color : "#e2e8f0"}`,
-                background: i === active ? ti.color + "0d" : "#fff",
+                border: `2px solid ${i === active ? ti.couleur : "#e2e8f0"}`,
+                background: i === active ? ti.couleur + "0d" : "#fff",
                 cursor: "pointer", transition: "all .2s", textAlign: "left",
               }}>
-                <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg,${ti.color}33,${ti.color}11)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0 }}>{ti.av}</div>
+                <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg,${ti.couleur}33,${ti.couleur}11)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0 }}>{ti.avatar}</div>
                 <div>
-                  <div style={{ fontWeight: 800, fontSize: ".88rem", color: "#0f172a" }}>{ti.name}</div>
+                  <div style={{ fontWeight: 800, fontSize: ".88rem", color: "#0b1f40" }}>{ti.nom}</div>
                   <div style={{ fontSize: ".75rem", color: "#64748b" }}>{ti.role}</div>
                 </div>
-                <div style={{ marginLeft: "auto", background: ti.color + "22", color: ti.color, borderRadius: 999, padding: "3px 10px", fontSize: ".7rem", fontWeight: 800, whiteSpace: "nowrap" }}>{ti.score}</div>
+                <div style={{ marginLeft: "auto", background: ti.couleur + "22", color: ti.couleur, borderRadius: 999, padding: "3px 10px", fontSize: ".7rem", fontWeight: 800, whiteSpace: "nowrap" }}>{ti.score}</div>
               </button>
             ))}
           </div>
 
           {/* Témoignage actif */}
-          <div key={active} style={{ background: "linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius: 24, padding: "40px 44px", animation: "scaleIn .3s ease", position: "relative", overflow: "hidden" }}>
+          <div key={active} style={{ background: "linear-gradient(135deg,#0b1f40,#1e4080)", borderRadius: 24, padding: "40px 44px", animation: "scaleIn .3s ease", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,.04)" }} />
-            <div style={{ color: "#fbbf24", fontSize: "1.5rem", marginBottom: 16, letterSpacing: 2 }}>{"★".repeat(t.stars)}</div>
-            <p style={{ fontFamily: "'Montserrat', 'Segoe UI', sans-serif", fontSize: "1.2rem", color: "#fff", lineHeight: 1.65, margin: "0 0 28px", fontStyle: "italic" }}>"{t.text}"</p>
+            <div style={{ color: "#fbbf24", fontSize: "1.5rem", marginBottom: 16, letterSpacing: 2 }}>{"★".repeat(t.etoiles)}</div>
+            <p style={{ fontFamily: "'Montserrat', 'Segoe UI', sans-serif", fontSize: "1.2rem", color: "#fff", lineHeight: 1.65, margin: "0 0 28px", fontStyle: "italic" }}>"{t.texte}"</p>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 52, height: 52, borderRadius: "50%", background: `rgba(255,255,255,.1)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.6rem" }}>{t.av}</div>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: `rgba(255,255,255,.1)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.6rem" }}>{t.avatar}</div>
               <div>
-                <div style={{ fontWeight: 800, color: "#fff", fontSize: ".95rem" }}>{t.name}</div>
+                <div style={{ fontWeight: 800, color: "#fff", fontSize: ".95rem" }}>{t.nom}</div>
                 <div style={{ fontSize: ".8rem", color: "rgba(255,255,255,.55)" }}>{t.role}</div>
               </div>
-              <div style={{ marginLeft: "auto", background: "#dc2626", color: "#fff", borderRadius: 999, padding: "5px 14px", fontSize: ".8rem", fontWeight: 800 }}>{t.score}</div>
+              <div style={{ marginLeft: "auto", background: "#e93747", color: "#fff", borderRadius: 999, padding: "5px 14px", fontSize: ".8rem", fontWeight: 800 }}>{t.score}</div>
             </div>
           </div>
         </div>
 
         {/* CTA sous temoignages */}
         <div style={{ textAlign: "center", marginTop: 48 }}>
-          <p style={{ color: "#64748b", fontSize: ".92rem", marginBottom: 16 }}>Rejoignez +5 000 apprenants qui ont transformé leur carrière avec BET</p>
-          <a href="#programmes">
-            <button style={{ background: "linear-gradient(135deg,#dc2626,#1e3a8a)", color: "#fff", border: "none", borderRadius: 999, padding: "14px 36px", fontWeight: 800, fontSize: "1rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", boxShadow: "0 6px 24px rgba(220,38,38,.3)" }}
-              onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
-              onMouseLeave={e => e.currentTarget.style.transform = "none"}>
-              Commencer ma formation →
-            </button>
-          </a>
+          <p style={{ color: "#64748b", fontSize: ".92rem", marginBottom: 20 }}>Rejoignez +5 000 apprenants qui ont transformé leur carrière avec BET</p>
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+            <a href="#programmes">
+              <button style={{ background: "linear-gradient(135deg,#e93747,#1e4080)", color: "#fff", border: "none", borderRadius: 999, padding: "14px 36px", fontWeight: 800, fontSize: "1rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", boxShadow: "0 6px 24px rgba(233,55,71,.3)", transition: "transform .2s" }}
+                onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "none"}>
+                Commencer ma formation →
+              </button>
+            </a>
+            <Link to="/temoignages">
+              <button style={{ background: "#fff", color: "#1e4080", border: "2px solid #1e4080", borderRadius: 999, padding: "14px 28px", fontWeight: 700, fontSize: ".95rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", transition: "all .2s" }}
+                onMouseEnter={e => { e.currentTarget.style.background = "#1e4080"; e.currentTarget.style.color = "#fff"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#1e4080"; }}>
+                Voir tous les témoignages →
+              </button>
+            </Link>
+          </div>
         </div>
       </div>
     </section>
@@ -925,7 +947,6 @@ const PartnersSection = () => (
 /* ─────────────────────────────────────────────────────────
    9. COACHES SECTION
 ───────────────────────────────────────────────────────── */
-const COACHES = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, img: `/team${i + 1}.jpeg` }));
 
 const CoachCard = ({ coach }) => {
   const [hov, setHov] = useState(false);
@@ -943,79 +964,106 @@ const CoachCard = ({ coach }) => {
     >
       <img
         src={coach.img}
-        alt={`Coach BET ${coach.id}`}
+        alt={coach.nom || `Coach BET ${coach.id}`}
         style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .5s ease", transform: hov ? "scale(1.08)" : "scale(1)" }}
         onError={e => { e.currentTarget.parentElement.style.background = "#e2e8f0"; e.currentTarget.style.display = "none"; }}
       />
       <div style={{
         position: "absolute", inset: 0,
         background: hov
-          ? "linear-gradient(180deg,transparent 35%,rgba(15,23,42,.75))"
+          ? "linear-gradient(180deg,transparent 25%,rgba(15,23,42,.85))"
           : "linear-gradient(180deg,transparent 55%,rgba(15,23,42,.5))",
         transition: "background .3s",
       }} />
       <div style={{ position: "absolute", bottom: 12, left: 12, right: 12 }}>
         <div style={{ width: 26, height: 3, background: "#dc2626", borderRadius: 2, marginBottom: 6 }} />
+        {coach.nom && (
+          <div style={{ fontSize: ".78rem", color: "#fff", fontWeight: 700, lineHeight: 1.3 }}>{coach.nom}</div>
+        )}
         <div style={{
-          fontSize: ".72rem", color: "#fff", fontWeight: 700, letterSpacing: ".04em",
+          fontSize: ".68rem", color: "rgba(255,255,255,.8)", fontWeight: 600,
           opacity: hov ? 1 : 0, transform: hov ? "translateY(0)" : "translateY(6px)",
-          transition: "opacity .3s, transform .3s",
+          transition: "opacity .3s, transform .3s", marginTop: 2,
         }}>
-          Coach BET Certifié
+          {coach.grade || "Coach BET Certifié"}
         </div>
       </div>
     </div>
   );
 };
 
-// const CoachesSection = () => {
-//   const [ref, inView] = useInView();
-//   const row1 = COACHES.slice(0, 10);
-//   const row2 = COACHES.slice(10, 20);
+const CoachesSection = () => {
+  const [ref, inView] = useInView();
+  const [coachs, setCoachs] = useState([]);
 
-//   return (
-//     <section ref={ref} style={{ padding: "80px 0", background: "#fff", overflow: "hidden" }}>
-//       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px", textAlign: "center", marginBottom: 52 }}>
-//         <span style={SH.badge}>👥 NOTRE ÉQUIPE</span>
-//         <h2 style={{ ...SH.h2, opacity: inView ? 1 : 0, transform: inView ? "none" : "translateY(20px)", transition: "all .6s ease" }}>
-//           Quelques membres de<br /><span style={SH.accent}>l'équipe coachs</span>
-//         </h2>
-//         <div style={SH.line} />
-//         <p style={{ ...SH.sub, opacity: inView ? 1 : 0, transition: "all .6s ease .15s" }}>
-//           Des coachs certifiés, passionnés et entièrement dédiés à votre réussite.
-//         </p>
-//       </div>
+  useEffect(() => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/equipe-photos/publics`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCoachs(data.map(c => ({
+            id:    c.id,
+            img:   c.photo_url,
+            nom:   c.nom   || "",
+            grade: c.titre || "",
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-//       {/* Ligne 1 — défile vers la gauche */}
-//       <div style={{ overflow: "hidden", marginBottom: 16 }}>
-//         <div style={{ display: "flex", width: "fit-content", animation: "ticker 50s linear infinite" }}>
-//           {[...row1, ...row1].map((coach, i) => <CoachCard key={i} coach={coach} />)}
-//         </div>
-//       </div>
+  const half = Math.ceil(coachs.length / 2);
+  const row1 = coachs.slice(0, half);
+  const row2 = coachs.slice(half);
 
-//       {/* Ligne 2 — défile vers la droite */}
-//       <div style={{ overflow: "hidden" }}>
-//         <div style={{ display: "flex", width: "fit-content", animation: "ticker 50s linear infinite reverse" }}>
-//           {[...row2, ...row2].map((coach, i) => <CoachCard key={i} coach={coach} />)}
-//         </div>
-//       </div>
+  return (
+    <section ref={ref} style={{ padding: "80px 0", background: "#f8fafc", overflow: "hidden" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px", textAlign: "center", marginBottom: 52 }}>
+        <span style={SH.badge}>👥 NOTRE ÉQUIPE</span>
+        <h2 style={{ ...SH.h2, opacity: inView ? 1 : 0, transform: inView ? "none" : "translateY(20px)", transition: "all .6s ease" }}>
+          Quelques membres de<br /><span style={SH.accent}>l'équipe coachs</span>
+        </h2>
+        <div style={SH.line} />
+        <p style={{ ...SH.sub, opacity: inView ? 1 : 0, transition: "all .6s ease .15s" }}>
+          Des coachs certifiés, passionnés et entièrement dédiés à votre réussite.
+        </p>
+      </div>
 
-//       <div style={{ textAlign: "center", marginTop: 44 }}>
-//         <div style={{ display: "flex", gap: 28, justifyContent: "center", flexWrap: "wrap" }}>
-//           {[
-//             { icon: "🎓", label: "Certifiés CELTA / DELTA" },
-//             { icon: "🌍", label: "Locuteurs natifs & bilingues" },
-//             { icon: "⭐", label: "+5 ans d'expérience en moyenne" },
-//           ].map((item, i) => (
-//             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: ".85rem", color: "#475569", fontWeight: 600 }}>
-//               <span style={{ fontSize: "1.1rem" }}>{item.icon}</span> {item.label}
-//             </div>
-//           ))}
-//         </div>
-//       </div>
-//     </section>
-//   );
-// };
+      {/* Ticker photos — affiché seulement si des photos existent */}
+      {row1.length > 0 && (
+        <>
+          <div style={{ overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ display: "flex", width: "fit-content", animation: "ticker 50s linear infinite" }}>
+              {[...row1, ...row1].map((coach, i) => <CoachCard key={i} coach={coach} />)}
+            </div>
+          </div>
+          {row2.length > 0 && (
+            <div style={{ overflow: "hidden" }}>
+              <div style={{ display: "flex", width: "fit-content", animation: "ticker 50s linear infinite reverse" }}>
+                {[...row2, ...row2].map((coach, i) => <CoachCard key={i} coach={coach} />)}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div style={{ textAlign: "center", marginTop: 44 }}>
+        <div style={{ display: "flex", gap: 28, justifyContent: "center", flexWrap: "wrap" }}>
+          {[
+            { icon: "🎓", label: "Certifiés CELTA / DELTA" },
+            { icon: "🌍", label: "Locuteurs natifs & bilingues" },
+            { icon: "⭐", label: "+5 ans d'expérience en moyenne" },
+          ].map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: ".85rem", color: "#475569", fontWeight: 600 }}>
+              <span style={{ fontSize: "1.1rem" }}>{item.icon}</span> {item.label}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 /* ─────────────────────────────────────────────────────────
    10. STICKY BOTTOM BAR
@@ -1166,8 +1214,8 @@ export default function Accueil() {
         <TestimonialsSection />
         <AgreeeBanner />
         <BlogSection/>
+        <CoachesSection />
         <PartnersSection />
-        {/* <CoachesSection /> */}
         <Footer />
       </div>
 
@@ -1181,3 +1229,5 @@ export default function Accueil() {
     </>
   );
 }
+
+

@@ -78,14 +78,6 @@ const plansEnfant = [
   { id:"ado",      label:"Ado (11–17 ans)",     price:"20 000", freq:"/mois", features:["3 cours/semaine","Niveaux A1–B1","Coach dédié","Prépa examens scolaires"], popular:true },
   { id:"intensif", label:"Intensif Junior",     price:"35 000", freq:"/mois", features:["5 cours/semaine","Tous niveaux","Tuteur natif","Certification junior"] },
 ];
-const COMMERCIAUX = [
-  { id:"amina",   nom:"Amina Coulibaly",  role:"Conseillère Senior",        initiales:"AC" },
-  { id:"fatou",   nom:"Fatou Diallo",     role:"Conseillère Parcours",      initiales:"FD" },
-  { id:"marie",   nom:"Marie Yao",        role:"Conseillère Entreprises",   initiales:"MY" },
-  { id:"ibrahim", nom:"Ibrahim Koné",     role:"Conseiller Certifications", initiales:"IK" },
-  { id:"aissata", nom:"Aissatou Bah",     role:"Conseillère Enfants",       initiales:"AB" },
-  { id:"david",   nom:"David Assoumou",   role:"Conseiller Premium",        initiales:"DA" },
-];
 
 const NAV_DROPDOWNS = [
   { key:"cours",          label:"Nos cours",      links:[{to:"/cours/en-ligne",l:"Cours en ligne"},{to:"/cours/cabinet",l:"Cours aux cabinets"},{to:"/cours/domicile",l:"Cours à domicile"}] },
@@ -94,6 +86,45 @@ const NAV_DROPDOWNS = [
   // { key:"services",       label:"Services",       links:[{to:"/service/sejour",l:"Séjour linguistique"},{to:"/service/interview",l:"Préparation interviews"},{to:"/service/natifs",l:"Plateforme natifs"},{to:"/service/interpretariat",l:"Interprétariat"}] },
   { key:"parcours",       label:"Parcours",       links:[{to:"/parcours/particulier",l:"Particuliers"},{to:"/parcours/entreprise",l:"Entreprises"}] },
 ];
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CONFIG CENTRES BET — partagée avec le SuperAdmin via localStorage
+════════════════════════════════════════════════════════════════════════════ */
+export const BET_CENTERS_LS_KEY = "bet_centers_config";
+
+export const DEFAULT_BET_CENTERS = [
+  { key:"angre",    name:"Angré",       color:"#25d366", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000001", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré." },
+    { nom:"Assistante 2", phone:"2250700000011", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré." },
+  ]},
+  { key:"bouake",   name:"Bouaké",      color:"#facc15", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000002", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké." },
+    { nom:"Assistante 2", phone:"2250700000022", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké." },
+  ]},
+  { key:"plateaux", name:"II Plateaux", color:"#0891b2", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000003", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux." },
+    { nom:"Assistante 2", phone:"2250700000033", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux." },
+  ]},
+  { key:"yopougon", name:"Yopougon",    color:"#a855f7", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000004", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon." },
+    { nom:"Assistante 2", phone:"2250700000044", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon." },
+  ]},
+  { key:"koumassi", name:"Koumassi",    color:"#f97316", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000005", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi." },
+    { nom:"Assistante 2", phone:"2250700000055", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi." },
+  ]},
+  { key:"abatta",   name:"Abatta",      color:"#ef4444", commerciaux:[], assistantes:[
+    { nom:"Assistante 1", phone:"2250700000006", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta." },
+    { nom:"Assistante 2", phone:"2250700000066", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta." },
+  ]},
+];
+
+function loadCenters() {
+  try {
+    const saved = localStorage.getItem(BET_CENTERS_LS_KEY);
+    return saved ? JSON.parse(saved) : DEFAULT_BET_CENTERS;
+  } catch { return DEFAULT_BET_CENTERS; }
+}
 
 /* ════════════════════════════════════════════════════════════════════════════
    NAVBAR (avec notifications)
@@ -149,8 +180,10 @@ const Navbar = () => {
   const [payData,       setPayData]       = useState({ numero:"", cardNum:"", expiry:"", cvv:"", holder:"" });
   const [tunnelLoading, setTunnelLoading] = useState(false);
   const [tunnelErreur,  setTunnelErreur]  = useState("");
-  const [enfantData,    setEnfantData]    = useState({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"" });
+  const [centerModal,   setCenterModal]   = useState(null); // centre sélectionné
+  const [enfantData,    setEnfantData]    = useState({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"", centre_key:"" });
   const [selectedCommercial, setSelectedCommercial] = useState("");
+  const [betCenters, setBetCenters] = useState(loadCenters);
 
   /* ── Scroll ── */
   useEffect(() => {
@@ -203,6 +236,7 @@ const Navbar = () => {
     return {
       ...supaUser,
       name: fullName,
+      avatar: meta.avatar_url || null,
       role: "Apprenant",
     };
   };
@@ -241,6 +275,8 @@ const Navbar = () => {
       } else if (event === "SIGNED_OUT") {
         setUser(null);
       } else if (event === "TOKEN_REFRESHED" && session?.user) {
+        setUser(buildUser(session.user));
+      } else if (event === "USER_UPDATED" && session?.user) {
         setUser(buildUser(session.user));
       }
     });
@@ -358,30 +394,33 @@ const Navbar = () => {
     setPayMethod(null); setMobileOp(null);
     setFormData({ nom:"", email:"", tel:"", societe:"", effectif:"", besoin:"" });
     setPayData({ numero:"", cardNum:"", expiry:"", cvv:"", holder:"" });
-    setEnfantData({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"" });
+    setEnfantData({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"", centre_key:"" });
     setSelectedCommercial("");
     setTunnelErreur("");
     setTunnelOpen(true);
   };
 
   const isEnfant = tunnelType === "enfant";
-  const maxStep = isEnfant ? 3 : 4;
+  const maxStep = 4;
   const plans = tunnelType === "entreprise" ? plansEntreprise : isEnfant ? plansEnfant : plansParticulier;
+
+  const selectedCentre = isEnfant ? betCenters.find(c => c.key === enfantData.centre_key) : null;
+  const centreCommerciaux = selectedCentre?.commerciaux || [];
 
   const canGo1 = isEnfant
     ? (enfantData.prenom_enfant && enfantData.nom_enfant && enfantData.tranche_age)
     : (formData.nom && formData.email && formData.tel);
   const canGo2 = isEnfant
-    ? (enfantData.nom_parent && enfantData.email_parent && enfantData.tel_parent)
+    ? enfantData.centre_key !== ""
     : !!selectedPlan;
   const canGo3 = isEnfant
-    ? true
+    ? (enfantData.nom_parent && enfantData.email_parent && enfantData.tel_parent)
     : (payMethod === "mobile"
         ? mobileOp && payData.numero.length >= 8
         : payData.cardNum.length >= 16 && payData.expiry && payData.cvv && payData.holder);
 
   const stepLabels = isEnfant
-    ? ["Mon enfant", "Parent & Suivi", "Confirmation"]
+    ? ["Mon enfant", "Votre centre", "Parent & Contact", "Confirmation"]
     : ["Profil", "Plan", "Paiement", "Confirmation"];
   const selectedPlanObj = plans?.find(p => p.id === selectedPlan);
 
@@ -392,8 +431,8 @@ const Navbar = () => {
 
     const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
-    /* ── Tunnel Enfant : soumission à l'étape 2 ── */
-    if (isEnfant && tunnelStep === 2) {
+    /* ── Tunnel Enfant : soumission à l'étape 3 ── */
+    if (isEnfant && tunnelStep === 3) {
       setTunnelLoading(true);
       setTunnelErreur("");
       try {
@@ -404,6 +443,7 @@ const Navbar = () => {
             prenom_enfant:  enfantData.prenom_enfant,
             nom_enfant:     enfantData.nom_enfant,
             tranche_age:    enfantData.tranche_age,
+            centre_key:     enfantData.centre_key,
             nom_parent:     enfantData.nom_parent,
             email_parent:   enfantData.email_parent,
             tel_parent:     enfantData.tel_parent,
@@ -411,7 +451,7 @@ const Navbar = () => {
             statut:         "en_attente",
           }),
         }).then(r => { if (!r.ok) throw new Error(); });
-        setTunnelStep(3);
+        setTunnelStep(4);
       } catch {
         setTunnelErreur("Une erreur est survenue. Veuillez réessayer ou nous contacter directement.");
       } finally {
@@ -469,14 +509,27 @@ const Navbar = () => {
     if (tunnelStep < maxStep) setTunnelStep(s => s + 1);
   };
 
-  const BET_CENTERS = {
-    angre: { name: "Angré", phone: "2250700000001", message: "Bonjour, je souhaite des informations sur les formations BET à Angré." },
-    bouake: { name: "Bouaké", phone: "2250700000002", message: "Bonjour, je souhaite des informations sur les formations BET à Bouaké." },
-    plateaux: { name: "II Plateaux", phone: "2250700000003", message: "Bonjour, je souhaite des informations sur les formations BET à Plateaux." },
-    Yopougon: { name: "Yopougon", phone: "2250700000001", message: "Bonjour, je souhaite des informations sur les formations BET à Angré." },
-    Koumassi: { name: "Koumassi", phone: "2250700000002", message: "Bonjour, je souhaite des informations sur les formations BET à Bouaké." },
-    Abatta: { name: "Abatta", phone: "2250700000003", message: "Bonjour, je souhaite des informations sur les formations BET à Plateaux." }
-  };
+  useEffect(() => {
+    // 1. Charger depuis Supabase (source de vérité)
+    supabase
+      .from("plateforme_config")
+      .select("valeur")
+      .eq("key", "centres_wa")
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data?.valeur?.length) {
+          setBetCenters(data.valeur);
+          localStorage.setItem(BET_CENTERS_LS_KEY, JSON.stringify(data.valeur));
+        }
+      });
+
+    // 2. Écouter les mises à jour depuis le dashboard (même navigateur)
+    const onStorage = (e) => {
+      if (e.key === BET_CENTERS_LS_KEY) setBetCenters(loadCenters());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []); // eslint-disable-line
 
   /* ════════════════════════════════════════════════════════════
      RENDER
@@ -492,6 +545,7 @@ const Navbar = () => {
       </div>
 
       <div className="parcours-banner">
+        {/* ── Ligne 1 : parcours ── */}
         <div className="parcours-group">
           <span className="parcours-label">Commencez votre parcours :</span>
           <button className="parcours-btn parcours-btn--b2b" onClick={() => openTunnel("entreprise")}>
@@ -504,14 +558,20 @@ const Navbar = () => {
             <IcoChild /> J'inscris mon enfant
           </button>
         </div>
+
+        {/* ── Séparateur horizontal ── */}
+        <div className="banner-divider" />
+
+        {/* ── Ligne 2 : centres ── */}
         <div className="bet-group">
-          <span className="bet-label">📍 Contactez votre centre BET :</span>
+          <span className="bet-label">📞 Contactez votre centre BET :</span>
           <div className="bet-buttons">
-            {Object.entries(BET_CENTERS).map(([key, center]) => (
+            {betCenters.map((center) => (
               <button
-                key={key}
-                className={`bet-btn bet-btn--${key}`}
-                onClick={() => window.open(`https://wa.me/${center.phone}?text=${encodeURIComponent(center.message)}`)}
+                key={center.key}
+                className={`bet-btn bet-btn--${center.key}`}
+                style={{ borderLeftColor: center.color }}
+                onClick={() => setCenterModal(center)}
               >
                 📍 {center.name}
               </button>
@@ -574,7 +634,11 @@ const Navbar = () => {
               {profileMenuOpen && (
                 <div className="profile-dropdown">
                   <div className="pd-header">
-                    <div className="pd-avatar-lg">{initials(user?.name || user?.email || "?")}</div>
+                    <div className="pd-avatar-lg" style={{ overflow:"hidden", padding:0 }}>
+                      {user?.avatar
+                        ? <img src={user.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:"50%" }} />
+                        : initials(user?.name || user?.email || "?")}
+                    </div>
                     <div>
                       <div className="pd-name">{user.name}</div>
                       <div className="pd-email">{user.email}</div>
@@ -645,26 +709,6 @@ const Navbar = () => {
                         : <><option>TOEIC / TOEFL / IELTS</option><option>Anglais professionnel</option><option>Études à l'étranger</option><option>Parler couramment</option></>}
                     </select>
                   </div>
-                  {/* Choix du commercial */}
-                  <div className="tfield tfield--full">
-                    <label>Votre conseiller(ère) BET <span style={{fontWeight:400,color:"#94a3b8"}}>(optionnel)</span></label>
-                    <div className="commercial-grid">
-                      {COMMERCIAUX.map(c => (
-                        <div
-                          key={c.id}
-                          className={`commercial-card ${selectedCommercial===c.id?"commercial-card--sel":""}`}
-                          onClick={() => setSelectedCommercial(p => p===c.id ? "" : c.id)}
-                        >
-                          <div className="commercial-av">{c.initiales}</div>
-                          <div className="commercial-info">
-                            <div className="commercial-nom">{c.nom}</div>
-                            <div className="commercial-role">{c.role}</div>
-                          </div>
-                          {selectedCommercial===c.id && <div className="commercial-check"><IcoCheck /></div>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -713,36 +757,69 @@ const Navbar = () => {
               </div>
             )}
 
-            {/* ── Étape 2 Enfant : infos parent + conseiller ── */}
+            {/* ── Étape 2 Enfant : choix du centre ── */}
             {tunnelStep === 2 && isEnfant && (
               <div className="tunnel-body">
+                <h2 className="t-title">Choisissez votre centre BET</h2>
+                <p className="t-sub">Sélectionnez le cabinet le plus proche de vous.</p>
+                <div className="centre-picker">
+                  {betCenters.map(centre => (
+                    <div
+                      key={centre.key}
+                      className={`centre-card ${enfantData.centre_key === centre.key ? "centre-card--sel" : ""}`}
+                      onClick={() => { setEnfantData(p => ({...p, centre_key: centre.key})); setSelectedCommercial(""); }}
+                    >
+                      <div className="centre-card__visual" style={{ background: centre.color }}>
+                        <span className="centre-card__icon">📍</span>
+                      </div>
+                      <div className="centre-card__body">
+                        <div className="centre-card__name">{centre.name}</div>
+                        {enfantData.centre_key === centre.key && (
+                          <div className="centre-card__check"><IcoCheck /> Sélectionné</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Étape 3 Enfant : infos parent + conseiller du centre ── */}
+            {tunnelStep === 3 && isEnfant && (
+              <div className="tunnel-body">
+                {selectedCentre && (
+                  <div className="centre-recap" style={{ borderLeft: `4px solid ${selectedCentre.color}` }}>
+                    📍 Centre sélectionné : <strong>{selectedCentre.name}</strong>
+                  </div>
+                )}
                 <h2 className="t-title">Informations du parent</h2>
                 <p className="t-sub">Ces données nous permettent de vous contacter pour le suivi de votre enfant.</p>
                 <div className="tunnel-form">
                   <div className="tfield"><label>Votre nom complet *</label><input placeholder="Jean Kouamé" value={enfantData.nom_parent} onChange={e=>setEnfantData(p=>({...p,nom_parent:e.target.value}))} /></div>
                   <div className="tfield"><label>Email *</label><input type="email" placeholder="parent@exemple.com" value={enfantData.email_parent} onChange={e=>setEnfantData(p=>({...p,email_parent:e.target.value}))} /></div>
                   <div className="tfield"><label>Téléphone *</label><input placeholder="+225 07 00 00 00 00" value={enfantData.tel_parent} onChange={e=>setEnfantData(p=>({...p,tel_parent:e.target.value}))} /></div>
-                  {/* Choix du commercial */}
-                  <div className="tfield tfield--full">
-                    <label>Votre conseiller(ère) BET <span style={{fontWeight:400,color:"#94a3b8"}}>(optionnel)</span></label>
-                    <p style={{fontSize:".8rem",color:"#64748b",margin:"4px 0 10px"}}>Choisissez un conseiller pour le suivi accompagné de votre enfant.</p>
-                    <div className="commercial-grid">
-                      {COMMERCIAUX.map(c => (
-                        <div
-                          key={c.id}
-                          className={`commercial-card ${selectedCommercial===c.id?"commercial-card--sel":""}`}
-                          onClick={() => setSelectedCommercial(p => p===c.id ? "" : c.id)}
-                        >
-                          <div className="commercial-av">{c.initiales}</div>
-                          <div className="commercial-info">
-                            <div className="commercial-nom">{c.nom}</div>
-                            <div className="commercial-role">{c.role}</div>
+                  {centreCommerciaux.length > 0 && (
+                    <div className="tfield tfield--full">
+                      <label>Votre conseiller(ère) BET <span style={{fontWeight:400,color:"#94a3b8"}}>(optionnel)</span></label>
+                      <p style={{fontSize:".8rem",color:"#64748b",margin:"4px 0 10px"}}>Conseillers disponibles au centre {selectedCentre?.name}.</p>
+                      <div className="commercial-grid">
+                        {centreCommerciaux.map(c => (
+                          <div
+                            key={c.id}
+                            className={`commercial-card ${selectedCommercial===c.id?"commercial-card--sel":""}`}
+                            onClick={() => setSelectedCommercial(p => p===c.id ? "" : c.id)}
+                          >
+                            <div className="commercial-av">{c.initiales || c.nom?.slice(0,2).toUpperCase()}</div>
+                            <div className="commercial-info">
+                              <div className="commercial-nom">{c.nom}</div>
+                              <div className="commercial-role">{c.role}</div>
+                            </div>
+                            {selectedCommercial===c.id && <div className="commercial-check"><IcoCheck /></div>}
                           </div>
-                          {selectedCommercial===c.id && <div className="commercial-check"><IcoCheck /></div>}
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -785,17 +862,18 @@ const Navbar = () => {
               </div>
             )}
 
-            {/* ── Confirmation enfant (étape 3) ── */}
-            {tunnelStep === 3 && isEnfant && (
+            {/* ── Confirmation enfant (étape 4) ── */}
+            {tunnelStep === 4 && isEnfant && (
               <div className="tunnel-body tunnel-confirm">
                 <div className="confirm-icon">🎉</div>
                 <h2 className="t-title">Inscription enregistrée !</h2>
-                <p className="t-sub">Un conseiller vous contactera sous <strong>24h</strong> pour valider le parcours de votre enfant.</p>
+                <p className="t-sub">Un conseiller du centre <strong>{selectedCentre?.name}</strong> vous contactera sous <strong>24h</strong>.</p>
                 <div className="confirm-summary">
                   <div><span>Enfant</span><strong>{enfantData.prenom_enfant} {enfantData.nom_enfant}</strong></div>
                   <div><span>Âge</span><strong>{enfantData.tranche_age} ans</strong></div>
+                  <div><span>Centre</span><strong>{selectedCentre?.name}</strong></div>
                   <div><span>Contact parent</span><strong>{enfantData.email_parent}</strong></div>
-                  {selectedCommercial && <div><span>Conseiller(ère)</span><strong>{COMMERCIAUX.find(c=>c.id===selectedCommercial)?.nom}</strong></div>}
+                  {selectedCommercial && <div><span>Conseiller(ère)</span><strong>{centreCommerciaux.find(c=>c.id===selectedCommercial)?.nom}</strong></div>}
                 </div>
                 <button className="t-action-btn" onClick={()=>setTunnelOpen(false)}>
                   Fermer <IcoArrow />
@@ -813,7 +891,6 @@ const Navbar = () => {
                   <div><span>Plan</span><strong>{plans.find(p=>p.id===selectedPlan)?.label}</strong></div>
                   <div><span>Email</span><strong>{formData.email}</strong></div>
                   <div><span>Tél.</span><strong>{formData.tel}</strong></div>
-                  {selectedCommercial && <div><span>Conseiller(ère)</span><strong>{COMMERCIAUX.find(c=>c.id===selectedCommercial)?.nom}</strong></div>}
                 </div>
                 <button className="t-action-btn" onClick={()=>{setTunnelOpen(false);navigate(tunnelType==="entreprise"?"/parcours/entreprise":"/parcours/particulier");}}>
                   Accéder à mon espace <IcoArrow />
@@ -823,7 +900,7 @@ const Navbar = () => {
 
             {tunnelStep < maxStep && (
               <div className="tunnel-footer" style={{ flexDirection:"column", gap:8 }}>
-                {tunnelErreur && <p style={{ color:"#dc2626", fontSize:"0.82rem", textAlign:"center", margin:0 }}>⚠ {tunnelErreur}</p>}
+                {tunnelErreur && <p style={{ color:"#e93747", fontSize:"0.82rem", textAlign:"center", margin:0 }}>⚠ {tunnelErreur}</p>}
                 <div style={{ display:"flex", justifyContent:"space-between", width:"100%" }}>
                   {tunnelStep > 1 && <button className="t-back-btn" onClick={()=>{ setTunnelStep(s=>s-1); setTunnelErreur(""); }}>← Retour</button>}
                   <button
@@ -832,7 +909,7 @@ const Navbar = () => {
                     disabled={tunnelLoading}
                     style={{ opacity: tunnelLoading ? 0.7 : 1 }}
                   >
-                    {tunnelLoading ? "Envoi…" : (!isEnfant && tunnelStep===3) ? "Confirmer & payer" : (isEnfant && tunnelStep===2) ? "Envoyer la demande" : "Continuer"} {!tunnelLoading && <IcoArrow />}
+                    {tunnelLoading ? "Envoi…" : (!isEnfant && tunnelStep===3) ? "Confirmer & payer" : (isEnfant && tunnelStep===3) ? "Envoyer la demande" : "Continuer"} {!tunnelLoading && <IcoArrow />}
                   </button>
                 </div>
               </div>
@@ -959,6 +1036,64 @@ const Navbar = () => {
                   <p className="auth-switch">Déjà un compte ? <a href="#" onClick={()=>setActiveTab("login")}>Se connecter</a></p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CENTRE BET ────────────────────────────────── */}
+      {centerModal && (
+        <div
+          className="center-modal-overlay"
+          onClick={() => setCenterModal(null)}
+        >
+          <div
+            className="center-modal"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* En-tête */}
+            <div className="center-modal__header" style={{ borderBottom: `3px solid ${centerModal.color}` }}>
+              <div className="center-modal__title">
+                <span className="center-modal__icon" style={{ background: `${centerModal.color}22`, color: centerModal.color }}>📍</span>
+                <div>
+                  <div className="center-modal__name">BET {centerModal.name}</div>
+                  <div className="center-modal__sub">Choisissez une assistante pour démarrer la conversation</div>
+                </div>
+              </div>
+              <button className="center-modal__close" onClick={() => setCenterModal(null)} aria-label="Fermer">
+                <IcoClose />
+              </button>
+            </div>
+
+            {/* Boutons WhatsApp */}
+            <div className="center-modal__body">
+              {centerModal.assistantes.map((a, i) => (
+                <a
+                  key={i}
+                  href={`https://wa.me/${a.phone}?text=${encodeURIComponent(a.message)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="center-modal__wa-btn"
+                  onClick={() => setCenterModal(null)}
+                >
+                  <span className="center-modal__wa-icon">
+                    <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+                      <circle cx="16" cy="16" r="16" fill="#25d366"/>
+                      <path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/>
+                    </svg>
+                  </span>
+                  <div className="center-modal__wa-info">
+                    <span className="center-modal__wa-name">{a.nom}</span>
+                    <span className="center-modal__wa-phone">+{a.phone}</span>
+                  </div>
+                  <span className="center-modal__wa-cta">Écrire →</span>
+                </a>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="center-modal__footer">
+              💬 Message pré-rempli : <em>« Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET {centerModal.name}. »</em>
             </div>
           </div>
         </div>

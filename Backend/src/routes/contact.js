@@ -38,24 +38,27 @@ router.post("/submit", async (req, res) => {
   }
 });
 
-// Messages reçus — filtrés par commercial_id ET scope centre
+// Messages reçus — filtrés par commercial_id (commercial) ou scope centre (manager/responsable)
 router.get("/mes-clients", authenticateAdmin, async (req, res) => {
   try {
     const scope = req.profil?.scope || [];
     const isNational = scope.includes("national") || req.role === "super_admin";
+    const isCommercial = req.role === "commercial";
 
     let query = supabase
       .from("contacts")
-      .select("id, nom, email, telephone, type, sujet, message, statut, centre_id, created_at");
+      .select("id, nom, email, telephone, type, sujet, message, statut, centre_id, commercial_id, created_at");
 
-    // Super admin / national voit tout ; sinon filtre par scope centre
-    if (!isNational && scope.length > 0) {
+    if (isNational) {
+      // Super admin / national : tout voir
+    } else if (isCommercial) {
+      // Commercial : uniquement SES contacts (par commercial_id)
+      query = query.eq("commercial_id", req.user.id);
+    } else if (scope.length > 0) {
+      // Manager / responsable : tous les contacts du centre
       query = query.in("centre_id", scope);
-    } else if (!isNational) {
-      // Rôle commercial classique : ses clients uniquement
-      const commercial_id = req.user?.id;
-      if (!commercial_id) return res.status(401).json({ error: "Non autorisé" });
-      query = query.eq("commercial_id", commercial_id);
+    } else {
+      return res.json({ contacts: [] });
     }
 
     const { data, error } = await query.order("created_at", { ascending: false });

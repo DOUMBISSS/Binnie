@@ -15,6 +15,44 @@ const authHdrs = () => ({
 // ── Identifiant de conversation déterministe (stable entre les deux users) ──
 const convId = (id1, id2) => [id1, id2].sort().join("_");
 
+// ── Son de notification via Web Audio API (aucun fichier requis) ──────────
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.35, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
+  } catch {}
+}
+
+// ── Notification navigateur ────────────────────────────────────────────────
+function requestNotifPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function showBrowserNotif(title, body, onClick) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (document.visibilityState === "visible") return; // déjà visible, pas besoin
+  const notif = new Notification(title, {
+    body,
+    icon: "/favicon.ico",
+    tag:  "bet-chat",
+    renotify: true,
+  });
+  notif.onclick = () => { window.focus(); notif.close(); onClick?.(); };
+}
+
 export function useFirebaseChat() {
   const profil     = JSON.parse(localStorage.getItem("admin_profil") || "{}");
   const myId       = profil?.id   || "";
@@ -28,7 +66,13 @@ export function useFirebaseChat() {
   const [onlineUsers,   setOnlineUsers]     = useState({});
   const [loadingConvs,  setLoadingConvs]    = useState(true);
 
-  const msgUnsubRef = useRef(null);
+  const msgUnsubRef    = useRef(null);
+  const prevConvsRef   = useRef({}); // { [convId]: unreadCount } pour détecter les nouveaux messages
+  const prevMsgCount   = useRef(0);  // nb messages déjà chargés dans la conv active
+  const isFirstLoad    = useRef(true); // ignorer le chargement initial
+
+  // ── Demander la permission de notification au premier montage ─────────────
+  useEffect(() => { requestNotifPermission(); }, []);
 
   // ── 1. Écoute en temps réel de mes conversations ──────────────────────────
   useEffect(() => {
@@ -44,8 +88,31 @@ export function useFirebaseChat() {
       const convs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setConversations(convs);
       setLoadingConvs(false);
+
+      // Détecter un nouveau message non lu dans une autre conversation que la conv active
+      if (!isFirstLoad.current) {
+        convs.forEach((conv) => {
+          const unread = conv.unread?.[myId] || 0;
+          const prevUnread = prevConvsRef.current[conv.id] || 0;
+          if (unread > prevUnread) {
+            // Il y a un nouveau message dans cette conv
+            const senderName = conv.user1_id === myId ? conv.user2_name : conv.user1_name;
+            const preview = conv.last_message || "Nouveau message";
+            playNotifSound();
+            showBrowserNotif(
+              `💬 ${senderName}`,
+              preview.length > 80 ? preview.slice(0, 80) + "…" : preview,
+            );
+          }
+        });
+      }
+
+      // Mettre à jour le snapshot précédent
+      const next = {};
+      convs.forEach((c) => { next[c.id] = c.unread?.[myId] || 0; });
+      prevConvsRef.current = next;
+      isFirstLoad.current = false;
     }, (err) => {
-      // Index manquant : afficher l'URL de création dans la console
       if (err.code === "failed-precondition") {
         console.warn("⚠️ Firestore : index composite requis →", err.message);
       }
@@ -58,17 +125,28 @@ export function useFirebaseChat() {
   // ── 2. Écoute en temps réel des messages de la conversation active ────────
   useEffect(() => {
     if (msgUnsubRef.current) { msgUnsubRef.current(); msgUnsubRef.current = null; }
-    if (!activeConvId) { setMessages([]); return; }
+    if (!activeConvId) { setMessages([]); prevMsgCount.current = 0; return; }
 
     const q = query(
       collection(db, "chats", activeConvId, "messages"),
       orderBy("created_at", "asc")
     );
 
+    let firstSnap = true;
     msgUnsubRef.current = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      // Marquer lu automatiquement
+      const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(msgs);
       markAsRead(activeConvId);
+
+      // Son uniquement pour les nouveaux messages reçus (pas l'envoi initial)
+      if (!firstSnap && msgs.length > prevMsgCount.current) {
+        const newest = msgs[msgs.length - 1];
+        if (newest?.from_id !== myId) {
+          playNotifSound();
+        }
+      }
+      prevMsgCount.current = msgs.length;
+      firstSnap = false;
     });
 
     return () => { if (msgUnsubRef.current) msgUnsubRef.current(); };
@@ -220,5 +298,6 @@ export function useFirebaseChat() {
     openOrCreateConv, sendMessage, markAsRead,
     partnerName, partnerRole, partnerId, isOnline, fmtTime,
     onlineUsers,
+    requestNotifPermission,
   };
 }

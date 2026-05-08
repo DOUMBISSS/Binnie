@@ -43,6 +43,3 @@ DROP TRIGGER IF EXISTS trg_articles_blog_updated ON public.articles_blog;
 CREATE TRIGGER trg_articles_blog_updated
   BEFORE UPDATE ON public.articles_blog
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
--- Images additionnelles du contenu (max 3 URLs)
-ALTER TABLE public.articles_blog ADD COLUMN IF NOT EXISTS images TEXT[] DEFAULT '{}';

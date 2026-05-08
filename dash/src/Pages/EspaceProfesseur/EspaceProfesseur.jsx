@@ -9,7 +9,30 @@ import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUploa
 /* ═══════════════════════════════════════════════════════
    CONSTANTES BET
 ═══════════════════════════════════════════════════════ */
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const BET        = "#0891b2";
+const CENTRES_LABELS = {
+  angre:      "BET Angré",
+  "2plateaux":"BET II Plateaux",
+  yopougon:   "BET Yopougon",
+  koumassi:   "BET Koumassi",
+  abatta:     "BET Abatta",
+  bouake:     "BET Bouaké",
+};
+const JOURS_SEMAINE = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+const CRENEAUX_DEF  = [
+  { id:"matin",     label:"Matin",      debut:"08:00", fin:"12:00" },
+  { id:"apresmidi", label:"Après-midi", debut:"13:00", fin:"17:00" },
+  { id:"soir",      label:"Soir",       debut:"18:00", fin:"21:00" },
+];
+const initDispo = () => {
+  const d = {};
+  JOURS_SEMAINE.forEach(j => {
+    d[j] = {};
+    CRENEAUX_DEF.forEach(c => { d[j][c.id] = { dispo:false, debut:c.debut, fin:c.fin }; });
+  });
+  return d;
+};
 const BET_DARK   = "#0e7490";
 const BET_LIGHT  = "#e0f2fe";
 const BET_GRAD   = "linear-gradient(135deg,#0f172a 0%,#0891b2 100%)";
@@ -340,6 +363,9 @@ export default function EspaceProfesseur() {
 
   // Profil réel du coach connecté (depuis localStorage)
   const coachStored = JSON.parse(localStorage.getItem("coach_profil") || "null");
+  const coachCentreId  = coachStored?.scope?.find(s => s !== "national") || null;
+  const coachCentreLabel = coachCentreId ? (CENTRES_LABELS[coachCentreId] || coachCentreId) : null;
+
   const MON_PROFIL_REEL = coachStored ? {
     id:              coachStored.id,
     nom:             coachStored.nom       || "—",
@@ -359,10 +385,15 @@ export default function EspaceProfesseur() {
     localStorage.removeItem("coach_token");
     localStorage.removeItem("coach_refresh");
     localStorage.removeItem("coach_profil");
-    window.location.replace("/login-professeur");
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_profil");
+    window.location.replace("/login-admin");
   };
 
   const [activeTab, setActiveTab]             = useState("dashboard");
+  const [disponibilites, setDisponibilites]   = useState(initDispo);
+  const [dispoSaved,    setDispoSaved]        = useState(false);
+  const [dispoLoading,  setDispoLoading]      = useState(false);
   const [cours, setCours]                     = useState(MES_COURS_INIT);
   const [seances, setSeances]                 = useState(MES_SEANCES_INIT);
   const [etudiants, setEtudiants]             = useState(MES_ETUDIANTS_INIT);
@@ -423,6 +454,33 @@ export default function EspaceProfesseur() {
 
   // cours détail expandable
   const [expandedModuleInCours, setExpandedModuleInCours] = useState(null);
+
+  // Charger les disponibilités depuis la base de données
+  useEffect(() => {
+    const token = localStorage.getItem("coach_token");
+    if (!token) return;
+    setDispoLoading(true);
+    fetch(`${API_URL}/api/coachs/disponibilites`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(({ disponibilites: rows }) => {
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        setDisponibilites(prev => {
+          const next = { ...prev };
+          rows.forEach(r => {
+            if (!next[r.jour]) return;
+            next[r.jour] = {
+              ...next[r.jour],
+              [r.creneau]: { dispo: r.dispo, debut: r.debut?.slice(0,5) || r.debut, fin: r.fin?.slice(0,5) || r.fin, verrouille: r.verrouille },
+            };
+          });
+          return next;
+        });
+      })
+      .catch(() => {})
+      .finally(() => setDispoLoading(false));
+  }, []);
 
   const msgNonLus = messages.filter(m => !m.lu).length;
   const msgResponsable = messages.filter(m => m.type === "responsable" && !m.lu).length;
@@ -805,6 +863,7 @@ const messagesFiltres = useMemo(() => {
     { key:"cours",           label:"Mes Cours",        icon:"📚", count:cours.length },
     { key:"modules_contenu", label:"Modules & Contenu",icon:"🧩", count:null },
     { key:"planning",        label:"Planning",          icon:"📅", count:stats.seancesAV },
+    { key:"disponibilites",  label:"Disponibilités",    icon:"🗓️", count:null },
     { key:"etudiants",       label:"Étudiants",         icon:"👥", count:etudiants.length },
     { key:"presences",       label:"Présences",         icon:"✅", count:null },
     { key:"evaluations",     label:"Évaluations",       icon:"📝", count:evalAVenir||null, danger:evalAVenir>0 },
@@ -835,10 +894,15 @@ const messagesFiltres = useMemo(() => {
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, color:"#7dd3fc", fontWeight:600, letterSpacing:"0.08em", marginBottom:2 }}>ESPACE COACH 🎓</div>
               <h1 style={{ margin:0, fontSize:22, fontWeight:800 }}>{MON_PROFIL_REEL.prenom} {MON_PROFIL_REEL.nom}</h1>
-              <div style={{ fontSize:12, color:"#bae6fd", marginTop:3, display:"flex", gap:10, flexWrap:"wrap" }}>
+              <div style={{ fontSize:12, color:"#bae6fd", marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                 <span>{MON_PROFIL_REEL.specialite}</span>
                 <span>⭐ {MON_PROFIL_REEL.notation}/5</span>
                 <span style={{ padding:"2px 8px", borderRadius:10, background:"rgba(255,255,255,0.15)" }}>🏆 {MON_PROFIL_REEL.xp}</span>
+                {coachCentreLabel && (
+                  <span style={{ padding:"2px 10px", borderRadius:10, background:"rgba(8,145,178,0.4)", border:"1px solid rgba(125,211,252,0.5)", fontWeight:700, color:"#e0f2fe" }}>
+                    🏢 {coachCentreLabel}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ textAlign:"right", display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8, position:"relative", zIndex:2 }}>
@@ -1792,6 +1856,180 @@ const messagesFiltres = useMemo(() => {
                     {messagesFiltres.length===0 && <p style={{ textAlign:"center", padding:30, color:"#9ca3af" }}>Aucun message trouvé</p>}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ════════ DISPONIBILITÉS ════════ */}
+            {activeTab==="disponibilites" && (
+              <div>
+                <div style={tabHeader}>
+                  <div>
+                    <h2 style={tabTitle}>🗓️ Mes Disponibilités</h2>
+                    <p style={tabSubtitle}>Indiquez vos créneaux libres toute la semaine (y compris week-end) — votre planning sera transmis automatiquement à l'assistance onboarding qui programmera les cours et les salles</p>
+                  </div>
+                  <button onClick={async () => {
+                    const token = localStorage.getItem("coach_token");
+                    if (!token) { toast.error("Session expirée, veuillez vous reconnecter"); return; }
+                    const slots = [];
+                    JOURS_SEMAINE.forEach(j => {
+                      CRENEAUX_DEF.forEach(c => {
+                        const sl = disponibilites[j]?.[c.id] || {};
+                        slots.push({ jour: j, creneau: c.id, debut: sl.debut || c.debut, fin: sl.fin || c.fin, dispo: !!sl.dispo });
+                      });
+                    });
+                    setDispoLoading(true);
+                    try {
+                      const r = await fetch(`${API_URL}/api/coachs/disponibilites`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ slots }),
+                      });
+                      const data = await r.json();
+                      if (!r.ok) throw new Error(data.error || "Erreur");
+                      setDispoSaved(true);
+                      toast.success("Disponibilités transmises à l'assistance onboarding ✓");
+                      setTimeout(() => setDispoSaved(false), 3000);
+                    } catch (err) {
+                      toast.error(err.message || "Erreur lors de l'enregistrement");
+                    } finally {
+                      setDispoLoading(false);
+                    }
+                  }} disabled={dispoLoading} style={{ padding:"9px 20px", background:BET, color:"#fff", border:"none", borderRadius:8, fontWeight:700, fontSize:13, cursor: dispoLoading ? "wait" : "pointer", opacity: dispoLoading ? 0.7 : 1 }}>
+                    {dispoLoading ? "⏳ Enregistrement..." : "💾 Enregistrer mes disponibilités"}
+                  </button>
+                </div>
+
+                {dispoSaved && (
+                  <div style={{ background:"#d1fae5", border:"1px solid #6ee7b7", borderRadius:10, padding:"10px 16px", marginBottom:16, color:"#065f46", fontWeight:600, fontSize:13 }}>
+                    ✅ Disponibilités transmises à l'assistance onboarding du {coachCentreLabel || "centre BET"}. Les cours seront programmés en conséquence.
+                  </div>
+                )}
+
+                {/* Légende */}
+                <div style={{ display:"flex", gap:16, marginBottom:18, flexWrap:"wrap" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#64748b" }}>
+                    <div style={{ width:16, height:16, borderRadius:4, background:"#d1fae5", border:"2px solid #10b981" }}/> Disponible
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#64748b" }}>
+                    <div style={{ width:16, height:16, borderRadius:4, background:"#f1f5f9", border:"2px solid #e2e8f0" }}/> Non disponible
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#64748b" }}>
+                    <div style={{ width:16, height:16, borderRadius:4, background:"#f1f5f9", border:"2px solid #cbd5e1", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10 }}>🔒</div> Cours programmé (non modifiable)
+                  </div>
+                  <span style={{ fontSize:12, color:"#94a3b8" }}>Cliquez sur une case pour basculer. Vous pouvez ajuster les horaires de chaque créneau.</span>
+                </div>
+
+                {/* Grille jours × créneaux */}
+                <div style={{ overflowX:"auto", marginBottom:24 }}>
+                  <table style={{ width:"100%", borderCollapse:"separate", borderSpacing:4 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width:110, fontSize:12, color:"#64748b", fontWeight:700, textAlign:"left", paddingBottom:8 }}>Créneau</th>
+                        {JOURS_SEMAINE.map(j => (
+                          <th key={j} style={{ fontSize:12, fontWeight:800, color:"#0f172a", textAlign:"center", paddingBottom:8 }}>{j}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {CRENEAUX_DEF.map(c => (
+                        <tr key={c.id}>
+                          <td style={{ fontSize:12, fontWeight:700, color:"#475569", paddingRight:8, whiteSpace:"nowrap" }}>
+                            <div>{c.label}</div>
+                            <div style={{ fontSize:11, color:"#94a3b8", fontWeight:400 }}>{c.debut}–{c.fin}</div>
+                          </td>
+                          {JOURS_SEMAINE.map(j => {
+                            const slot = disponibilites[j]?.[c.id] || { dispo:false, debut:c.debut, fin:c.fin };
+                            const locked = !!slot.verrouille;
+                            return (
+                              <td key={j} style={{ verticalAlign:"top" }}>
+                                <div
+                                  onClick={() => {
+                                    if (locked) return;
+                                    setDisponibilites(prev => ({
+                                      ...prev,
+                                      [j]: { ...prev[j], [c.id]: { ...prev[j][c.id], dispo: !slot.dispo } }
+                                    }));
+                                  }}
+                                  title={locked ? "Créneau verrouillé — cours déjà programmé" : undefined}
+                                  style={{
+                                    borderRadius:10, cursor: locked ? "not-allowed" : "pointer", padding:"10px 8px", textAlign:"center", minHeight:64,
+                                    background: locked ? "#f1f5f9" : slot.dispo ? "#d1fae5" : "#f8fafc",
+                                    border: `2px solid ${locked ? "#cbd5e1" : slot.dispo ? "#10b981" : "#e2e8f0"}`,
+                                    opacity: locked ? 0.65 : 1,
+                                    transition:"all .15s",
+                                  }}
+                                >
+                                  <div style={{ fontSize:18, marginBottom:4 }}>{locked ? "🔒" : slot.dispo ? "✅" : "○"}</div>
+                                  {slot.dispo && !locked && (
+                                    <div style={{ fontSize:10, color:"#065f46", fontWeight:700 }}>{slot.debut}–{slot.fin}</div>
+                                  )}
+                                  {locked && (
+                                    <div style={{ fontSize:9, color:"#94a3b8", fontWeight:600 }}>Programmé</div>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Ajustement horaires des créneaux actifs */}
+                {JOURS_SEMAINE.some(j => CRENEAUX_DEF.some(c => disponibilites[j]?.[c.id]?.dispo)) && (
+                  <div style={{ background:"#fff", border:"1px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:20 }}>
+                    <h4 style={{ margin:"0 0 14px", fontSize:14, fontWeight:800, color:"#0f172a" }}>⏰ Ajuster les horaires de vos créneaux</h4>
+                    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                      {JOURS_SEMAINE.map(j => CRENEAUX_DEF.map(c => {
+                        const slot = disponibilites[j]?.[c.id];
+                        if (!slot?.dispo) return null;
+                        const locked = !!slot.verrouille;
+                        return (
+                          <div key={`${j}-${c.id}`} style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", padding:"8px 12px", background: locked ? "#f8fafc" : "#f0fdf4", borderRadius:8, border:`1px solid ${locked ? "#e2e8f0" : "#bbf7d0"}`, opacity: locked ? 0.7 : 1 }}>
+                            <span style={{ fontWeight:700, fontSize:13, minWidth:160, color: locked ? "#94a3b8" : "#065f46" }}>{j} — {c.label} {locked && "🔒"}</span>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              <label style={{ fontSize:11, color:"#64748b" }}>De</label>
+                              <input type="time" value={slot.debut} disabled={locked}
+                                onChange={e => setDisponibilites(prev => ({ ...prev, [j]: { ...prev[j], [c.id]: { ...prev[j][c.id], debut: e.target.value } } }))}
+                                style={{ padding:"4px 8px", borderRadius:6, border:"1px solid #d1d5db", fontSize:12, cursor: locked ? "not-allowed" : "auto", background: locked ? "#f1f5f9" : "#fff" }}
+                              />
+                              <label style={{ fontSize:11, color:"#64748b" }}>À</label>
+                              <input type="time" value={slot.fin} disabled={locked}
+                                onChange={e => setDisponibilites(prev => ({ ...prev, [j]: { ...prev[j], [c.id]: { ...prev[j][c.id], fin: e.target.value } } }))}
+                                style={{ padding:"4px 8px", borderRadius:6, border:"1px solid #d1d5db", fontSize:12, cursor: locked ? "not-allowed" : "auto", background: locked ? "#f1f5f9" : "#fff" }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      }))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Résumé */}
+                <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"16px 20px" }}>
+                  <h4 style={{ margin:"0 0 10px", fontSize:13, fontWeight:800, color:"#0369a1" }}>📋 Récapitulatif de vos disponibilités</h4>
+                  {JOURS_SEMAINE.every(j => CRENEAUX_DEF.every(c => !disponibilites[j]?.[c.id]?.dispo)) ? (
+                    <p style={{ color:"#94a3b8", fontSize:13, margin:0 }}>Aucun créneau sélectionné. Cliquez sur la grille pour indiquer vos disponibilités.</p>
+                  ) : (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                      {JOURS_SEMAINE.map(j => {
+                        const slots = CRENEAUX_DEF.filter(c => disponibilites[j]?.[c.id]?.dispo);
+                        if (!slots.length) return null;
+                        return (
+                          <div key={j} style={{ background:"#fff", border:"1px solid #bae6fd", borderRadius:8, padding:"8px 12px", minWidth:140 }}>
+                            <div style={{ fontWeight:800, color:"#0891b2", fontSize:12, marginBottom:4 }}>{j}</div>
+                            {slots.map(c => {
+                              const sl = disponibilites[j][c.id];
+                              return <div key={c.id} style={{ fontSize:11, color:"#475569" }}>• {c.label} : {sl.debut}–{sl.fin}</div>;
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

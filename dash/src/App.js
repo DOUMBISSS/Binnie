@@ -129,7 +129,7 @@ export default function App() {
     <Route path="/dashboard/superAdmin"     element={<PrivateStaffRoute><SuperAdminDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/parent"         element={<ParentDashboard />} />
 <Route path="/espace-apprenant" element={<EspaceApprenant />} />
-<Route path="/espace-professeur" element={<PrivateStaffRoute><EspaceProfesseur /></PrivateStaffRoute>} />
+<Route path="/espace-professeur" element={<PrivateCoachRoute><EspaceProfesseur /></PrivateCoachRoute>} />
 <Route path="/login-apprenant"   element={<LoginApprenant />} />
 <Route path="/login-professeur"  element={<PublicCoachRoute><LoginProfesseur /></PublicCoachRoute>} />
 <Route path="/login-admin"       element={<PublicAdminRoute><LoginAdmin /></PublicAdminRoute>} />

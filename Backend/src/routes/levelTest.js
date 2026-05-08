@@ -48,10 +48,10 @@ router.post("/submit", async (req, res) => {
   }
 });
 
-// Liste des commerciales actives, filtrée par centre si ?centre_id= fourni
+// Liste des commerciales actives, filtrée par centre si ?centre_id= fourni, ou par id si ?id= fourni
 router.get("/commerciaux", async (req, res) => {
   try {
-    const { centre_id } = req.query;
+    const { centre_id, id } = req.query;
     let query = supabase
       .from("utilisateurs")
       .select("id, nom, prenom, email, telephone, role, scope")
@@ -59,9 +59,9 @@ router.get("/commerciaux", async (req, res) => {
       .eq("actif", true)
       .order("prenom");
 
-    // Filtrer par centre : scope contient le centre_id demandé
-    // Les nationales (scope ["national"]) sont visibles dans tous les centres
-    if (centre_id) {
+    if (id) {
+      query = query.eq("id", id);
+    } else if (centre_id) {
       query = query.or(`scope.cs.{"${centre_id}"},scope.cs.{"national"}`);
     }
 
@@ -76,7 +76,7 @@ router.get("/commerciaux", async (req, res) => {
 // Assigner un commercial à un client (appelé depuis MonEspace)
 router.post("/assign-commercial", async (req, res) => {
   try {
-    const { client_email, commercial_id } = req.body;
+    const { client_email, commercial_id, centre_id } = req.body;
     if (!client_email || !commercial_id) {
       return res.status(400).json({ error: "client_email et commercial_id requis" });
     }
@@ -84,7 +84,7 @@ router.post("/assign-commercial", async (req, res) => {
     // Vérifier que ce commercial existe bien
     const { data: com, error: comErr } = await supabase
       .from("utilisateurs")
-      .select("id")
+      .select("id, scope")
       .eq("id", commercial_id)
       .eq("role", "commercial")
       .maybeSingle();
@@ -93,10 +93,16 @@ router.post("/assign-commercial", async (req, res) => {
       return res.status(400).json({ error: "Commercial introuvable" });
     }
 
-    // Mettre à jour tous les tests de ce client avec le commercial_id
+    // Déterminer le centre_id : celui fourni, sinon le premier du scope du commercial
+    const resolvedCentreId = centre_id ||
+      (Array.isArray(com.scope) && !com.scope.includes("national") ? com.scope[0] : null);
+
+    const updatePayload = { commercial_id };
+    if (resolvedCentreId) updatePayload.centre_id = resolvedCentreId;
+
     const { error: updErr } = await supabase
       .from("level_test_results")
-      .update({ commercial_id })
+      .update(updatePayload)
       .eq("email", client_email);
 
     if (updErr) return res.status(500).json({ error: updErr.message });
@@ -115,7 +121,7 @@ router.get("/all", authenticateAdmin, async (req, res) => {
 
     let query = supabase
       .from("level_test_results")
-      .select("id, fullname, email, phone, profile, level, score, points_earned, points_total, correct_answers, total_questions, submitted_at, commercial_id, centre_id")
+      .select("id, fullname, email, phone, profile, level, score, points_earned, points_total, correct_answers, total_questions, time_taken_seconds, submitted_at, commercial_id, centre_id, by_category, by_cefr, answers_details, audio_answers")
       .order("submitted_at", { ascending: false });
 
     if (!isNational && scope.length > 0) {

@@ -74,14 +74,6 @@ const Q_TYPE_LABEL = {
   speaking:    { icon:"🎙️", label:"Speaking" },
 };
 
-const RECO = {
-  A1: "Notre cours Anglais Débutant (A1→A2) est parfait pour vous. Apprenez les bases de la communication quotidienne en 3 mois avec nos formateurs certifiés.",
-  A2: "Le cours Anglais Élémentaire (A2→B1) vous permettra de progresser rapidement vers le niveau intermédiaire.",
-  B1: "Avec notre programme Anglais Intermédiaire (B1→B2), vous atteindrez l'aisance à l'oral et à l'écrit.",
-  B2: "Le cours Préparation TOEIC / IELTS (B2→C1) vous prépare aux certifications internationales et à la communication professionnelle avancée.",
-  C1: "Notre programme Expert C1→C2 vous amènera à la maîtrise complète, idéal pour les contextes académiques et professionnels exigeants.",
-  C2: "Félicitations, vous êtes bilingue ! Nos cours de Perfectionnement et Accent Reduction peuvent encore vous affiner.",
-};
 
 /* ── Progress bar ──────────────────────────────────────── */
 const PBar = ({ value, max, color = "#dc2626", height = 8 }) => (
@@ -91,29 +83,43 @@ const PBar = ({ value, max, color = "#dc2626", height = 8 }) => (
 );
 
 /* ── Stepper ───────────────────────────────────────────── */
-const Stepper = ({ current }) => (
-  <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:40 }}>
-    {[{n:1,l:"Vos infos"},{n:2,l:"Le test"},{n:3,l:"Résultats"}].map((s, i) => (
-      <React.Fragment key={s.n}>
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
-          <div style={{
-            width:40, height:40, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-            fontWeight:800, fontSize:".88rem", transition:"all .3s",
-            background: current > s.n ? "#10b981" : current === s.n ? "linear-gradient(135deg,#dc2626,#1e3a8a)" : "#f1f5f9",
-            color: current >= s.n ? "#fff" : "#94a3b8",
-            boxShadow: current === s.n ? "0 4px 14px rgba(220,38,38,.35)" : "none",
-          }}>
-            {current > s.n ? "✓" : s.n}
-          </div>
-          <span style={{ fontSize:".72rem", fontWeight: current === s.n ? 700 : 500, color: current === s.n ? "#dc2626" : "#94a3b8", whiteSpace:"nowrap" }}>
-            {s.l}
-          </span>
-        </div>
-        {i < 2 && <div style={{ width:64, height:2, background: current > i+1 ? "#10b981" : "#e2e8f0", margin:"0 6px 20px", transition:"background .4s" }} />}
-      </React.Fragment>
-    ))}
-  </div>
-);
+const Stepper = ({ current, alreadyAssigned }) => {
+  const steps = [
+    {n:1, l:"Vos infos"},
+    {n:2, l:"Le test"},
+    {n:3, l: alreadyAssigned ? "Conseillère ✓" : "Conseillère"},
+    {n:4, l:"Résultats"},
+  ];
+  // Si conseillère déjà assignée, traiter le step 3 comme validé même en step 4
+  const effectiveCurrent = (alreadyAssigned && current === 4) ? 5 : current;
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:40 }}>
+      {steps.map((s, i) => {
+        const done    = effectiveCurrent > s.n;
+        const active  = effectiveCurrent === s.n;
+        return (
+          <React.Fragment key={s.n}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+              <div style={{
+                width:40, height:40, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
+                fontWeight:800, fontSize:".88rem", transition:"all .3s",
+                background: done ? "#10b981" : active ? "linear-gradient(135deg,#dc2626,#1e3a8a)" : "#f1f5f9",
+                color: (done || active) ? "#fff" : "#94a3b8",
+                boxShadow: active ? "0 4px 14px rgba(220,38,38,.35)" : "none",
+              }}>
+                {done ? "✓" : s.n}
+              </div>
+              <span style={{ fontSize:".72rem", fontWeight: active ? 700 : 500, color: active ? "#dc2626" : done ? "#10b981" : "#94a3b8", whiteSpace:"nowrap" }}>
+                {s.l}
+              </span>
+            </div>
+            {i < 3 && <div style={{ width:48, height:2, background: done ? "#10b981" : "#e2e8f0", margin:"0 4px 20px", transition:"background .4s" }} />}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
 
 /* ════════════════════════════════════════════════════════
    MAIN
@@ -285,26 +291,38 @@ export default function FreeLevelTest({ questions: propQ }) {
   const [centreChoisi,       setCentreChoisi]       = useState("");
   const [commerciaux,        setCommerciaux]        = useState([]);
   const [loadingCommerciaux, setLoadingCommerciaux] = useState(false);
+  // Étape assign (après le quiz)
+  const [assignCentre,       setAssignCentre]       = useState("");
+  const [assignCommerciaux,  setAssignCommerciaux]  = useState([]);
+  const [assignLoadingCom,   setAssignLoadingCom]   = useState(false);
+  const [assignCommercialId, setAssignCommercialId] = useState("");
+  const [assignSaving,       setAssignSaving]       = useState(false);
+  const [assignError,        setAssignError]        = useState("");
   const [answers,    setAnswers]    = useState({});
   const [currentQ,   setCurrentQ]   = useState(0);
   const [result,     setResult]     = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingResult, setSavingResult] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [isLoggedIn,     setIsLoggedIn]     = useState(false);
-  const [alreadyTested,  setAlreadyTested]  = useState(false);
-  const [checkingTest,   setCheckingTest]   = useState(false);
+  const [isLoggedIn,       setIsLoggedIn]       = useState(false);
+  const [checkingSession,  setCheckingSession]  = useState(true);
+  const [alreadyTested,    setAlreadyTested]    = useState(false);
+  const [checkingTest,     setCheckingTest]     = useState(false);
+  const [sessionCommercialId, setSessionCommercialId] = useState("");
+  // Auth wall
+  const [authTab,        setAuthTab]        = useState("register");
+  const [authEmail,      setAuthEmail]      = useState("");
+  const [authPassword,   setAuthPassword]   = useState("");
+  const [authName,       setAuthName]       = useState("");
+  const [authTel,        setAuthTel]        = useState("");
+  const [authError,      setAuthError]      = useState("");
+  const [authSuccess,    setAuthSuccess]    = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const timerPerQ = testParams?.timerEnabled !== false ? (testParams?.timerPerQ || 60) : 9999;
   const [timeLeft,   setTimeLeft]   = useState(questions.length * timerPerQ);
   const [elapsed,    setElapsed]    = useState(0);
   const [showReview, setShowReview] = useState(false);
   const [emailSent,  setEmailSent]  = useState(false);
-  // Modal conseiller
-  const [advisorModalOpen, setAdvisorModalOpen] = useState(false);
-  const [advisorChoice, setAdvisorChoice] = useState("bet");
-  const [advisorMessage, setAdvisorMessage] = useState("");
-  const [advisorSubmitting, setAdvisorSubmitting] = useState(false);
-  const [advisorSent, setAdvisorSent] = useState(false);
 
   const timerRef = useRef(null);
   const startRef = useRef(null);
@@ -320,26 +338,41 @@ export default function FreeLevelTest({ questions: propQ }) {
     { id:"bouake",     label:"Bouaké",       ville:"Bouaké",  icon:"🌍" },
   ];
 
-  /* ── Charger les conseillères quand un centre est choisi ── */
+  /* ── Charger les conseillères quand un centre est choisi (form) ── */
   useEffect(() => {
     if (!centreChoisi) { setCommerciaux([]); return; }
     setLoadingCommerciaux(true);
-    fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/level-test/commerciaux?centre_id=${centreChoisi}`)
+    fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5001"}/api/level-test/commerciaux?centre_id=${centreChoisi}`)
       .then(r => r.json())
       .then(data => setCommerciaux(data.commerciaux || []))
       .catch(() => setCommerciaux([]))
       .finally(() => setLoadingCommerciaux(false));
   }, [centreChoisi]);
 
-  /* ── Pré-remplissage depuis la session Supabase ── */
+  /* ── Charger les conseillères dans le step assign ── */
+  useEffect(() => {
+    if (!assignCentre) { setAssignCommerciaux([]); return; }
+    setAssignLoadingCom(true);
+    fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5001"}/api/level-test/commerciaux?centre_id=${assignCentre}`)
+      .then(r => r.json())
+      .then(data => setAssignCommerciaux(data.commerciaux || []))
+      .catch(() => setAssignCommerciaux([]))
+      .finally(() => setAssignLoadingCom(false));
+  }, [assignCentre]);
+
+  const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
+
+  /* ── Session Supabase : pré-remplissage + vérification test ── */
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) return;
+      if (!session?.user) { setCheckingSession(false); return; }
       const meta = session.user.user_metadata || {};
       const fullName = (meta.nom && meta.prenom)
         ? `${meta.nom} ${meta.prenom}`
         : meta.full_name || session.user.email.split("@")[0];
       setIsLoggedIn(true);
+      setCheckingSession(false);
+      if (meta.commercial_id) setSessionCommercialId(meta.commercial_id);
       setFormData(fd => ({
         ...fd,
         fullname: fullName,
@@ -347,12 +380,9 @@ export default function FreeLevelTest({ questions: propQ }) {
         phone:    meta.telephone || fd.phone,
         consent:  true,
       }));
-      // Vérifier si ce client a déjà passé le test
       setCheckingTest(true);
       try {
-        const res = await fetch(
-          `http://localhost:5001/api/level-test/result?email=${encodeURIComponent(session.user.email)}`
-        );
+        const res = await fetch(`${API_BASE}/api/level-test/result?email=${encodeURIComponent(session.user.email)}`);
         const data = await res.json();
         if (data.result) setAlreadyTested(true);
       } catch { /* silently ignore */ }
@@ -360,12 +390,51 @@ export default function FreeLevelTest({ questions: propQ }) {
     });
   }, []);
 
-  const advisors = [
-    { id: "angre", name: "Conseiller Angré", centre: "Angré", phone: "+2250700000001" },
-    { id: "bouake", name: "Conseiller Bouaké", centre: "Bouaké", phone: "+2250700000002" },
-    { id: "plateaux", name: "Conseiller II Plateaux", centre: "II Plateaux", phone: "+2250700000003" },
-    { id: "general", name: "Conseiller général (BET)", centre: "Siège", phone: "+2250700000000" },
-  ];
+  const handleAuthRegister = async (e) => {
+    e.preventDefault();
+    setAuthError(""); setAuthSuccess(""); setAuthSubmitting(true);
+    try {
+      const nameParts = authName.trim().split(" ");
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nom: nameParts[0] || "", prenom: nameParts.slice(1).join(" ") || "", email: authEmail, telephone: authTel, password: authPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur lors de l'inscription");
+      setAuthSuccess("Compte créé ! Connexion en cours…");
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      if (signInErr) throw new Error(signInErr.message);
+      window.location.reload();
+    } catch (err) {
+      setAuthError(err.message);
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleAuthLogin = async (e) => {
+    e.preventDefault();
+    setAuthError(""); setAuthSuccess(""); setAuthSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Email ou mot de passe incorrect");
+      await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+      window.location.reload();
+    } catch (err) {
+      setAuthError(err.message);
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/test-niveau` } });
+  };
+
 
   useEffect(() => {
     if (step === "quiz") {
@@ -478,44 +547,63 @@ export default function FreeLevelTest({ questions: propQ }) {
     setResult(r);
     setSavingResult(true);
     setSaveError("");
+
+    // Lire le commercial_id depuis la session en temps réel (au cas où choisi depuis Mon Espace)
+    let currentCommercialId = sessionCommercialId;
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      currentCommercialId = currentSession?.user?.user_metadata?.commercial_id || sessionCommercialId;
+    } catch { /* utiliser sessionCommercialId */ }
+
     try {
       await saveTestResultToBackend(r);
-      setStep("result");
-      setTimeout(() => setEmailSent(true), 1800);
+      // Si une conseillère est déjà assignée, l'associer au résultat et passer directement au résultat
+      if (currentCommercialId) {
+        const centreFromMeta = (await supabase.auth.getSession())?.data?.session?.user?.user_metadata?.centre_id || null;
+        await fetch(`${API_BASE}/api/level-test/assign-commercial`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_email: formData.email, commercial_id: currentCommercialId, centre_id: centreFromMeta }),
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error("Erreur sauvegarde résultat :", err);
-      setSaveError("Impossible d'enregistrer votre résultat. Veuillez réessayer ou contacter le support.");
-      // On affiche quand même le résultat à l'utilisateur
-      setStep("result");
-      setTimeout(() => setEmailSent(true), 1800);
     } finally {
       setSavingResult(false);
+      if (currentCommercialId) {
+        setStep("result");
+        setTimeout(() => setEmailSent(true), 1800);
+      } else {
+        setStep("assign");
+      }
+    }
+  };
+
+  const handleAssignAndContinue = async () => {
+    if (!assignCentre) { setAssignError("Veuillez sélectionner votre centre BET."); return; }
+    if (!assignCommercialId) { setAssignError("Veuillez choisir votre conseillère."); return; }
+    setAssignError("");
+    setAssignSaving(true);
+    try {
+      const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
+      await fetch(`${API_BASE}/api/level-test/assign-commercial`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_email: formData.email, commercial_id: assignCommercialId, centre_id: assignCentre }),
+      });
+      if (isLoggedIn) {
+        await supabase.auth.updateUser({ data: { commercial_id: assignCommercialId, centre_id: assignCentre } });
+      }
+    } catch (err) {
+      console.error("Erreur assignation conseillère :", err);
+    } finally {
+      setAssignSaving(false);
+      setStep("result");
+      setTimeout(() => setEmailSent(true), 1800);
     }
   };
 
   // Envoi du bilan gratuit
-  const handleAdvisorSubmit = async () => {
-    setAdvisorSubmitting(true);
-    try {
-      await insertTestNiveau({
-        nom:            formData.fullname,
-        email:          formData.email,
-        telephone:      formData.phone || null,
-        score:          result?.pct || null,
-        niveau_cefr:    result?.cefr || null,
-        advisor_choice: advisorChoice,
-        advisor_message:advisorMessage || null,
-        statut:         "bilan_demande",
-      });
-      setAdvisorSubmitting(false);
-      setAdvisorSent(true);
-    } catch (err) {
-      console.error("Erreur bilan:", err);
-      setAdvisorSubmitting(false);
-      setAdvisorSent(true);
-    }
-  };
-
   const answered = Object.keys(answers).filter(id => answers[id]).length;
   const requiredCount = questions.filter(q => q.type !== "speaking").length;
   const answeredRequired = questions.filter(q => q.type !== "speaking" && answers[q.id]).length;
@@ -554,10 +642,80 @@ export default function FreeLevelTest({ questions: propQ }) {
 
         {/* ── PAGE BODY ─────────────────────────────── */}
         <div style={S.body}>
-          <Stepper current={step === "form" ? 1 : step === "quiz" ? 2 : 3} />
+          <Stepper current={step === "form" ? 1 : step === "quiz" ? 2 : step === "assign" ? 3 : 4} alreadyAssigned={!!sessionCommercialId} />
+
+          {/* MUR AUTH : non connecté */}
+          {step === "form" && (checkingSession ? (
+            <div style={{ textAlign:"center", padding:"60px 24px", color:"#64748b" }}>
+              <div style={{ width:40, height:40, border:"4px solid #e2e8f0", borderTopColor:"#dc2626", borderRadius:"50%", animation:"fltSpin .8s linear infinite", margin:"0 auto 16px" }} />
+              Vérification de votre session…
+            </div>
+          ) : !isLoggedIn ? (
+            <div style={{ ...S.card, maxWidth:460, animation:"fltSI .45s ease" }}>
+              <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a8a)", padding:"28px 28px 22px", textAlign:"center" }}>
+                <div style={{ fontSize:"2.4rem", marginBottom:8 }}>🔐</div>
+                <h2 style={{ fontFamily:"Montserrat,sans-serif", color:"#fff", fontWeight:800, margin:"0 0 8px", fontSize:"1.15rem" }}>
+                  Connectez-vous pour passer le test
+                </h2>
+                <p style={{ color:"rgba(255,255,255,.7)", fontSize:".83rem", margin:0, lineHeight:1.6 }}>
+                  Un compte est obligatoire pour que votre conseillère puisse recevoir votre résultat et vous contacter.
+                </p>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display:"flex", borderBottom:"1px solid #e2e8f0" }}>
+                {[{id:"register",l:"Créer un compte"},{id:"login",l:"Se connecter"}].map(t => (
+                  <button key={t.id} onClick={() => { setAuthTab(t.id); setAuthError(""); setAuthSuccess(""); }}
+                    style={{ flex:1, padding:"13px 0", border:"none", background:"none", fontWeight: authTab===t.id?800:500,
+                      color: authTab===t.id?"#dc2626":"#64748b", borderBottom: authTab===t.id?"2.5px solid #dc2626":"2.5px solid transparent",
+                      cursor:"pointer", fontSize:".88rem", transition:"all .15s" }}>
+                    {t.l}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ padding:"24px 28px" }}>
+                {/* Google */}
+                <button onClick={handleGoogleAuth}
+                  style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:10,
+                    padding:"11px 16px", border:"1.5px solid #e2e8f0", borderRadius:10, background:"#fff",
+                    cursor:"pointer", fontWeight:700, fontSize:".88rem", color:"#0f172a", marginBottom:18 }}>
+                  <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                  Continuer avec Google
+                </button>
+
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
+                  <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+                  <span style={{ fontSize:".76rem", color:"#94a3b8", fontWeight:600 }}>ou</span>
+                  <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+                </div>
+
+                <form onSubmit={authTab==="register" ? handleAuthRegister : handleAuthLogin} style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  {authTab === "register" && (
+                    <>
+                      <input placeholder="Nom complet *" value={authName} onChange={e=>setAuthName(e.target.value)} required
+                        style={S.input} />
+                      <input placeholder="Téléphone" value={authTel} onChange={e=>setAuthTel(e.target.value)}
+                        style={S.input} />
+                    </>
+                  )}
+                  <input type="email" placeholder="Email *" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} required style={S.input} />
+                  <input type="password" placeholder="Mot de passe *" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} required style={S.input} />
+
+                  {authError && <p style={{ color:"#dc2626", fontSize:".82rem", margin:0, fontWeight:600 }}>⚠ {authError}</p>}
+                  {authSuccess && <p style={{ color:"#059669", fontSize:".82rem", margin:0, fontWeight:600 }}>✅ {authSuccess}</p>}
+
+                  <button type="submit" disabled={authSubmitting}
+                    style={{ ...S.btnRed, width:"100%", opacity: authSubmitting ? .7 : 1 }}>
+                    {authSubmitting ? "Chargement…" : authTab==="register" ? "Créer mon compte et passer le test →" : "Se connecter →"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : null)}
 
           {/* BLOCAGE : test déjà passé */}
-          {step === "form" && (checkingTest || alreadyTested) && (
+          {step === "form" && isLoggedIn && (checkingTest || alreadyTested) && (
             <div style={{ ...S.card, maxWidth:500, animation:"fltSI .45s ease", textAlign:"center", padding:"48px 32px" }}>
               {checkingTest ? (
                 <div style={{ color:"#64748b", fontSize:14 }}>Vérification en cours…</div>
@@ -594,7 +752,7 @@ export default function FreeLevelTest({ questions: propQ }) {
           )}
 
           {/* ÉTAPE 1 — FORMULAIRE */}
-          {step === "form" && !checkingTest && !alreadyTested && (
+          {step === "form" && isLoggedIn && !checkingTest && !alreadyTested && (
             <div style={{ ...S.card, maxWidth:500, animation:"fltSI .45s ease" }}>
               <div style={S.formTop}>
                 <div style={S.formTopOrb} />
@@ -664,84 +822,6 @@ export default function FreeLevelTest({ questions: propQ }) {
                       </div>
                     );
                   })}
-                </div>
-
-                {/* Centre + Conseillère */}
-                <div style={{ marginBottom:18 }}>
-                  <label style={S.fieldLabel}>Centre souhaité <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnel)</span></label>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:8 }}>
-                    {BET_CENTRES.map(c => {
-                      const selected = centreChoisi === c.id;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            const next = selected ? "" : c.id;
-                            setCentreChoisi(next);
-                            setFormData(fd => ({ ...fd, centre_id: next, commercial_id: "" }));
-                          }}
-                          style={{
-                            padding:"10px 6px",
-                            border:`2px solid ${selected ? "#dc2626" : "#e2e8f0"}`,
-                            borderRadius:10,
-                            background: selected ? "#fef2f2" : "#fff",
-                            cursor:"pointer",
-                            display:"flex", flexDirection:"column", alignItems:"center", gap:4,
-                            transition:"all .18s",
-                          }}
-                        >
-                          <span style={{ fontSize:"1.3rem" }}>{c.icon}</span>
-                          <span style={{ fontSize:".75rem", fontWeight: selected ? 800 : 600, color: selected ? "#dc2626" : "#1e293b" }}>{c.label}</span>
-                          <span style={{ fontSize:".68rem", color:"#94a3b8" }}>{c.ville}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Conseillères du centre */}
-                  {centreChoisi && (
-                    <div style={{ marginTop:14 }}>
-                      <label style={{ ...S.fieldLabel, marginBottom:6 }}>Conseillère du centre</label>
-                      {loadingCommerciaux ? (
-                        <div style={{ textAlign:"center", padding:"14px 0", color:"#94a3b8", fontSize:".84rem" }}>Chargement…</div>
-                      ) : commerciaux.length === 0 ? (
-                        <div style={{ textAlign:"center", padding:"14px 0", color:"#94a3b8", fontSize:".84rem" }}>Aucune conseillère disponible pour ce centre</div>
-                      ) : (
-                        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                          {commerciaux.map(com => {
-                            const sel = formData.commercial_id === com.id;
-                            return (
-                              <button
-                                key={com.id}
-                                type="button"
-                                onClick={() => setFormData(fd => ({ ...fd, commercial_id: sel ? "" : com.id }))}
-                                style={{
-                                  display:"flex", alignItems:"center", gap:12,
-                                  padding:"10px 14px",
-                                  border:`2px solid ${sel ? "#dc2626" : "#e2e8f0"}`,
-                                  borderRadius:10,
-                                  background: sel ? "#fef2f2" : "#fff",
-                                  cursor:"pointer",
-                                  textAlign:"left",
-                                  transition:"all .18s",
-                                }}
-                              >
-                                <div style={{ width:38, height:38, borderRadius:"50%", background: sel ? "#dc2626" : "#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                                  <span style={{ fontSize:"1.1rem" }}>👩‍💼</span>
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight:700, fontSize:".85rem", color: sel ? "#dc2626" : "#1e293b" }}>{com.prenom} {com.nom}</div>
-                                  {com.telephone && <div style={{ fontSize:".76rem", color:"#64748b" }}>{com.telephone}</div>}
-                                </div>
-                                {sel && <span style={{ marginLeft:"auto", fontSize:".75rem", background:"#dc2626", color:"#fff", borderRadius:20, padding:"2px 10px", fontWeight:700 }}>✓ Sélectionnée</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 {/* Consent */}
@@ -983,7 +1063,108 @@ export default function FreeLevelTest({ questions: propQ }) {
             );
           })()}
 
-          {/* ÉTAPE 3 — RÉSULTATS (avec message d'erreur éventuel) */}
+          {/* ÉTAPE 3 — CHOIX CONSEILLÈRE (obligatoire) */}
+          {step === "assign" && result && (
+            <div style={{ ...S.card, maxWidth:560, animation:"fltSI .4s ease" }}>
+              {/* Aperçu résultat */}
+              <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius:14, padding:"20px 24px", marginBottom:24, display:"flex", alignItems:"center", gap:16 }}>
+                <div style={{ width:56, height:56, borderRadius:"50%", background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:"1.3rem", color:"#fff", flexShrink:0 }}>
+                  {result.cefr}
+                </div>
+                <div>
+                  <div style={{ color:"rgba(255,255,255,.7)", fontSize:".78rem" }}>Votre niveau</div>
+                  <div style={{ color:"#fff", fontWeight:800, fontSize:"1.1rem" }}>Score : {result.pct}% — {result.cefr}</div>
+                  <div style={{ color:"rgba(255,255,255,.6)", fontSize:".76rem", marginTop:2 }}>Résultat enregistré ✓</div>
+                </div>
+              </div>
+
+              {/* Titre étape */}
+              <div style={{ textAlign:"center", marginBottom:24 }}>
+                <div style={{ fontSize:"2rem", marginBottom:8 }}>🤝</div>
+                <h2 style={{ fontFamily:"Montserrat,sans-serif", fontWeight:800, color:"#0f172a", margin:"0 0 8px", fontSize:"1.15rem" }}>
+                  Choisissez votre conseillère BET
+                </h2>
+                <p style={{ color:"#64748b", fontSize:".87rem", lineHeight:1.6, margin:0 }}>
+                  Votre conseillère recevra votre résultat et vous contactera pour vous proposer un programme personnalisé. Cette étape est <strong>obligatoire</strong>.
+                </p>
+              </div>
+
+              {/* Étape 1 : Centre */}
+              <div style={{ marginBottom:20 }}>
+                <label style={{ display:"block", fontSize:".78rem", fontWeight:700, color:"#0f172a", marginBottom:10 }}>
+                  🏢 Étape 1 — Choisissez votre centre BET *
+                </label>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                  {BET_CENTRES.map(c => {
+                    const sel = assignCentre === c.id;
+                    return (
+                      <button key={c.id} type="button"
+                        onClick={() => { setAssignCentre(c.id); setAssignCommercialId(""); setAssignError(""); }}
+                        style={{ padding:"10px 6px", border:`2px solid ${sel?"#dc2626":"#e2e8f0"}`, borderRadius:10,
+                          background: sel?"#fef2f2":"#fff", cursor:"pointer",
+                          display:"flex", flexDirection:"column", alignItems:"center", gap:4, transition:"all .18s" }}>
+                        <span style={{ fontSize:"1.3rem" }}>{c.icon}</span>
+                        <span style={{ fontSize:".75rem", fontWeight: sel?800:600, color: sel?"#dc2626":"#1e293b" }}>{c.label}</span>
+                        <span style={{ fontSize:".68rem", color:"#94a3b8" }}>{c.ville}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Étape 2 : Conseillère */}
+              {assignCentre && (
+                <div style={{ marginBottom:20 }}>
+                  <label style={{ display:"block", fontSize:".78rem", fontWeight:700, color:"#0f172a", marginBottom:10 }}>
+                    👩‍💼 Étape 2 — Choisissez votre conseillère *
+                  </label>
+                  {assignLoadingCom ? (
+                    <div style={{ textAlign:"center", padding:"16px 0", color:"#94a3b8", fontSize:".84rem" }}>Chargement…</div>
+                  ) : assignCommerciaux.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"16px 0", color:"#94a3b8", fontSize:".84rem" }}>Aucune conseillère disponible. Contactez-nous directement.</div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      {assignCommerciaux.map(com => {
+                        const sel = assignCommercialId === com.id;
+                        return (
+                          <button key={com.id} type="button"
+                            onClick={() => { setAssignCommercialId(sel ? "" : com.id); setAssignError(""); }}
+                            style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
+                              border:`2px solid ${sel?"#dc2626":"#e2e8f0"}`, borderRadius:10,
+                              background: sel?"#fef2f2":"#fff", cursor:"pointer", textAlign:"left", transition:"all .18s" }}>
+                            <div style={{ width:42, height:42, borderRadius:"50%", background: sel?"#dc2626":"#f1f5f9",
+                              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                              <span style={{ fontSize:"1.2rem" }}>👩‍💼</span>
+                            </div>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontWeight:700, fontSize:".9rem", color: sel?"#dc2626":"#1e293b" }}>{com.prenom} {com.nom}</div>
+                              {com.telephone && <div style={{ fontSize:".76rem", color:"#64748b", marginTop:2 }}>{com.telephone}</div>}
+                            </div>
+                            {sel && <span style={{ fontSize:".75rem", background:"#dc2626", color:"#fff", borderRadius:20, padding:"2px 10px", fontWeight:700 }}>✓ Choisie</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {assignError && (
+                <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"10px 14px", marginBottom:14, color:"#dc2626", fontSize:".84rem", fontWeight:600 }}>
+                  ⚠ {assignError}
+                </div>
+              )}
+
+              <button onClick={handleAssignAndContinue} disabled={assignSaving}
+                style={{ ...S.btnRed, width:"100%", opacity: assignSaving ? .7 : 1, cursor: assignSaving ? "wait" : "pointer" }}>
+                {assignSaving
+                  ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}><span style={S.spinner} />Enregistrement…</span>
+                  : "Confirmer et voir mon résultat complet →"}
+              </button>
+            </div>
+          )}
+
+          {/* ÉTAPE 4 — RÉSULTATS (avec message d'erreur éventuel) */}
           {step === "result" && result && (() => {
             const ci = CEFR[result.cefr];
             return (
@@ -1085,17 +1266,14 @@ export default function FreeLevelTest({ questions: propQ }) {
                   </div>
                 </div>
 
-                {/* Recommandation (inchangé) */}
+                {/* CTA formations */}
                 <div style={{ ...S.recCard, background:`linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%)` }}>
                   <div style={S.recOrb} />
                   <div style={{ position:"relative", zIndex:1 }}>
-                    <span style={S.recKicker}>🎯 Notre recommandation pour vous, {formData.fullname.split(" ")[0]}</span>
-                    <h3 style={S.recTitle}>{ci.course}</h3>
-                    <p style={S.recDesc}>{RECO[result.cefr]}</p>
+                    <span style={S.recKicker}>✅ Votre conseillère a bien reçu votre résultat</span>
+                    <h3 style={S.recTitle}>Votre niveau : {result.cefr} — {ci.label}</h3>
+                    <p style={S.recDesc}>Elle vous contactera prochainement pour vous proposer un programme de formation adapté à votre niveau et à vos objectifs.</p>
                     <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-                      <button style={S.recBtnRed} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={() => setAdvisorModalOpen(true)}>
-                        📞 Bilan gratuit avec un conseiller
-                      </button>
                       <button style={S.recBtnGhost} onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,.12)";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}} onClick={()=>navigate("/cours/en-ligne")}>
                         📚 Voir nos formations →
                       </button>
@@ -1106,7 +1284,7 @@ export default function FreeLevelTest({ questions: propQ }) {
                           onMouseLeave={e=>e.currentTarget.style.background="rgba(16,185,129,.15)"}
                           onClick={() => navigate("/mon-espace")}
                         >
-                          🏠 Voir mon résultat dans Mon Espace →
+                          🏠 Voir dans Mon Espace →
                         </button>
                       )}
                     </div>
@@ -1218,59 +1396,6 @@ export default function FreeLevelTest({ questions: propQ }) {
       </div>
 
       {/* MODAL CONSEILLER (inchangée) */}
-      {advisorModalOpen && (
-        <div style={S.modalOverlay} onClick={() => setAdvisorModalOpen(false)}>
-          <div style={S.modalContainer} onClick={e => e.stopPropagation()}>
-            {!advisorSent ? (
-              <>
-                <div style={S.modalHeader}>
-                  <h3 style={S.modalTitle}>📞 Bilan gratuit personnalisé</h3>
-                  <button style={S.modalClose} onClick={() => setAdvisorModalOpen(false)}>✕</button>
-                </div>
-                <div style={S.modalBody}>
-                  <div style={{ background:"#f8fafc", borderRadius:12, padding:"12px 16px", marginBottom:20 }}>
-                    <p style={{ fontSize:".75rem", fontWeight:600, color:"#64748b", marginBottom:8, textTransform:"uppercase" }}>Vos coordonnées (déjà renseignées)</p>
-                    <div style={{ display:"flex", gap:16, flexWrap:"wrap", fontSize:".88rem" }}>
-                      <span>👤 <strong>{formData.fullname}</strong></span>
-                      <span>📧 <strong>{formData.email}</strong></span>
-                      {formData.phone && <span>📞 <strong>{formData.phone}</strong></span>}
-                    </div>
-                    <p style={{ fontSize:".7rem", color:"#94a3b8", marginTop:8 }}>Ces informations seront transmises à votre conseiller.</p>
-                  </div>
-                  <p style={{ fontSize:".9rem", color:"#475569", marginBottom:20 }}>Choisissez votre conseiller préféré ou envoyez directement votre demande à BET.</p>
-                  <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
-                    <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-                      <input type="radio" name="advisor" value="bet" checked={advisorChoice === "bet"} onChange={() => setAdvisorChoice("bet")} />
-                      <span style={{ fontWeight:600 }}>🏢 BET (contact général)</span>
-                    </label>
-                    {advisors.map(adv => (
-                      <label key={adv.id} style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-                        <input type="radio" name="advisor" value={adv.id} checked={advisorChoice === adv.id} onChange={() => setAdvisorChoice(adv.id)} />
-                        <span style={{ fontWeight:600 }}>📞 {adv.name} ({adv.centre})</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div style={{ marginBottom:20 }}>
-                    <label style={S.fieldLabel}>Message (optionnel)</label>
-                    <textarea rows={3} style={{ ...S.input, resize:"vertical" }} placeholder="Précisez vos disponibilités ou vos questions..." value={advisorMessage} onChange={e => setAdvisorMessage(e.target.value)} />
-                  </div>
-                  <button style={{ ...S.btnRed, width:"100%" }} onClick={handleAdvisorSubmit} disabled={advisorSubmitting} onMouseEnter={e => e.currentTarget.style.background="#b91c1c"} onMouseLeave={e => e.currentTarget.style.background="#dc2626"}>
-                    {advisorSubmitting ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><span style={S.spinner} /> Envoi...</span> : "Envoyer ma demande →"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div style={{ textAlign:"center", padding:"30px 24px" }}>
-                <div style={{ fontSize:"3rem", marginBottom:12 }}>✅</div>
-                <h3 style={{ fontFamily:"'DM Serif Display',serif", fontSize:"1.3rem", marginBottom:8 }}>Demande envoyée !</h3>
-                <p style={{ color:"#475569", fontSize:".88rem", lineHeight:1.6 }}>Un conseiller vous contactera sous 24h à l'adresse <strong>{formData.email}</strong> pour fixer votre bilan gratuit.</p>
-                <button style={{ ...S.btnRed, marginTop:20 }} onClick={() => { setAdvisorModalOpen(false); setAdvisorSent(false); }}>Fermer</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <Footer />
     </>
   );

@@ -129,11 +129,16 @@ const TEMPS_MOYEN_TRAITEMENT = 8.2;
    DONNÉES POUR LA GESTION DES PERMISSIONS
 ═══════════════════════════════════════════════════════ */
 const ROLES_DEF = {
-  super_admin: { id:"super_admin", label:"Super Admin", emoji:"👑", color:BET_RED, border:"#fecaca", niveau:5, description:"Accès total, toutes permissions, non modifiable" },
-  admin: { id:"admin", label:"Administrateur", emoji:"🔧", color:BET_COLOR, border:"#bae6fd", niveau:4, description:"Gestion complète sauf les paramètres critiques" },
-  responsable: { id:"responsable", label:"Responsable", emoji:"📋", color:"#8b5cf6", border:"#c4b5fd", niveau:3, description:"Gestion des équipes, suivi pédagogique" },
-  manager: { id:"manager", label:"Manager", emoji:"👥", color:"#10b981", border:"#a7f3d0", niveau:2, description:"Consultation et reporting, actions limitées" },
+  super_admin:    { id:"super_admin",    label:"Super Admin",       emoji:"👑",  color:BET_RED,    border:"#fecaca", niveau:5, description:"Accès total, toutes permissions, non modifiable" },
+  admin:          { id:"admin",          label:"Administrateur",    emoji:"🔧",  color:BET_COLOR,  border:"#bae6fd", niveau:4, description:"Gestion complète sauf les paramètres critiques" },
+  responsable:    { id:"responsable",    label:"Responsable",       emoji:"📋",  color:"#8b5cf6",  border:"#c4b5fd", niveau:3, description:"Gestion des équipes, suivi pédagogique" },
+  manager:        { id:"manager",        label:"Manager",           emoji:"👥",  color:"#10b981",  border:"#a7f3d0", niveau:2, description:"Consultation et reporting, actions limitées" },
+  commercial:     { id:"commercial",     label:"Conseillère",       emoji:"💁‍♀️", color:"#f59e0b",  border:"#fde68a", niveau:1, description:"Gestion des prospects et inscriptions" },
+  coach:          { id:"coach",          label:"Coach / Formateur", emoji:"👨‍🏫", color:"#0ea5e9",  border:"#bae6fd", niveau:1, description:"Accompagnement pédagogique des apprenants" },
+  gestionnaire:   { id:"gestionnaire",   label:"Gestionnaire",      emoji:"📊",  color:"#6366f1",  border:"#c7d2fe", niveau:1, description:"Gestion administrative et financière" },
+  data_collector: { id:"data_collector", label:"Data Collector",    emoji:"📋",  color:"#6b7280",  border:"#e5e7eb", niveau:1, description:"Collecte et traitement des données" },
 };
+const ROLES_AVEC_CENTRE = ["admin","responsable","manager","commercial","coach","gestionnaire"];
 
 const MODULES = [
   { id:"dashboard", label:"Tableau de bord", cat:"Analyse", icon:"📊" },
@@ -150,11 +155,11 @@ const PERM_LABELS = { create:"Créer", read:"Lire", update:"Modifier", delete:"S
 const PERM_COLORS = { create:"#22c55e", read:"#3b82f6", update:"#f59e0b", delete:"#ef4444", manage:"#8b5cf6" };
 
 const USERS_INIT = [
-  { id:1, nom:"Kouamé Aya", email:"aya@bet.com", avatar:"KA", role:"super_admin", actif:true, twofa:true, sessions:3, dernConn:"10/12/2025 09:23", ipRestr:false, accessTemp:null },
-  { id:2, nom:"Diallo Ibrahima", email:"ibra@bet.com", avatar:"ID", role:"admin", actif:true, twofa:true, sessions:2, dernConn:"09/12/2025 14:12", ipRestr:false, accessTemp:null },
-  { id:3, nom:"Touré Mamadou", email:"mamadou@bet.com", avatar:"TM", role:"responsable", actif:true, twofa:false, sessions:1, dernConn:"08/12/2025 11:45", ipRestr:false, accessTemp:null },
-  { id:4, nom:"Bamba Aïcha", email:"aicha@bet.com", avatar:"BA", role:"manager", actif:true, twofa:false, sessions:0, dernConn:"05/12/2025 16:30", ipRestr:false, accessTemp:"2025-12-20" },
-  { id:5, nom:"Coulibaly Jean", email:"jean@bet.com", avatar:"JC", role:"manager", actif:false, twofa:false, sessions:0, dernConn:"Jamais", ipRestr:false, accessTemp:null },
+  { id:1, nom:"Kouamé Aya",      email:"aya@bet.com",    avatar:"KA", role:"super_admin", scope:["national"], actif:true,  twofa:true,  sessions:3, dernConn:"10/12/2025 09:23", ipRestr:false, accessTemp:null },
+  { id:2, nom:"Diallo Ibrahima", email:"ibra@bet.com",   avatar:"ID", role:"admin",       scope:["angre"],    actif:true,  twofa:true,  sessions:2, dernConn:"09/12/2025 14:12", ipRestr:false, accessTemp:null },
+  { id:3, nom:"Touré Mamadou",   email:"mamadou@bet.com",avatar:"TM", role:"responsable", scope:["2plateaux"],actif:true,  twofa:false, sessions:1, dernConn:"08/12/2025 11:45", ipRestr:false, accessTemp:null },
+  { id:4, nom:"Bamba Aïcha",     email:"aicha@bet.com",  avatar:"BA", role:"manager",     scope:["yopougon"], actif:true,  twofa:false, sessions:0, dernConn:"05/12/2025 16:30", ipRestr:false, accessTemp:"2025-12-20" },
+  { id:5, nom:"Coulibaly Jean",  email:"jean@bet.com",   avatar:"JC", role:"manager",     scope:["koumassi"], actif:false, twofa:false, sessions:0, dernConn:"Jamais",           ipRestr:false, accessTemp:null },
 ];
 
 const SECURITE_INIT = {
@@ -403,6 +408,10 @@ export default function AdminDashboard() {
     { id:"abatta",     label:"BET Abatta — Abidjan" },
     { id:"bouake",     label:"BET Bouaké — Bouaké" },
   ];
+  const scopeLabel = (scope) => {
+    if (!scope || scope.length === 0 || scope.includes("national")) return null;
+    return scope.map(s => BET_CENTRES.find(c => c.id === s)?.label.replace("BET ","") || s).join(", ");
+  };
   const [editingUser, setEditingUser] = useState(null);
   const [userToRevoke, setUserToRevoke] = useState(null);
   const [cloneForm, setCloneForm] = useState({ source:"admin", cible:"manager" });
@@ -425,6 +434,34 @@ export default function AdminDashboard() {
   const [commentsArticle, setCommentsArticle] = useState(null);
   const [articleComments, setArticleComments] = useState([]);
   const [blogSearchTerm,  setBlogSearchTerm]  = useState("");
+
+  /* ── Charger les utilisateurs depuis le backend ── */
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/utilisateurs`, { headers: authHdrs() });
+      if (r.ok) {
+        const d = await r.json();
+        if (d.utilisateurs?.length) {
+          setUsers(d.utilisateurs.map(u => ({
+            ...u,
+            avatar: ((u.prenom?.[0] || "") + (u.nom?.[0] || "")).toUpperCase() || "??",
+            nom: `${u.prenom || ""} ${u.nom || ""}`.trim(),
+            twofa: u.twofa_active || false,
+            sessions: 0,
+            dernConn: u.derniere_connexion
+              ? new Date(u.derniere_connexion).toLocaleString("fr-FR")
+              : "Jamais",
+            accessTemp: null,
+            ipRestr: false,
+          })));
+        }
+      }
+    } catch { /* garde le mock en cas d'erreur réseau */ }
+    finally { setLoadingUsers(false); }
+  }, []);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const fetchBlogArticles = useCallback(async () => {
     setBlogLoading(true);
@@ -601,15 +638,15 @@ export default function AdminDashboard() {
 
   const sendInvite = async () => {
     if (!inviteForm.nom || !inviteForm.email) { toast.error("Veuillez remplir le nom et l'email"); return; }
-    if (inviteForm.role === "commercial" && !inviteForm.centre_id) { toast.error("Sélectionnez le centre de la conseillère"); return; }
+    if (ROLES_AVEC_CENTRE.includes(inviteForm.role) && !inviteForm.centre_id) {
+      toast.error("Veuillez sélectionner le centre BET attribué à cet utilisateur");
+      return;
+    }
     try {
       const parts = inviteForm.nom.trim().split(" ");
       const prenom = parts[0] || "";
       const nom    = parts.slice(1).join(" ") || parts[0] || "";
-      // scope : commercial → son centre uniquement ; autres → national
-      const scope = inviteForm.role === "commercial" && inviteForm.centre_id
-        ? [inviteForm.centre_id]
-        : ["national"];
+      const scope = inviteForm.centre_id ? [inviteForm.centre_id] : ["national"];
       const res = await fetch(`${API_URL}/api/admin/utilisateurs`, {
         method: "POST",
         headers: authHdrs(),
@@ -621,6 +658,7 @@ export default function AdminDashboard() {
       toast.success(`✅ Compte créé — mot de passe temporaire : ${data.mdp_temporaire}`);
       setShowInviteModal(false);
       setInviteForm({ nom:"", email:"", role:"manager", centre_id:"", accessTemp:"", note:"" });
+      fetchUsers();
     } catch { toast.error("Erreur réseau"); }
   };
 
@@ -1182,7 +1220,7 @@ export default function AdminDashboard() {
                 {permSubTab === "utilisateurs" && (
                   <div><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}><div><h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>Utilisateurs administratifs</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>{usersFiltres.length} affiché(s) sur {users.length}</p></div><div style={{ display:"flex", gap:8 }}><button onClick={exportUsers} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export CSV</button><button onClick={()=>setShowInviteModal(true)} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>+ Inviter</button></div></div>
                     <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:18 }}><input type="text" placeholder="🔍 Nom ou email…" value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:200, marginBottom:0 }} /><div style={{ display:"flex", gap:5 }}>{["Tous","super_admin","admin","responsable","manager"].map(r=><button key={r} onClick={()=>setFiltreRole(r)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, fontWeight:600, cursor:"pointer", background:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#fff", color:filtreRole===r?"#fff":"#6b7280", borderColor:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#e5e7eb" }}>{r==="Tous"?"Tous":ROLES_DEF[r]?.emoji+" "+ROLES_DEF[r]?.label}</button>)}</div><div style={{ display:"flex", gap:5 }}>{["Tous","Actifs","Inactifs","Sans 2FA","En ligne"].map(s=><button key={s} onClick={()=>setFiltreStatut(s)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, cursor:"pointer", background:filtreStatut===s?BET_COLOR:"#fff", color:filtreStatut===s?"#fff":"#6b7280", borderColor:filtreStatut===s?BET_COLOR:"#e5e7eb" }}>{s}</button>)}</div></div>
-                    <div style={{ overflowX:"auto" }}><table style={{ width:"100%", borderCollapse:"collapse" }}><thead><tr style={{ background:"#f9fafb" }}>{["Utilisateur","Rôle","Statut","2FA","Sessions","Dernier accès","Accès temp.","Actions"].map(h=><th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}>{h}</th>)}</tr></thead><tbody>{usersFiltres.map(u=>{const r=ROLES_DEF[u.role];const isOnline=onlineUsers.includes(u.id);const isExpired=u.accessTemp&&new Date(u.accessTemp)<new Date();return <tr key={u.id} style={{ borderTop:"1px solid #f1f5f9", background:!u.actif?"#f9fafb":"#fff" }}><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ position:"relative" }}><div style={{ width:36, height:36, borderRadius:"50%", background:`${r?.color||BET_COLOR}18`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, color:r?.color||BET_COLOR }}>{u.avatar}</div>{isOnline&&<div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#22c55e", border:"2px solid #fff" }}/>}</div><div><div style={{ fontWeight:600, fontSize:13 }}>{u.nom}</div><div style={{ fontSize:11, color:"#9ca3af" }}>{u.email}</div></div></div></td><td style={{ padding:"12px" }}><RoleBadge role={u.role}/></td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:8 }}><ToggleSwitch on={u.actif} onChange={()=>toggleUserStatus(u.id)} color="#22c55e"/><span style={{ fontSize:11, color:u.actif?"#22c55e":"#9ca3af", fontWeight:600 }}>{u.actif?"Actif":"Inactif"}</span></div></td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><ToggleSwitch on={u.twofa} onChange={()=>{setUsers(users.map(x=>x.id===u.id?{...x,twofa:!x.twofa}:x));addAuditEntry("2FA_MODIFIE",`${u.nom} : 2FA ${!u.twofa?"activé":"désactivé"}`,"warning");toast(`2FA ${!u.twofa?"activé":"désactivé"} pour ${u.nom}`);}} color={BET_COLOR}/>{!u.twofa&&u.actif&&<span style={{ fontSize:10, color:BET_RED, fontWeight:700 }}>⚠️</span>}</div></td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ fontWeight:700, color:u.sessions>0?BET_COLOR:"#9ca3af" }}>{u.sessions}</span>{u.sessions>0&&<button onClick={()=>{setUserToRevoke(u);setShowRevokeModal(true);}} style={{ padding:"2px 7px", borderRadius:5, background:"#fff1f2", border:"1px solid #fecdd3", color:BET_RED, fontSize:10, cursor:"pointer", fontWeight:600 }}>Révoquer</button>}</div></td><td style={{ padding:"12px", fontSize:12, color:"#6b7280" }}>{u.dernConn}</td><td style={{ padding:"12px" }}>{u.accessTemp?<span style={{ fontSize:11, padding:"2px 7px", borderRadius:8, background:isExpired?"#fee2e2":"#fef3c7", color:isExpired?"#dc2626":"#92400e", fontWeight:600 }}>{isExpired?"Expiré":"⏳ "+(new Date(u.accessTemp)).toLocaleDateString("fr-FR")}</span>:<span style={{ color:"#d1d5db", fontSize:11 }}>Permanent</span>}</td><td style={{ padding:"12px" }}><div style={{ display:"flex", gap:5 }}><button onClick={()=>{setEditingUser(u);setShowUserModal(true);}} style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>✏️</button><button onClick={()=>{setEditingRole(u.role);setPermSubTab("matrice");}} style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>🔐</button></div></td></tr>})}</tbody></table></div></div>
+                    <div style={{ overflowX:"auto" }}><table style={{ width:"100%", borderCollapse:"collapse" }}><thead><tr style={{ background:"#f9fafb" }}>{["Utilisateur","Rôle","Centre","Statut","2FA","Sessions","Dernier accès","Accès temp.","Actions"].map(h=><th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}>{h}</th>)}</tr></thead><tbody>{usersFiltres.map(u=>{const r=ROLES_DEF[u.role];const isOnline=onlineUsers.includes(u.id);const isExpired=u.accessTemp&&new Date(u.accessTemp)<new Date();return <tr key={u.id} style={{ borderTop:"1px solid #f1f5f9", background:!u.actif?"#f9fafb":"#fff" }}><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ position:"relative" }}><div style={{ width:36, height:36, borderRadius:"50%", background:`${r?.color||BET_COLOR}18`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, color:r?.color||BET_COLOR }}>{u.avatar}</div>{isOnline&&<div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#22c55e", border:"2px solid #fff" }}/>}</div><div><div style={{ fontWeight:600, fontSize:13 }}>{u.nom}</div><div style={{ fontSize:11, color:"#9ca3af" }}>{u.email}</div></div></div></td><td style={{ padding:"12px" }}><RoleBadge role={u.role}/></td><td style={{ padding:"12px" }}>{(()=>{const cl=scopeLabel(u.scope);return cl?<span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, background:"#e0f2fe", color:"#0369a1", fontSize:11, fontWeight:600 }}>🏢 {cl}</span>:u.role==="super_admin"?<span style={{ fontSize:11, color:"#9ca3af" }}>National</span>:<span style={{ fontSize:11, color:"#fca5a5", fontWeight:600 }}>⚠ Non assigné</span>;})()}</td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:8 }}><ToggleSwitch on={u.actif} onChange={()=>toggleUserStatus(u.id)} color="#22c55e"/><span style={{ fontSize:11, color:u.actif?"#22c55e":"#9ca3af", fontWeight:600 }}>{u.actif?"Actif":"Inactif"}</span></div></td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><ToggleSwitch on={u.twofa} onChange={()=>{setUsers(users.map(x=>x.id===u.id?{...x,twofa:!x.twofa}:x));addAuditEntry("2FA_MODIFIE",`${u.nom} : 2FA ${!u.twofa?"activé":"désactivé"}`,"warning");toast(`2FA ${!u.twofa?"activé":"désactivé"} pour ${u.nom}`);}} color={BET_COLOR}/>{!u.twofa&&u.actif&&<span style={{ fontSize:10, color:BET_RED, fontWeight:700 }}>⚠️</span>}</div></td><td style={{ padding:"12px" }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ fontWeight:700, color:u.sessions>0?BET_COLOR:"#9ca3af" }}>{u.sessions}</span>{u.sessions>0&&<button onClick={()=>{setUserToRevoke(u);setShowRevokeModal(true);}} style={{ padding:"2px 7px", borderRadius:5, background:"#fff1f2", border:"1px solid #fecdd3", color:BET_RED, fontSize:10, cursor:"pointer", fontWeight:600 }}>Révoquer</button>}</div></td><td style={{ padding:"12px", fontSize:12, color:"#6b7280" }}>{u.dernConn}</td><td style={{ padding:"12px" }}>{u.accessTemp?<span style={{ fontSize:11, padding:"2px 7px", borderRadius:8, background:isExpired?"#fee2e2":"#fef3c7", color:isExpired?"#dc2626":"#92400e", fontWeight:600 }}>{isExpired?"Expiré":"⏳ "+(new Date(u.accessTemp)).toLocaleDateString("fr-FR")}</span>:<span style={{ color:"#d1d5db", fontSize:11 }}>Permanent</span>}</td><td style={{ padding:"12px" }}><div style={{ display:"flex", gap:5 }}><button onClick={()=>{setEditingUser(u);setShowUserModal(true);}} style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>✏️</button><button onClick={()=>{setEditingRole(u.role);setPermSubTab("matrice");}} style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>🔐</button></div></td></tr>})}</tbody></table></div></div>
                 )}
                 {permSubTab === "matrice" && (
                   <div><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}><div><h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>Matrice des permissions</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Configurez les droits CRUD par rôle et par module</p></div><div style={{ display:"flex", gap:8 }}><button onClick={()=>setShowCloneModal(true)} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>📋 Cloner</button><button onClick={()=>{addAuditEntry("MATRICE_EXPORTEE","Export de la matrice des permissions","warning");toast.success("Export en cours…");}} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export</button></div></div>
@@ -1776,16 +1814,22 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
-            {/* Centre — obligatoire pour le rôle "commercial" */}
-            {inviteForm.role === "commercial" && (
+            {/* Centre — obligatoire pour tous les rôles sauf super_admin et data_collector */}
+            {ROLES_AVEC_CENTRE.includes(inviteForm.role) && (
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#dc2626", marginBottom:4 }}>🏢 Centre BET attribué *</label>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:inviteForm.centre_id?"#1e3a8a":"#dc2626", marginBottom:4 }}>
+                  🏢 Centre BET attribué *
+                </label>
                 <select value={inviteForm.centre_id} onChange={e=>setInviteForm({...inviteForm,centre_id:e.target.value})}
                   style={{ padding:9, borderRadius:6, border:`2px solid ${inviteForm.centre_id?"#1e3a8a":"#fca5a5"}`, fontSize:13, width:"100%", cursor:"pointer", background:"#fff" }}>
                   <option value="">— Choisir le centre —</option>
                   {BET_CENTRES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
-                <div style={{ fontSize:11, color:"#64748b", marginTop:4 }}>La conseillère n'apparaîtra que pour les prospects de ce centre.</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:4 }}>
+                  {inviteForm.role === "commercial"
+                    ? "La conseillère n'apparaîtra que pour les prospects de ce centre."
+                    : "Le profil sera associé à ce centre BET et visible dans son périmètre."}
+                </div>
               </div>
             )}
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Accès temporaire (optionnel)</label>

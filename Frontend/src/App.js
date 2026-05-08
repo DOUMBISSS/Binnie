@@ -12,6 +12,7 @@ import { UserProvider } from './context/UserContext.js';
 import Accueil from './Pages/Accueil/Accueil.jsx';
 import BlogDetail from './Pages/Components/BlogSection/BlogDetail.jsx';
 import BlogList from './Pages/Blog/BlogList.jsx';
+import TemoignagesPage from './Pages/Temoignages/TemoignagesPage.jsx';
 import CourseDetail from './Pages/Courses/CourseDetail.jsx';
 import CertificationDetail from './Pages/Components/CertificationDetail/CertificationDetail.jsx';
 import CenterDetail from './Pages/Components/CenterDetail/CenterDetail.jsx';
@@ -114,6 +115,7 @@ const App = () => {
                   <Route path="/" element={<Accueil />} />
                   <Route path="/blog" element={<BlogList />} />
                   <Route path="/blog/:id" element={<BlogDetail />} />
+                  <Route path="/temoignages" element={<TemoignagesPage />} />
                   <Route path="/cours/:type" element={<CourseDetail />} />
                   <Route path="/certification/:certId" element={<CertificationDetail />} />
                   <Route path="/centre/:centerId" element={<CenterDetail />} />

@@ -4,6 +4,8 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
+import NotificationBell from "../../Components/NotificationBell";
+import { useNotifPoller } from "../../hooks/useNotifPoller";
 
 /* ═══════════════════════════════════════════════════════
    CONSTANTES (chartre BET – version EspaceApprenant)
@@ -95,6 +97,8 @@ export default function GestionnaireDashboard() {
     localStorage.removeItem("admin_profil");
     navigate("/login-admin", { replace: true });
   };
+
+  useNotifPoller({ userId: profil?.id, sources: ["inscriptions"] });
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [dossiers, setDossiers] = useState(INIT_DOSSIERS);
@@ -240,11 +244,14 @@ export default function GestionnaireDashboard() {
                 <div style={{ fontSize:12, color:"#fecaca", marginTop:3 }}>{profil?.email || "Dossiers, paiements, requêtes et inscriptions"}</div>
               </div>
             </div>
-            <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 16px", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", transition:"background .2s" }}
-              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.2)"}
-              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
-              <span>🚪</span> Déconnexion
-            </button>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <NotificationBell userId={profil?.id} />
+              <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 16px", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", transition:"background .2s" }}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.2)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
+                <span>🚪</span> Déconnexion
+              </button>
+            </div>
           </div>
           <div style={{ display:"flex", gap:0, background:"rgba(0,0,0,0.15)", borderRadius:"12px 12px 0 0", overflow:"hidden" }}>
             {[

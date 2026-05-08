@@ -6,6 +6,8 @@ import MessagerieTab from "../../Components/MessagerieTab";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
+import NotificationBell from "../../Components/NotificationBell";
+import { useNotifPoller } from "../../hooks/useNotifPoller";
 
 const API_URL    = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const authHdrs   = () => ({ "Content-Type":"application/json", Authorization:`Bearer ${localStorage.getItem("admin_token")}` });
@@ -662,6 +664,8 @@ export default function ResponsableDashboard() {
     navigate("/login-admin", { replace: true });
   };
 
+  useNotifPoller({ userId: profil?.id, sources: ["inscriptions"] });
+
   const [activeTab, setActiveTab]         = useState("overview");
   const [coachs, setCoachs]               = useState(INIT_COACHS);
 
@@ -991,7 +995,8 @@ const [filtreClassePres, setFiltreClassePres] = useState("all");
             <h1 style={{ margin:0, fontSize:22, fontWeight:800 }}>{nomComplet}</h1>
             <div style={{ fontSize:12, color:"#bae6fd", marginTop:3 }}>{profil?.email || "Supervision · Affectation · Planning · Onboarding classes"}</div>
           </div>
-          <div style={{ display:"flex", gap:10, flexShrink:0 }}>
+          <div style={{ display:"flex", gap:10, flexShrink:0, alignItems:"center" }}>
+            <NotificationBell userId={profil?.id} />
             <button onClick={()=>setShowWizard(true)} style={{ background:"#fff", color:C.primary, border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:8, boxShadow:"0 4px 14px rgba(0,0,0,0.15)" }}>
               🧭 <span>Nouvelle classe</span>
             </button>

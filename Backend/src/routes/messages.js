@@ -20,15 +20,42 @@ async function isParticipant(convId, userId) {
 // ── GET /contacts → liste des autres utilisateurs à contacter ─
 router.get("/contacts", authenticateAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const me = req.user.id;
+
+    // Table utilisateurs (commerciaux, managers, responsables…)
+    const { data: utilisateurs } = await supabase
       .from("utilisateurs")
       .select("id, nom, prenom, email, role, actif")
-      .neq("id", req.user.id)
+      .neq("id", me)
       .eq("actif", true)
       .order("nom");
 
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ contacts: data || [] });
+    // Table profils_admin (super_admin et anciens rôles)
+    const { data: profilsAdmin } = await supabase
+      .from("profils_admin")
+      .select("id, nom, prenom, email, profil_type, actif")
+      .neq("id", me)
+      .eq("actif", true)
+      .order("nom");
+
+    const fromUtilisateurs = (utilisateurs || []);
+    const fromProfilsAdmin = (profilsAdmin || []).map(p => ({
+      id:     p.id,
+      nom:    p.nom,
+      prenom: p.prenom,
+      email:  p.email,
+      role:   p.profil_type,
+      actif:  p.actif,
+    }));
+
+    // Fusionner en évitant les doublons (un même id peut exister dans les deux tables)
+    const seen = new Set(fromUtilisateurs.map(u => u.id));
+    const merged = [
+      ...fromUtilisateurs,
+      ...fromProfilsAdmin.filter(p => !seen.has(p.id)),
+    ].sort((a, b) => (a.nom || "").localeCompare(b.nom || ""));
+
+    res.json({ contacts: merged });
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
   }

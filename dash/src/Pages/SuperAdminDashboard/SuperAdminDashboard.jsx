@@ -5,6 +5,9 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import { AvatarUpload } from "../../Components/CloudinaryUpload";
 import MessagerieTab from "../../Components/MessagerieTab";
+import NotificationBell from "../../Components/NotificationBell";
+import { supabase } from "../../config/supabase";
+import "./temoignages.css";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const authHeaders = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token")}` });
@@ -17,6 +20,154 @@ const BET_DARK     = "#0e7490";
 const BET_LIGHT    = "#e0f2fe";
 const BET_GRADIENT = "linear-gradient(135deg, #0f172a 0%, #0891b2 100%)";
 const BET_RED      = "#dc2626";
+
+/* ═══════════════════════════════════════════════════════
+   COACH PHOTO CARD — composant stable (hors render principal)
+═══════════════════════════════════════════════════════ */
+const CoachPhotoCard = ({ coach, photoUrl, statut, hasChanges, uploading, saving, onFile, onRemove, onToggleStatut, onUrlChange, onSave }) => {
+  const [hov, setHov] = React.useState(false);
+  const inputId = `coach-upload-${coach.id}`;
+  return (
+    <div style={{ background:"#fff", borderRadius:14, padding:16, border:`2px solid ${hasChanges?"#f59e0b":statut==="actif"?"#e0f2fe":"#fee2e2"}`, boxShadow:"0 1px 6px rgba(0,0,0,0.05)" }}>
+
+      {/* Avatar + infos */}
+      <div style={{ display:"flex", gap:14, alignItems:"flex-start", marginBottom:14 }}>
+        <label
+          htmlFor={inputId}
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+          style={{ position:"relative", width:80, height:80, borderRadius:12, overflow:"hidden", background:"#f1f5f9", flexShrink:0, border:"2px solid #e5e7eb", cursor:"pointer", display:"block" }}
+          title="Cliquer pour changer la photo"
+        >
+          {photoUrl
+            ? <img src={photoUrl} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e => { e.currentTarget.style.display="none"; }} />
+            : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#cbd5e1" }}>👤</div>
+          }
+          <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", opacity:(hov||uploading)?1:0, transition:"opacity .2s" }}>
+            <span style={{ fontSize:22 }}>{uploading ? "⏳" : "📷"}</span>
+          </div>
+          <input id={inputId} type="file" accept="image/*" style={{ display:"none" }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }}
+          />
+        </label>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#0f172a", marginBottom:2 }}>{coach.prenom || ""} {coach.nom || ""}</div>
+          <div style={{ fontSize:12, color:"#64748b", marginBottom:8 }}>{coach.grade || "—"}</div>
+          <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:statut==="actif"?"#dcfce7":"#fee2e2", color:statut==="actif"?"#166534":"#991b1b" }}>
+            {statut === "actif" ? "✅ Actif" : "❌ Inactif"}
+          </span>
+        </div>
+      </div>
+
+      {/* Boutons upload / retirer */}
+      <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+        <label htmlFor={inputId} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"8px 0", background:"#e0f2fe", color:"#0891b2", border:"1px solid #bae6fd", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+          {uploading ? "⏳ Upload…" : "📷 Ajouter / changer la photo"}
+        </label>
+        {photoUrl && (
+          <button onClick={onRemove} style={{ padding:"8px 12px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }} title="Retirer la photo">
+            🗑️ Retirer
+          </button>
+        )}
+      </div>
+
+      {/* URL manuelle */}
+      <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:4 }}>Ou coller une URL</label>
+      <input
+        value={photoUrl}
+        onChange={e => onUrlChange(e.target.value)}
+        placeholder="https://… ou /team1.jpeg"
+        style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, boxSizing:"border-box", marginBottom:10 }}
+      />
+
+      {/* Visibilité sur le site */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+        <span style={{ fontSize:12, fontWeight:600, color:"#374151" }}>Afficher sur le site</span>
+        <button onClick={onToggleStatut} style={{ padding:"5px 14px", borderRadius:20, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:statut==="actif"?"#dcfce7":"#f1f5f9", color:statut==="actif"?"#166534":"#64748b" }}>
+          {statut === "actif" ? "✅ Visible" : "🔇 Masqué"}
+        </button>
+      </div>
+
+      {/* Enregistrer */}
+      <button
+        onClick={onSave}
+        disabled={!hasChanges || saving}
+        style={{ width:"100%", padding:"9px 0", background:hasChanges?"#0891b2":"#e5e7eb", color:hasChanges?"#fff":"#9ca3af", border:"none", borderRadius:8, cursor:hasChanges?"pointer":"default", fontWeight:700, fontSize:13, transition:"background .2s", opacity:saving?0.7:1 }}
+      >
+        {saving ? "⏳ Sauvegarde…" : hasChanges ? "💾 Enregistrer les modifications" : "Aucune modification"}
+      </button>
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════
+   NEW COACH FORM — composant stable (hors render principal)
+═══════════════════════════════════════════════════════ */
+const NewCoachForm = ({ form, onFormChange, onPhotoFile, photoUploading, onSubmit, saving }) => {
+  const [open, setOpen]     = React.useState(false);
+  const [hov, setHov]       = React.useState(false);
+  const previewUrl = form.photo_url;
+
+  return (
+    <div style={{ background:"#f8fafc", border:"2px dashed #bae6fd", borderRadius:14, padding:20, marginBottom:24 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:20 }}>➕</span>
+          <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>Ajouter un coach</span>
+        </div>
+        <button onClick={() => setOpen(o => !o)} style={{ padding:"6px 14px", background:open?"#e5e7eb":"#0891b2", color:open?"#374151":"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+          {open ? "Annuler" : "+ Ajouter"}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop:18, display:"flex", gap:16, flexWrap:"wrap" }}>
+          {/* Avatar upload */}
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+            <label htmlFor="new-coach-upload"
+              onMouseEnter={() => setHov(true)}
+              onMouseLeave={() => setHov(false)}
+              style={{ position:"relative", width:100, height:100, borderRadius:14, overflow:"hidden", background:"#e0f2fe", border:"2px solid #7dd3fc", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
+              title="Cliquer pour choisir une photo"
+            >
+              {previewUrl
+                ? <img src={previewUrl} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                : <span style={{ fontSize:36, color:"#7dd3fc" }}>👤</span>
+              }
+              <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", opacity:(hov||photoUploading)?1:0, transition:"opacity .2s" }}>
+                <span style={{ fontSize:24 }}>{photoUploading ? "⏳" : "📷"}</span>
+              </div>
+              <input id="new-coach-upload" type="file" accept="image/*" style={{ display:"none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) onPhotoFile(f); e.target.value = ""; }}
+              />
+            </label>
+            <label htmlFor="new-coach-upload" style={{ fontSize:11, fontWeight:700, color:"#0891b2", cursor:"pointer" }}>
+              {photoUploading ? "⏳ Upload…" : "📷 Choisir une photo"}
+            </label>
+          </div>
+
+          {/* Champs */}
+          <div style={{ flex:1, minWidth:200, display:"flex", flexDirection:"column", gap:10 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Nom (optionnel)</label>
+              <input value={form.nom} onChange={e => onFormChange("nom", e.target.value)}
+                placeholder="Ex : Aminata Koné" style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Titre (optionnel)</label>
+              <input value={form.titre} onChange={e => onFormChange("titre", e.target.value)}
+                placeholder="Ex : Coach TOEIC Certifié" style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+            </div>
+            <button onClick={onSubmit} disabled={saving || !form.photo_url}
+              style={{ padding:"9px 0", background:form.photo_url?"#0891b2":"#e5e7eb", color:form.photo_url?"#fff":"#9ca3af", border:"none", borderRadius:8, cursor:form.photo_url?"pointer":"default", fontWeight:700, fontSize:13, opacity:saving?0.7:1 }}>
+              {saving ? "⏳ Ajout en cours…" : form.photo_url ? "✅ Ajouter cette photo" : "⬆️ Uploadez d'abord une photo"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* ═══════════════════════════════════════════════════════
    COMPOSANTS RÉUTILISABLES (identiques à AdminDashboard)
@@ -156,12 +307,16 @@ const PROFIL_TYPES = {
 
 // Centres BET
 const CENTRES_BET = [
-  { id:"national",    label:"National (tous les centres)", icon:"🌍" },
-  { id:"angre",       label:"Centre Angré",                icon:"📍" },
-  { id:"ii_plateaux", label:"Centre II Plateaux",          icon:"📍" },
-  { id:"bouake",      label:"Centre Bouaké",               icon:"📍" },
-  { id:"yopougon",    label:"Centre Yopougon",             icon:"📍" },
+  { id:"angre",      label:"BET Angré — Abidjan" },
+  { id:"2plateaux",  label:"BET II Plateaux — Abidjan" },
+  { id:"yopougon",   label:"BET Yopougon — Abidjan" },
+  { id:"koumassi",   label:"BET Koumassi — Abidjan" },
+  { id:"abatta",     label:"BET Abatta — Abidjan" },
+  { id:"bouake",     label:"BET Bouaké — Bouaké" },
 ];
+
+// Rôles qui nécessitent un centre (sauf super_admin et data_collector)
+const ROLES_AVEC_CENTRE = ["admin","manager","responsable","commercial","gestionnaire","coach"];
 
 // Liste de tous les utilisateurs/profils
 // Utilisateurs chargés depuis l'API (plus de mock)
@@ -404,13 +559,90 @@ export default function SuperAdminDashboard() {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [tempPasswords, setTempPasswords] = useState({}); // { [userId]: mdp }
-  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", role:"manager", accessTemp:"", note:"" });
+  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", role:"manager", centre_id:"", accessTemp:"", note:"" });
   const [editingUser, setEditingUser] = useState(null);
   const [userToRevoke, setUserToRevoke] = useState(null);
   const [cloneForm, setCloneForm] = useState({ source:"admin", cible:"manager" });
   const [selectedDemande, setSelectedDemande] = useState(null);
   // Onglet secondaire pour les permissions
   const [permSubTab, setPermSubTab] = useState("vue_ensemble");
+
+  // ── Témoignages ──────────────────────────────────────────
+  const [temos, setTemos]                   = useState([]);
+  const [temosLoading, setTemosLoading]     = useState(false);
+  const [temoFiltre, setTemoFiltre]         = useState("tous");
+  const [temoForm, setTemoForm]             = useState({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0 });
+  const [temoFormOpen, setTemoFormOpen]     = useState(false);
+  const [temoRejetId, setTemoRejetId]       = useState(null);
+  const [temoMotif, setTemoMotif]           = useState("");
+  const [temoPage,   setTemoPage]           = useState(1);
+  const TEMO_PER_PAGE = 9;
+
+  const fetchTemos = async () => {
+    setTemosLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setTemos(await res.json());
+    } catch { toast.error("Erreur chargement témoignages"); }
+    finally { setTemosLoading(false); }
+  };
+
+  useEffect(() => { if (activeTab === "temoignages") fetchTemos(); }, [activeTab]);
+
+  const temoAction = async (id, updates) => {
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages/${id}`, {
+        method: "PATCH", headers: authHeaders(), body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error();
+      setTemos(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+      toast.success("Témoignage mis à jour");
+    } catch { toast.error("Erreur mise à jour"); }
+  };
+
+  const temoDelete = async (id) => {
+    if (!window.confirm("Supprimer définitivement ?")) return;
+    try {
+      await fetch(`${API_URL}/api/temoignages/${id}?hard=1`, { method: "DELETE", headers: authHeaders() });
+      setTemos(prev => prev.filter(t => t.id !== id));
+      toast.success("Supprimé");
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const temoCreate = async () => {
+    if (!temoForm.nom || !temoForm.texte) return toast.error("Nom et texte requis");
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages`, {
+        method: "POST", headers: authHeaders(), body: JSON.stringify(temoForm),
+      });
+      if (!res.ok) throw new Error();
+      const created = await res.json();
+      setTemos(prev => [created, ...prev]);
+      setTemoForm({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0 });
+      setTemoFormOpen(false);
+      toast.success("Témoignage créé");
+    } catch { toast.error("Erreur création"); }
+  };
+
+  const temoApprouver = async (id) => {
+    await temoAction(id, { statut: "actif", actif: true });
+  };
+
+  const temoRejeter = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/temoignages/${id}`, {
+        method: "PATCH", headers: authHeaders(),
+        body: JSON.stringify({ statut: "rejete", actif: false, motif_rejet: temoMotif }),
+      });
+      if (!res.ok) throw new Error();
+      setTemos(prev => prev.map(t => t.id === id ? { ...t, statut: "rejete", actif: false, motif_rejet: temoMotif } : t));
+      setTemoRejetId(null); setTemoMotif("");
+      toast.success("Rejeté");
+    } catch { toast.error("Erreur"); }
+  };
+
+  const temosPending = temos.filter(t => t.statut === "en_attente").length;
 
   // ── Messagerie interne ───────────────────────────────────
   const [msgConvs, setMsgConvs]         = useState([]);
@@ -492,6 +724,93 @@ export default function SuperAdminDashboard() {
     super_admin:"SuperAdmin", admin:"Admin", manager:"Manager",
     responsable:"Responsable", commercial:"Commercial",
     gestionnaire:"Gestionnaire", coach:"Coach", data_collector:"Data"
+  };
+
+  // ── Config centres WhatsApp ─────────────────────────────────────────────────
+  const WA_LS_KEY = "bet_centers_config";
+  const WA_DEFAULTS = [
+    { key:"angre",    name:"Angré",       color:"#25d366", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000001", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré." },
+      { nom:"Assistante 2", phone:"2250700000011", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré." },
+    ]},
+    { key:"bouake",   name:"Bouaké",      color:"#facc15", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000002", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké." },
+      { nom:"Assistante 2", phone:"2250700000022", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké." },
+    ]},
+    { key:"plateaux", name:"II Plateaux", color:"#0891b2", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000003", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux." },
+      { nom:"Assistante 2", phone:"2250700000033", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux." },
+    ]},
+    { key:"yopougon", name:"Yopougon",    color:"#a855f7", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000004", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon." },
+      { nom:"Assistante 2", phone:"2250700000044", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon." },
+    ]},
+    { key:"koumassi", name:"Koumassi",    color:"#f97316", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000005", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi." },
+      { nom:"Assistante 2", phone:"2250700000055", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi." },
+    ]},
+    { key:"abatta",   name:"Abatta",      color:"#ef4444", assistantes:[
+      { nom:"Assistante 1", phone:"2250700000006", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta." },
+      { nom:"Assistante 2", phone:"2250700000066", message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta." },
+    ]},
+  ];
+
+  const readLSCenters = () => {
+    try { const s = localStorage.getItem(WA_LS_KEY); return s ? JSON.parse(s) : WA_DEFAULTS; }
+    catch { return WA_DEFAULTS; }
+  };
+
+  const [waCenters,      setWaCenters]      = useState(readLSCenters);
+  const [waLoading,      setWaLoading]      = useState(false);
+  const [waSavingIdx,    setWaSavingIdx]    = useState(null); // index du centre en cours de sauvegarde
+
+  // Charger depuis Supabase au montage (Supabase = source de vérité)
+  useEffect(() => {
+    const fetch = async () => {
+      setWaLoading(true);
+      const { data, error } = await supabase
+        .from("plateforme_config")
+        .select("valeur")
+        .eq("key", "centres_wa")
+        .maybeSingle();
+      if (!error && data?.valeur?.length) {
+        setWaCenters(data.valeur);
+        localStorage.setItem(WA_LS_KEY, JSON.stringify(data.valeur)); // sync cache
+      }
+      setWaLoading(false);
+    };
+    fetch();
+  }, []); // eslint-disable-line
+
+  const updateWAField = (cIdx, aIdx, field, value) => {
+    setWaCenters(prev => prev.map((c, ci) => ci !== cIdx ? c : {
+      ...c,
+      assistantes: c.assistantes.map((a, ai) => ai !== aIdx ? a : { ...a, [field]: value }),
+    }));
+  };
+
+  // Sauvegarder un seul centre (l'état complet est écrit en base pour rester cohérent)
+  const saveWACentre = async (cIdx) => {
+    setWaSavingIdx(cIdx);
+    const { error } = await supabase
+      .from("plateforme_config")
+      .upsert({ key: "centres_wa", valeur: waCenters, updated_at: new Date().toISOString() });
+    setWaSavingIdx(null);
+    if (error) { toast.error("Erreur Supabase : " + error.message); return; }
+    localStorage.setItem(WA_LS_KEY, JSON.stringify(waCenters));
+    window.dispatchEvent(new StorageEvent("storage", { key: WA_LS_KEY, newValue: JSON.stringify(waCenters) }));
+    toast.success(`✓ BET ${waCenters[cIdx]?.name} sauvegardé`);
+  };
+
+  const resetWACentre = async (cIdx) => {
+    const updated = waCenters.map((c, i) => i === cIdx ? WA_DEFAULTS[cIdx] : c);
+    setWaCenters(updated);
+    await supabase
+      .from("plateforme_config")
+      .upsert({ key: "centres_wa", valeur: updated, updated_at: new Date().toISOString() });
+    localStorage.setItem(WA_LS_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new StorageEvent("storage", { key: WA_LS_KEY, newValue: JSON.stringify(updated) }));
+    toast(`↺ BET ${waCenters[cIdx]?.name} réinitialisé`);
   };
 
   // Chargement des utilisateurs réels
@@ -604,10 +923,15 @@ export default function SuperAdminDashboard() {
     const prenom = parts[0] || "";
     const nom    = parts.slice(1).join(" ") || prenom;
     if (!prenom || !inviteForm.email) { toast.error("Veuillez remplir le nom et l'email"); return; }
+    if (ROLES_AVEC_CENTRE.includes(inviteForm.role) && !inviteForm.centre_id) {
+      toast.error("Veuillez sélectionner le centre BET de cet utilisateur");
+      return;
+    }
     try {
+      const scope = inviteForm.centre_id ? [inviteForm.centre_id] : ["national"];
       const res  = await fetch(`${API_URL}/api/admin/utilisateurs`, {
         method: "POST", headers: authHeaders(),
-        body: JSON.stringify({ nom, prenom, email: inviteForm.email, role: inviteForm.role, note: inviteForm.note }),
+        body: JSON.stringify({ nom, prenom, email: inviteForm.email, role: inviteForm.role, scope, note: inviteForm.note }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "Erreur création"); return; }
@@ -616,7 +940,7 @@ export default function SuperAdminDashboard() {
       }
       await chargerUtilisateurs();
       setShowInviteModal(false);
-      setInviteForm({ nom:"", email:"", role:"manager", accessTemp:"", note:"" });
+      setInviteForm({ nom:"", email:"", role:"manager", centre_id:"", accessTemp:"", note:"" });
       toast.success(`${inviteForm.nom} créé — accès visibles dans le tableau`);
     } catch { toast.error("Impossible de joindre le serveur"); }
   };
@@ -687,6 +1011,7 @@ export default function SuperAdminDashboard() {
     { key: "apprenants",    label: "Apprenants",             icon: "🎓",  badge: APPRENANTS_MOCK.length },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
+    { key: "temoignages",   label: "Témoignages",            icon: "⭐",  badge: temosPending||null, danger: temosPending>0 },
   ];
 
   const permTabs = [
@@ -696,6 +1021,110 @@ export default function SuperAdminDashboard() {
     { key:"securite", label:"Sécurité", icon:"🛡️" },
     // { key:"demandes", label:"Demandes d'accès", icon:"📬", badge:stats.enAttente, danger:stats.enAttente>0 },
   ];
+
+  const [platformSubTab, setPlatformSubTab] = useState("general");
+  const platformTabs = [
+    { key:"general",       label:"Paramètres généraux", icon:"⚙️" },
+    { key:"whatsapp",      label:"Messages WhatsApp",   icon:"💬" },
+    { key:"coachs_photos", label:"Équipe Coachs",       icon:"👨‍🏫" },
+  ];
+  const [coachsList, setCoachsList]           = useState([]);
+  const [coachsLoading, setCoachsLoading]     = useState(false);
+  const [coachsEdits, setCoachsEdits]         = useState({});
+  const [coachsSaving, setCoachsSaving]       = useState({});
+  const [coachsUploading, setCoachsUploading] = useState({});
+  const [newCoachForm, setNewCoachForm]       = useState({ nom:"", titre:"", photo_url:"" });
+  const [newCoachUploading, setNewCoachUploading] = useState(false);
+  const [newCoachSaving, setNewCoachSaving]   = useState(false);
+
+  const uploadToCloudinary = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_URL}/api/upload/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erreur upload");
+    return data.file.url;
+  };
+
+  const uploadCoachPhoto = async (coach, file) => {
+    setCoachsUploading(p => ({ ...p, [coach.id]: true }));
+    try {
+      const url = await uploadToCloudinary(file);
+      setCoachsEdits(p => ({ ...p, [coach.id]: { ...(p[coach.id] || {}), photo_url: url } }));
+      toast.success("Photo uploadée — cliquez Enregistrer pour sauvegarder");
+    } catch (err) {
+      toast.error("Erreur upload : " + (err.message || "réessayez"));
+    } finally {
+      setCoachsUploading(p => ({ ...p, [coach.id]: false }));
+    }
+  };
+
+  const uploadNewCoachPhoto = async (file) => {
+    setNewCoachUploading(true);
+    try {
+      const url = await uploadToCloudinary(file);
+      setNewCoachForm(p => ({ ...p, photo_url: url }));
+      toast.success("Photo chargée");
+    } catch (err) {
+      toast.error("Erreur upload : " + (err.message || "réessayez"));
+    } finally {
+      setNewCoachUploading(false);
+    }
+  };
+
+  const createDisplayCoach = async () => {
+    if (!newCoachForm.photo_url) { toast.error("Veuillez d'abord uploader une photo"); return; }
+    setNewCoachSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/equipe-photos`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(newCoachForm),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Erreur"); }
+      toast.success("Photo ajoutée !");
+      setNewCoachForm({ nom:"", titre:"", photo_url:"" });
+      fetchCoachs();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setNewCoachSaving(false);
+    }
+  };
+
+  const fetchCoachs = useCallback(async () => {
+    setCoachsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/equipe-photos`, { headers: authHeaders() });
+      const data = await res.json();
+      setCoachsList(Array.isArray(data) ? data : []);
+      setCoachsEdits({});
+    } catch { toast.error("Erreur chargement photos équipe"); }
+    finally { setCoachsLoading(false); }
+  }, []);
+
+  useEffect(() => { if (platformSubTab === "coachs_photos") fetchCoachs(); }, [platformSubTab, fetchCoachs]);
+
+  const saveCoach = async (photo) => {
+    const edits = coachsEdits[photo.id] || {};
+    setCoachsSaving(p => ({ ...p, [photo.id]: true }));
+    try {
+      const res = await fetch(`${API_URL}/api/equipe-photos/${photo.id}`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify(edits),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Photo mise à jour");
+      setCoachsEdits(p => { const n = { ...p }; delete n[photo.id]; return n; });
+      fetchCoachs();
+    } catch { toast.error("Erreur sauvegarde"); }
+    finally { setCoachsSaving(p => ({ ...p, [photo.id]: false })); }
+  };
 
   return (
     <div style={{ minHeight:"100vh", background:"#f0f9ff" }}>
@@ -717,15 +1146,18 @@ export default function SuperAdminDashboard() {
                 <div style={{ fontSize:12, color:"#bae6fd", marginTop:3 }}>{profilConnecte.email} · Supervision globale · Tous droits</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", background:"rgba(255,255,255,0.1)", border:"1.5px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", transition:"background .2s", fontFamily:"inherit" }}
-              onMouseEnter={e => e.currentTarget.style.background="rgba(220,38,38,0.35)"}
-              onMouseLeave={e => e.currentTarget.style.background="rgba(255,255,255,0.1)"}
-            >
-              <span style={{ fontSize:16 }}>🚪</span> Déconnexion
-            </button>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <NotificationBell userId={saMyId} />
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", background:"rgba(255,255,255,0.1)", border:"1.5px solid rgba(255,255,255,0.2)", borderRadius:10, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", transition:"background .2s", fontFamily:"inherit" }}
+                onMouseEnter={e => e.currentTarget.style.background="rgba(220,38,38,0.35)"}
+                onMouseLeave={e => e.currentTarget.style.background="rgba(255,255,255,0.1)"}
+              >
+                <span style={{ fontSize:16 }}>🚪</span> Déconnexion
+              </button>
+            </div>
           </div>
           <div style={{ display:"flex", gap:0, background:"rgba(0,0,0,0.15)", borderRadius:"12px 12px 0 0", overflow:"hidden" }}>
             {[
@@ -818,28 +1250,177 @@ export default function SuperAdminDashboard() {
               <div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                   <div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🏢 Configuration de la plateforme</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Paramètres globaux, modules activés, maintenance</p></div>
-                  <button onClick={()=>toast.success("Sauvegarde effectuée")} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>💾 Sauvegarder</button>
                 </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-                  <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
-                    <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Modules actifs</h3>
-                    {MODULES.map(m => (
-                      <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                        <span>{m.icon} {m.label}</span>
-                        <ToggleSwitch on={true} onChange={()=>{}} color={BET_COLOR} />
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
-                    <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Paramètres de sécurité globaux</h3>
-                    <div style={{ marginBottom:12 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>2FA obligatoire pour tous les admins</span><ToggleSwitch on={true} onChange={()=>{}} color={BET_RED} /></div>
-                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Expiration des sessions (heures)</span><input type="number" defaultValue={8} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
-                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Rotation des mots de passe (jours)</span><input type="number" defaultValue={90} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
+
+                {/* ── Sous-onglets Plateforme ── */}
+                <div style={{ display:"flex", gap:3, marginBottom:20, borderBottom:"1px solid #e5e7eb", paddingBottom:8 }}>
+                  {platformTabs.map(tab => {
+                    const isActive = platformSubTab === tab.key;
+                    return (
+                      <button key={tab.key} onClick={() => setPlatformSubTab(tab.key)} style={{ padding:"8px 14px", borderRadius:"8px 8px 0 0", border:"none", cursor:"pointer", fontWeight:600, fontSize:12, background:isActive?BET_LIGHT:"transparent", color:isActive?BET_COLOR:"#6b7280", display:"flex", alignItems:"center", gap:5 }}>
+                        <span style={{ fontSize:13 }}>{tab.icon}</span>{tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ── Sous-onglet : Paramètres généraux ── */}
+                {platformSubTab === "general" && (
+                  <div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+                      <div><h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>⚙️ Paramètres généraux</h3></div>
+                      <button onClick={()=>toast.success("Sauvegarde effectuée")} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>💾 Sauvegarder</button>
                     </div>
-                    <button onClick={()=>toast.success("Configuration mise à jour")} style={{ marginTop:10, ...btnPrimary, width:"100%" }}>Appliquer</button>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                        <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Modules actifs</h3>
+                        {MODULES.map(m => (
+                          <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                            <span>{m.icon} {m.label}</span>
+                            <ToggleSwitch on={true} onChange={()=>{}} color={BET_COLOR} />
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                        <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Paramètres de sécurité globaux</h3>
+                        <div style={{ marginBottom:12 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>2FA obligatoire pour tous les admins</span><ToggleSwitch on={true} onChange={()=>{}} color={BET_RED} /></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Expiration des sessions (heures)</span><input type="number" defaultValue={8} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Rotation des mots de passe (jours)</span><input type="number" defaultValue={90} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
+                        </div>
+                        <button onClick={()=>toast.success("Configuration mise à jour")} style={{ marginTop:10, ...btnPrimary, width:"100%" }}>Appliquer</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Sous-onglet : Messages WhatsApp ── */}
+                {/* ── Sous-onglet : Équipe Coachs ── */}
+                {platformSubTab === "coachs_photos" && (
+                  <div>
+                    {/* En-tête */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+                      <div>
+                        <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>👨‍🏫 Équipe Coachs</h3>
+                        <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Ajoutez et gérez les photos des coachs affichées sur le site</p>
+                      </div>
+                      <button onClick={fetchCoachs} style={{ padding:"8px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+                    </div>
+
+                    {/* ── Formulaire d'ajout ── */}
+                    <NewCoachForm
+                      form={newCoachForm}
+                      onFormChange={(key, val) => setNewCoachForm(p => ({ ...p, [key]: val }))}
+                      onPhotoFile={uploadNewCoachPhoto}
+                      photoUploading={newCoachUploading}
+                      onSubmit={createDisplayCoach}
+                      saving={newCoachSaving}
+                    />
+
+                    {/* ── Liste des coachs existants ── */}
+                    {coachsLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>⏳ Chargement…</div>
+                    ) : coachsList.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:32, color:"#9ca3af", fontSize:13 }}>Aucun coach ajouté pour l'instant.</div>
+                    ) : (
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+                        {coachsList.map(photo => {
+                          const edits      = coachsEdits[photo.id] || {};
+                          const photoUrl   = edits.photo_url !== undefined ? edits.photo_url : (photo.photo_url || "");
+                          const isActif    = edits.actif    !== undefined ? edits.actif     : (photo.actif !== false);
+                          const statut     = isActif ? "actif" : "inactif";
+                          const hasChanges = Object.keys(edits).length > 0;
+                          const fakeCoach  = { id: photo.id, nom: photo.nom || "", prenom: "", grade: photo.titre || "" };
+                          return (
+                            <CoachPhotoCard
+                              key={photo.id}
+                              coach={fakeCoach}
+                              photoUrl={photoUrl}
+                              statut={statut}
+                              hasChanges={hasChanges}
+                              uploading={!!coachsUploading[photo.id]}
+                              saving={!!coachsSaving[photo.id]}
+                              onFile={f => uploadCoachPhoto(fakeCoach, f)}
+                              onRemove={() => { if (window.confirm("Supprimer cette photo ?")) setCoachsEdits(p => ({ ...p, [photo.id]: { ...(p[photo.id]||{}), photo_url: "" } })); }}
+                              onToggleStatut={() => setCoachsEdits(p => ({ ...p, [photo.id]: { ...(p[photo.id]||{}), actif: !isActif } }))}
+                              onUrlChange={val => setCoachsEdits(p => ({ ...p, [photo.id]: { ...(p[photo.id]||{}), photo_url: val } }))}
+                              onSave={() => saveCoach(photo)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {platformSubTab === "whatsapp" && (
+                  <div>
+                    <div style={{ marginBottom:20 }}>
+                      <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>💬 Messages WhatsApp — Centres BET</h3>
+                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>
+                        {waLoading ? "⏳ Chargement depuis la base de données…" : "Chaque centre dispose de son propre bouton Enregistrer."}
+                      </p>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(340px, 1fr))", gap:16 }}>
+                      {waCenters.map((centre, cIdx) => (
+                        <div key={centre.key} style={{ background:"#fff", borderRadius:12, padding:16, border:`1.5px solid ${centre.color}33`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)", display:"flex", flexDirection:"column" }}>
+                          {/* En-tête centre */}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                              <span style={{ width:10, height:10, borderRadius:"50%", background:centre.color, display:"inline-block", flexShrink:0 }} />
+                              <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>BET {centre.name}</span>
+                            </div>
+                            <button onClick={() => resetWACentre(cIdx)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:"#94a3b8", fontWeight:600, padding:"2px 6px" }} title="Réinitialiser ce centre">↺ reset</button>
+                          </div>
+                          {/* Assistantes */}
+                          <div style={{ flex:1 }}>
+                            {centre.assistantes.map((a, aIdx) => (
+                              <div key={aIdx} style={{ marginBottom: aIdx < centre.assistantes.length - 1 ? 14 : 0 }}>
+                                <div style={{ display:"flex", gap:8, marginBottom:6 }}>
+                                  <div style={{ flex:1 }}>
+                                    <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Prénom / Nom</label>
+                                    <input
+                                      value={a.nom}
+                                      onChange={e => updateWAField(cIdx, aIdx, "nom", e.target.value)}
+                                      style={{ width:"100%", padding:"6px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, boxSizing:"border-box" }}
+                                      placeholder="Ex : Aminata Koné"
+                                    />
+                                  </div>
+                                  <div style={{ flex:1 }}>
+                                    <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Numéro WhatsApp</label>
+                                    <input
+                                      value={a.phone}
+                                      onChange={e => updateWAField(cIdx, aIdx, "phone", e.target.value.replace(/\D/g,""))}
+                                      style={{ width:"100%", padding:"6px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, boxSizing:"border-box" }}
+                                      placeholder="2250700000000"
+                                    />
+                                  </div>
+                                </div>
+                                <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Message pré-rempli</label>
+                                <textarea
+                                  value={a.message}
+                                  onChange={e => updateWAField(cIdx, aIdx, "message", e.target.value)}
+                                  rows={3}
+                                  style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, resize:"vertical", fontFamily:"inherit", boxSizing:"border-box", lineHeight:1.5 }}
+                                  placeholder="Bonjour, je souhaite…"
+                                />
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Bouton Enregistrer propre à ce centre */}
+                          <button
+                            onClick={() => saveWACentre(cIdx)}
+                            disabled={waSavingIdx === cIdx}
+                            style={{ marginTop:14, width:"100%", padding:"9px 0", background: centre.color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, opacity: waSavingIdx === cIdx ? 0.7 : 1, transition:"opacity .15s" }}
+                          >
+                            {waSavingIdx === cIdx ? "⏳ Enregistrement…" : "💾 Enregistrer BET " + centre.name}
+                          </button>
+                        </div>
+                      ))}
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -876,7 +1457,7 @@ export default function SuperAdminDashboard() {
                     <div style={{ overflowX:"auto" }}>
                         <table style={{ width:"100%", borderCollapse:"collapse" }}><thead>
                         <tr style={{ background:"#f9fafb" }}>
-                            {["Utilisateur","Rôle","Identifiants de connexion","Statut","2FA","Dernier accès","Actions"].map(h=><th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}>{h}</th>
+                            {["Utilisateur","Rôle","Centre","Identifiants de connexion","Statut","2FA","Dernier accès","Actions"].map(h=><th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}>{h}</th>
                         )}</tr></thead>
                         <tbody>{usersFiltres.map(u=>{const r=ROLES_DEF[u.role];
                             const isOnline=onlineUsers.includes(u.id);
@@ -892,6 +1473,14 @@ export default function SuperAdminDashboard() {
                                 </div>
                             </td>
                             <td style={{ padding:"12px" }}><RoleBadge role={u.role}/></td>
+                            <td style={{ padding:"12px" }}>{(()=>{
+                              const sc = u.scope;
+                              if (!sc || sc.includes("national") || u.role==="super_admin") return <span style={{ fontSize:11, color:"#9ca3af" }}>National</span>;
+                              const label = sc.map(s=>CENTRES_BET.find(c=>c.id===s)?.label.replace("BET ","") || s).join(", ");
+                              return label
+                                ? <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, background:"#e0f2fe", color:"#0369a1", fontSize:11, fontWeight:600 }}>🏢 {label}</span>
+                                : <span style={{ fontSize:11, color:"#fca5a5", fontWeight:600 }}>⚠ Non assigné</span>;
+                            })()}</td>
                             <td style={{ padding:"12px", minWidth:240 }}>
                               <div style={{ fontSize:11, color:"#9ca3af", marginBottom:2 }}>Email</div>
                               <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginBottom:6, display:"flex", alignItems:"center", gap:5 }}>
@@ -1708,11 +2297,32 @@ export default function SuperAdminDashboard() {
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Rôle à attribuer *</label>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
               {Object.values(ROLES_DEF).filter(r=>r.id!=="super_admin").map(r=>(
-                <div key={r.id} onClick={()=>setInviteForm({...inviteForm,role:r.id})} style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${inviteForm.role===r.id?r.color:"#e5e7eb"}`, background:inviteForm.role===r.id?r.color+"08":"#fff", cursor:"pointer" }}>
+                <div key={r.id} onClick={()=>setInviteForm({...inviteForm,role:r.id,centre_id:""})} style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${inviteForm.role===r.id?r.color:"#e5e7eb"}`, background:inviteForm.role===r.id?r.color+"08":"#fff", cursor:"pointer" }}>
                   <div style={{ fontWeight:700, color:inviteForm.role===r.id?r.color:"#0f172a", fontSize:14 }}>{r.emoji} {r.label}</div><div style={{ fontSize:11, color:"#9ca3af", marginTop:3 }}>{r.description.slice(0,60)}…</div>
                 </div>
               ))}
             </div>
+            {/* Centre — obligatoire pour tous les rôles sauf super_admin et data_collector */}
+            {ROLES_AVEC_CENTRE.includes(inviteForm.role) && (
+              <div style={{ marginBottom:14 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:inviteForm.centre_id?"#1e3a8a":"#dc2626", marginBottom:4 }}>
+                  🏢 Centre BET attribué *
+                </label>
+                <select
+                  value={inviteForm.centre_id}
+                  onChange={e=>setInviteForm({...inviteForm,centre_id:e.target.value})}
+                  style={{ padding:9, borderRadius:6, border:`2px solid ${inviteForm.centre_id?"#1e3a8a":"#fca5a5"}`, fontSize:13, width:"100%", cursor:"pointer", background:"#fff" }}
+                >
+                  <option value="">— Choisir le centre —</option>
+                  {CENTRES_BET.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:4 }}>
+                  {inviteForm.role==="commercial"
+                    ? "La conseillère apparaîtra uniquement pour les prospects de ce centre."
+                    : "Le profil sera associé à ce centre et limité à son périmètre."}
+                </div>
+              </div>
+            )}
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Accès temporaire (optionnel)</label>
             <input type="date" value={inviteForm.accessTemp} onChange={e=>setInviteForm({...inviteForm,accessTemp:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%", marginBottom:8 }} min={new Date().toISOString().split("T")[0]}/>
             <div style={{ fontSize:11, color:"#9ca3af", marginTop:-4, marginBottom:12 }}>Laissez vide pour un accès permanent.</div>
@@ -1976,7 +2586,11 @@ export default function SuperAdminDashboard() {
         )}
 
           {/* ════ MESSAGES ════ */}
-          {activeTab === "messages" && <MessagerieTab />}
+          {activeTab === "messages" && (
+            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+              <MessagerieTab />
+            </div>
+          )}
           {activeTab === "messages_old_DISABLED" && (
             <div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
@@ -2119,6 +2733,277 @@ export default function SuperAdminDashboard() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ════ TÉMOIGNAGES ════ */}
+          {activeTab === "temoignages" && (
+            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+              {(() => {
+            const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🌟","💪","🏆","👑","✨"];
+            const filtered   = temoFiltre === "tous" ? temos : temos.filter(t => t.statut === temoFiltre);
+            const temoTotalPages = Math.max(1, Math.ceil(filtered.length / TEMO_PER_PAGE));
+            const displayed  = filtered.slice((temoPage - 1) * TEMO_PER_PAGE, temoPage * TEMO_PER_PAGE);
+            const temoGoTo   = (p) => { setTemoPage(Math.min(Math.max(1, p), temoTotalPages)); };
+            return (
+              <div className="temo-page">
+
+                {/* Header */}
+                <div className="temo-header">
+                  <div>
+                    <h2>⭐ Gestion des Témoignages</h2>
+                    <p>{temos.length} témoignage{temos.length>1?"s":""} · {temosPending} en attente de validation</p>
+                  </div>
+                  <div className="temo-header-actions">
+                    <button className="temo-btn temo-btn--outline" onClick={fetchTemos}>🔄 Actualiser</button>
+                    <button className="temo-btn temo-btn--primary" onClick={() => setTemoFormOpen(f => !f)}>
+                      {temoFormOpen ? "✕ Fermer" : "➕ Nouveau témoignage"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Formulaire création */}
+                {temoFormOpen && (
+                  <div className="temo-form">
+                    <h3>➕ Créer un témoignage (source admin)</h3>
+                    <div className="temo-form-grid">
+                      <div>
+                        <label>Nom *</label>
+                        <input value={temoForm.nom} onChange={e => setTemoForm(f=>({...f,nom:e.target.value}))} placeholder="Ex: Awa Koné" />
+                      </div>
+                      <div>
+                        <label>Rôle / Titre</label>
+                        <input value={temoForm.role} onChange={e => setTemoForm(f=>({...f,role:e.target.value}))} placeholder="Ex: Étudiante en droit" />
+                      </div>
+                      <div>
+                        <label>Type de certification</label>
+                        <select
+                          value={temoForm.score.split(" ")[0] || ""}
+                          onChange={e => {
+                            const type = e.target.value;
+                            const scoreNum = temoForm.score.split(" ").slice(1).join(" ");
+                            setTemoForm(f => ({ ...f, score: type ? `${type}${scoreNum ? " " + scoreNum : ""}` : scoreNum }));
+                          }}
+                        >
+                          <option value="">— Sélectionner —</option>
+                          <option value="TOEIC">TOEIC</option>
+                          <option value="TOEFL">TOEFL</option>
+                          <option value="IELTS">IELTS</option>
+                          <option value="Anglais Pro">Anglais Pro</option>
+                          <option value="Anglais Enfant">Anglais Enfant</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>Score obtenu</label>
+                        <input
+                          value={temoForm.score.split(" ").slice(1).join(" ")}
+                          onChange={e => {
+                            const type = temoForm.score.split(" ")[0] || "";
+                            const val  = e.target.value;
+                            setTemoForm(f => ({ ...f, score: type ? `${type}${val ? " " + val : ""}` : val }));
+                          }}
+                          placeholder="Ex: 850, 7.5, 104…"
+                        />
+                      </div>
+                      <div>
+                        <label>Étoiles</label>
+                        <select value={temoForm.etoiles} onChange={e => setTemoForm(f=>({...f,etoiles:Number(e.target.value)}))}>
+                          {[5,4,3,2,1].map(n => <option key={n} value={n}>{"★".repeat(n)} {n}/5</option>)}
+                        </select>
+                      </div>
+                      <div className="temo-form-grid--full">
+                        <label>Texte *</label>
+                        <textarea value={temoForm.texte} onChange={e => setTemoForm(f=>({...f,texte:e.target.value}))} rows={3} placeholder="Le témoignage..." />
+                      </div>
+                      <div>
+                        <label>Avatar</label>
+                        <div className="temo-emoji-row">
+                          {EMOJI_LIST.map(e => (
+                            <div key={e} className={`temo-emoji-btn${temoForm.avatar===e?" temo-emoji-btn--sel":""}`}
+                              onClick={() => setTemoForm(f=>({...f,avatar:e}))}>
+                              {e}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label>Couleur accent</label>
+                        <div className="temo-color-row">
+                          <input type="color" className="temo-color-swatch" value={temoForm.couleur}
+                            onChange={e => setTemoForm(f=>({...f,couleur:e.target.value}))} />
+                          <span style={{ fontSize:12, color:"#6b7280" }}>{temoForm.couleur}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label>Ordre d'affichage</label>
+                        <input type="number" value={temoForm.ordre} min={0}
+                          onChange={e => setTemoForm(f=>({...f,ordre:Number(e.target.value)}))} />
+                      </div>
+                    </div>
+                    <div className="temo-form-footer">
+                      <button className="temo-btn temo-btn--outline" onClick={() => setTemoFormOpen(false)}>Annuler</button>
+                      <button className="temo-btn temo-btn--primary" onClick={temoCreate}>✓ Créer</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filtres */}
+                <div className="temo-filters">
+                  {[
+                    { key:"tous",       label:`Tous (${temos.length})` },
+                    { key:"en_attente", label:`⏳ En attente (${temos.filter(t=>t.statut==="en_attente").length})` },
+                    { key:"actif",      label:`✅ Actifs (${temos.filter(t=>t.statut==="actif").length})` },
+                    { key:"rejete",     label:`❌ Rejetés (${temos.filter(t=>t.statut==="rejete").length})` },
+                  ].map(f => (
+                    <button key={f.key}
+                      className={`temo-filter-btn ${temoFiltre===f.key?"temo-filter-btn--active":"temo-filter-btn--inactive"}`}
+                      onClick={() => { setTemoFiltre(f.key); setTemoPage(1); }}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Modal rejet */}
+                {temoRejetId && (
+                  <div className="temo-modal-overlay">
+                    <div className="temo-modal">
+                      <h3>❌ Rejeter ce témoignage</h3>
+                      <label>Motif de rejet (optionnel)</label>
+                      <textarea value={temoMotif} onChange={e => setTemoMotif(e.target.value)} rows={3}
+                        placeholder="Ex: Contenu non conforme à la charte..." />
+                      <div className="temo-modal-footer">
+                        <button className="temo-btn temo-btn--outline temo-btn--sm"
+                          onClick={() => { setTemoRejetId(null); setTemoMotif(""); }}>Annuler</button>
+                        <button className="temo-btn temo-btn--danger temo-btn--sm"
+                          onClick={() => temoRejeter(temoRejetId)}>Confirmer le rejet</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Liste */}
+                {temosLoading ? (
+                  <div className="temo-loading">Chargement des témoignages…</div>
+                ) : filtered.length === 0 ? (
+                  <div className="temo-empty">
+                    <div className="temo-empty__icon">⭐</div>
+                    <div className="temo-empty__text">Aucun témoignage{temoFiltre!=="tous"?` — ${temoFiltre}`:""}</div>
+                    <div className="temo-empty__sub">Créez le premier via le bouton ci-dessus</div>
+                  </div>
+                ) : (
+                  <>
+                  {/* Info page */}
+                  <p style={{ fontSize:12, color:"#9ca3af", marginBottom:12 }}>
+                    {filtered.length} témoignage{filtered.length>1?"s":""} · page {temoPage}/{temoTotalPages}
+                  </p>
+                  <div className="temo-grid">
+                    {displayed.map(t => (
+                      <div key={t.id} className={`temo-card temo-card--${t.statut}`}>
+                        <div className="temo-card__accent" style={{ background: t.couleur || "#1e4080" }} />
+                        <div className="temo-card__body">
+                          {/* Identité */}
+                          <div className="temo-card__identity">
+                            <div className="temo-card__avatar-wrap">
+                              <div className="temo-card__avatar" style={{ background:`${t.couleur||"#1e4080"}18` }}>
+                                {t.avatar || "🎓"}
+                              </div>
+                              <div>
+                                <div className="temo-card__name">{t.nom}</div>
+                                {t.role  && <div className="temo-card__role">{t.role}</div>}
+                                {t.score && <div className="temo-card__score" style={{ color: t.couleur||"#1e4080" }}>{t.score}</div>}
+                              </div>
+                            </div>
+                            <div className="temo-card__badges">
+                              <span className={`temo-badge temo-badge--${t.statut}`}>
+                                {t.statut==="actif"?"✅ Actif":t.statut==="en_attente"?"⏳ En attente":"❌ Rejeté"}
+                              </span>
+                              <span className="temo-card__source">{t.source==="apprenant"?"👤 Apprenant":"🔧 Admin"}</span>
+                            </div>
+                          </div>
+
+                          {/* Étoiles */}
+                          <div className="temo-stars">
+                            <span className="temo-stars--filled">{"★".repeat(t.etoiles||5)}</span>
+                            <span className="temo-stars--empty">{"☆".repeat(5-(t.etoiles||5))}</span>
+                          </div>
+
+                          {/* Texte */}
+                          <p className="temo-card__texte">« {t.texte} »</p>
+
+                          {/* Motif rejet */}
+                          {t.motif_rejet && <div className="temo-card__motif">💬 {t.motif_rejet}</div>}
+
+                          {/* Info apprenant */}
+                          {t.apprenant && (
+                            <div className="temo-card__apprenant-info">
+                              👤 {t.apprenant.prenom} {t.apprenant.nom} — {t.apprenant.email}
+                            </div>
+                          )}
+
+                          {/* Contrôles */}
+                          <div className="temo-card__controls">
+                            <span>Ordre :</span>
+                            <input type="number" className="temo-ordre-input" defaultValue={t.ordre} min={0}
+                              onBlur={e => temoAction(t.id, { ordre: Number(e.target.value) })} />
+                            <span>Visible :</span>
+                            <ToggleSwitch on={t.actif} color="#1e4080" onChange={val => temoAction(t.id, { actif: val })} />
+                          </div>
+                        </div>
+
+                        {/* Footer actions */}
+                        <div className="temo-card__footer">
+                          {t.statut === "en_attente" && (
+                            <>
+                              <button className="temo-btn temo-btn--success temo-btn--sm" style={{ flex:1 }}
+                                onClick={() => temoApprouver(t.id)}>✅ Approuver</button>
+                              <button className="temo-btn temo-btn--danger temo-btn--sm" style={{ flex:1 }}
+                                onClick={() => { setTemoRejetId(t.id); setTemoMotif(""); }}>❌ Rejeter</button>
+                            </>
+                          )}
+                          {t.statut !== "en_attente" && (
+                            <button className="temo-btn temo-btn--outline temo-btn--sm" style={{ flex:1 }}
+                              onClick={() => temoAction(t.id, { statut: t.statut==="actif"?"rejete":"actif", actif: t.statut!=="actif" })}>
+                              {t.statut==="actif" ? "⏸ Désactiver" : "▶ Réactiver"}
+                            </button>
+                          )}
+                          <button className="temo-btn temo-btn--danger temo-btn--icon"
+                            onClick={() => temoDelete(t.id)}>🗑</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ── Pagination ── */}
+                  {temoTotalPages > 1 && (
+                    <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6, marginTop:28, flexWrap:"wrap" }}>
+                      <button onClick={() => temoGoTo(temoPage - 1)} disabled={temoPage === 1}
+                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===1?"#f8fafc":"#fff", color:temoPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===1?"not-allowed":"pointer" }}>
+                        ← Précédent
+                      </button>
+                      {Array.from({ length: temoTotalPages }, (_, i) => i + 1).map(n => {
+                        const near = Math.abs(n - temoPage) <= 1 || n === 1 || n === temoTotalPages;
+                        if (!near) {
+                          if (n === temoPage - 2 || n === temoPage + 2) return <span key={n} style={{ color:"#9ca3af", fontSize:12 }}>…</span>;
+                          return null;
+                        }
+                        return (
+                          <button key={n} onClick={() => temoGoTo(n)}
+                            style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===temoPage?"#1e4080":"#f1f5f9", color:n===temoPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
+                            {n}
+                          </button>
+                        );
+                      })}
+                      <button onClick={() => temoGoTo(temoPage + 1)} disabled={temoPage === temoTotalPages}
+                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===temoTotalPages?"#f8fafc":"#fff", color:temoPage===temoTotalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===temoTotalPages?"not-allowed":"pointer" }}>
+                        Suivant →
+                      </button>
+                    </div>
+                  )}
+                  </>
+                )}
+              </div>
+            );
+              })()}
             </div>
           )}
 
