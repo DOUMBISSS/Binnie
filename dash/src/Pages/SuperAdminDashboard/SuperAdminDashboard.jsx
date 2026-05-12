@@ -9,7 +9,8 @@ import NotificationBell from "../../Components/NotificationBell";
 import { supabase } from "../../config/supabase";
 import "./temoignages.css";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
+const API_URL      = process.env.REACT_APP_API_URL      || "http://localhost:5001";
+const FRONTEND_URL = process.env.REACT_APP_FRONTEND_URL || "http://localhost:3000";
 const authHeaders = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token")}` });
 
 /* ═══════════════════════════════════════════════════════
@@ -559,7 +560,8 @@ export default function SuperAdminDashboard() {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [tempPasswords, setTempPasswords] = useState({}); // { [userId]: mdp }
-  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", role:"manager", centre_id:"", accessTemp:"", note:"" });
+  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c" });
+  const [assistanteProfilFilter, setAssistanteProfilFilter] = useState("b2c"); // "b2c" | "b2b"
   const [editingUser, setEditingUser] = useState(null);
   const [userToRevoke, setUserToRevoke] = useState(null);
   const [cloneForm, setCloneForm] = useState({ source:"admin", cible:"manager" });
@@ -568,6 +570,66 @@ export default function SuperAdminDashboard() {
   const [permSubTab, setPermSubTab] = useState("vue_ensemble");
 
   // ── Témoignages ──────────────────────────────────────────
+  const [assistantesAdmin, setAssistantesAdmin]     = useState([]);
+  const [assistantesLoading, setAssistantesLoading] = useState(false);
+  const [assistantesDrafts, setAssistantesDrafts]   = useState({}); // { [id]: {field:val,...} }
+  const [assistantesSaving, setAssistantesSaving]   = useState({}); // { [id]: bool }
+  const [centreTab, setCentreTab]                   = useState("Angré");
+  const [centresList, setCentresList]               = useState([]); // centres réels depuis Supabase [{id,nom,ville}]
+
+  const fetchAssistantesAdmin = async () => {
+    setAssistantesLoading(true);
+    setAssistantesDrafts({});
+    try {
+      const res = await fetch(`${API_URL}/api/parcours/assistantes`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setAssistantesAdmin(d.assistantes || []);
+    } catch { toast.error("Erreur chargement assistantes"); }
+    finally { setAssistantesLoading(false); }
+  };
+
+  const fetchCentresList = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/parcours/centres`);
+      const d = await res.json();
+      setCentresList(d.centres || []);
+    } catch {}
+  };
+
+  // Retourne la version draft-merged d'une assistante
+  const getDraftedA = (a) => ({ ...a, ...(assistantesDrafts[a.id] || {}) });
+
+  // Met à jour le draft local (sans appel API)
+  const setDraft = (id, updates) => {
+    setAssistantesDrafts(prev => ({ ...prev, [id]: { ...(prev[id]||{}), ...updates } }));
+  };
+
+  const toggleJourTravailDraft = (assistanteId, jour) => {
+    const a = assistantesAdmin.find(x => x.id === assistanteId);
+    if (!a) return;
+    const base = (assistantesDrafts[assistanteId]?.jours_travail) ?? (a.jours_travail || ["lundi","mardi","mercredi","jeudi","vendredi"]);
+    const nouveau = base.includes(jour) ? base.filter(j => j !== jour) : [...base, jour];
+    setDraft(assistanteId, { jours_travail: nouveau });
+  };
+
+  // Enregistre le draft d'une assistante vers l'API
+  const saveDraftAssistante = async (id) => {
+    const draft = assistantesDrafts[id];
+    if (!draft || Object.keys(draft).length === 0) return;
+    setAssistantesSaving(prev => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(`${API_URL}/api/parcours/assistantes/${id}`, {
+        method: "PATCH", headers: authHeaders(), body: JSON.stringify(draft),
+      });
+      if (!res.ok) throw new Error();
+      setAssistantesAdmin(prev => prev.map(a => a.id === id ? { ...a, ...draft } : a));
+      setAssistantesDrafts(prev => { const n = { ...prev }; delete n[id]; return n; });
+      toast.success("Planning enregistré ✓");
+    } catch { toast.error("Erreur lors de l'enregistrement"); }
+    finally { setAssistantesSaving(prev => ({ ...prev, [id]: false })); }
+  };
+
   const [temos, setTemos]                   = useState([]);
   const [temosLoading, setTemosLoading]     = useState(false);
   const [temoFiltre, setTemoFiltre]         = useState("tous");
@@ -588,6 +650,8 @@ export default function SuperAdminDashboard() {
     finally { setTemosLoading(false); }
   };
 
+  useEffect(() => { if (activeTab === "assistantes") fetchAssistantesAdmin(); }, [activeTab]);
+  useEffect(() => { fetchCentresList(); }, []);
   useEffect(() => { if (activeTab === "temoignages") fetchTemos(); }, [activeTab]);
 
   const temoAction = async (id, updates) => {
@@ -873,9 +937,27 @@ export default function SuperAdminDashboard() {
     setAuditLog([newEntry, ...auditLog]);
   };
 
-  const toggleUserStatus = (userId) => {
-    setUsers(users.map(u => u.id===userId ? {...u, actif:!u.actif} : u));
-    addAuditEntry("STATUT_UTILISATEUR", `Utilisateur ${userId} ${users.find(u=>u.id===userId)?.actif ? "désactivé" : "activé"}`, "warning");
+  const toggleUserStatus = async (userId) => {
+    const target = users.find(u => u.id === userId);
+    if (!target) return;
+    const newActif = !target.actif;
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, actif: newActif } : u));
+    try {
+      const res = await fetch(`${API_URL}/api/admin/utilisateurs/${userId}`, {
+        method: "PATCH", headers: authHeaders(),
+        body: JSON.stringify({ actif: newActif }),
+      });
+      if (!res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, actif: target.actif } : u));
+        toast.error("Erreur lors du changement de statut");
+      } else {
+        addAuditEntry("STATUT_UTILISATEUR", `${target.prenom} ${target.nom} ${newActif ? "activé" : "désactivé"}`, "warning");
+        toast.success(`${target.prenom} ${target.nom} ${newActif ? "✅ activé" : "🔴 désactivé"}`);
+      }
+    } catch {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, actif: target.actif } : u));
+      toast.error("Impossible de joindre le serveur");
+    }
   };
 
   const toggle2FA = async (userId, newVal) => {
@@ -927,21 +1009,48 @@ export default function SuperAdminDashboard() {
       toast.error("Veuillez sélectionner le centre BET de cet utilisateur");
       return;
     }
+    if (inviteForm.role === "commercial" && inviteForm.jours_travail.length === 0) {
+      toast.error("Sélectionnez au moins un jour de service pour l'assistante");
+      return;
+    }
     try {
       const scope = inviteForm.centre_id ? [inviteForm.centre_id] : ["national"];
+      const payload = {
+        nom, prenom,
+        email: inviteForm.email,
+        telephone: inviteForm.telephone || null,
+        role: inviteForm.role,
+        scope,
+        note: inviteForm.note,
+      };
+      // Pour les assistantes commerciales : inclure le planning
+      if (inviteForm.role === "commercial") {
+        payload.planning = {
+          centre_id: inviteForm.centre_id || null,
+          type_cours: inviteForm.type_cours,
+          type_semaine: inviteForm.jours_travail.some(j => ["samedi","dimanche"].includes(j)) &&
+                        inviteForm.jours_travail.some(j => ["lundi","mardi","mercredi","jeudi","vendredi"].includes(j))
+                        ? "les_deux"
+                        : inviteForm.jours_travail.some(j => ["samedi","dimanche"].includes(j)) ? "weekend" : "semaine",
+          quota_jour: inviteForm.quota_jour,
+          jours_travail: inviteForm.jours_travail,
+          profil: inviteForm.profil_assistante || "b2c",
+        };
+      }
       const res  = await fetch(`${API_URL}/api/admin/utilisateurs`, {
         method: "POST", headers: authHeaders(),
-        body: JSON.stringify({ nom, prenom, email: inviteForm.email, role: inviteForm.role, scope, note: inviteForm.note }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "Erreur création"); return; }
       if (data.utilisateur?.id && data.mdp_temporaire) {
         setTempPasswords(prev => ({ ...prev, [data.utilisateur.id]: data.mdp_temporaire }));
+        setCreatedCredentials({ nom: inviteForm.nom, email: inviteForm.email, mdp: data.mdp_temporaire, role: inviteForm.role });
+        setShowCredentialsModal(true);
       }
       await chargerUtilisateurs();
       setShowInviteModal(false);
-      setInviteForm({ nom:"", email:"", role:"manager", centre_id:"", accessTemp:"", note:"" });
-      toast.success(`${inviteForm.nom} créé — accès visibles dans le tableau`);
+      setInviteForm({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"] });
     } catch { toast.error("Impossible de joindre le serveur"); }
   };
 
@@ -987,6 +1096,160 @@ export default function SuperAdminDashboard() {
     toast.success("Export CSV effectué");
   };
 
+  // ── Boutique ─────────────────────────────────────────────
+  const [boutiqueSubTab,    setBoutiqueSubTab]    = useState("produits");
+  const [produits,          setProduits]          = useState([]);
+  const [prodLoading,       setProdLoading]       = useState(false);
+  const [commandes,         setCommandes]         = useState([]);
+  const [cmdLoading,        setCmdLoading]        = useState(false);
+  const [cmdFiltreStatut,   setCmdFiltreStatut]   = useState("tous");
+  const [selectedProduit,   setSelectedProduit]   = useState(null);
+  const PROD_FORM_INIT = { nom:"", description:"", prix:"", stock:"0", categorie:"Autre", images:[] };
+  const [prodForm,          setProdForm]          = useState(PROD_FORM_INIT);
+  const [prodFormOpen,      setProdFormOpen]      = useState(false);
+  const [prodSaving,        setProdSaving]        = useState(false);
+  const [prodImageUploading,setProdImageUploading]= useState(false);
+  const [prodPage,          setProdPage]          = useState(1);
+  const PROD_PER_PAGE = 12;
+
+  const CATEGORIES_BOUTIQUE = ["Autre","Vêtements","Accessoires","Fournitures","Livres","Goodies"];
+  const STATUTS_CMD = [
+    { key:"tous",       label:"Toutes",     color:"#6b7280" },
+    { key:"en_attente", label:"En attente", color:"#d97706" },
+    { key:"confirmee",  label:"Confirmée",  color:"#2563eb" },
+    { key:"livree",     label:"Livrée",     color:"#059669" },
+    { key:"annulee",    label:"Annulée",    color:"#dc2626" },
+  ];
+
+  const fetchProduits = async () => {
+    setProdLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/boutique/produits`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setProduits(await res.json());
+    } catch { toast.error("Erreur chargement produits"); }
+    finally { setProdLoading(false); }
+  };
+
+  const fetchCommandes = async () => {
+    setCmdLoading(true);
+    try {
+      const url = cmdFiltreStatut === "tous"
+        ? `${API_URL}/api/boutique/commandes`
+        : `${API_URL}/api/boutique/commandes?statut=${cmdFiltreStatut}`;
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setCommandes(await res.json());
+    } catch { toast.error("Erreur chargement commandes"); }
+    finally { setCmdLoading(false); }
+  };
+
+  const saveProduit = async () => {
+    if (!prodForm.nom || !prodForm.prix) return toast.error("Nom et prix requis");
+    setProdSaving(true);
+    try {
+      const isEdit = !!selectedProduit;
+      const url = isEdit
+        ? `${API_URL}/api/boutique/produits/${selectedProduit.id}`
+        : `${API_URL}/api/boutique/produits`;
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ...prodForm, prix: Number(prodForm.prix), stock: Number(prodForm.stock), image_url: prodForm.images[0] || null }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      toast.success(isEdit ? "Produit mis à jour" : "Produit créé");
+      setProdFormOpen(false);
+      setSelectedProduit(null);
+      setProdForm(PROD_FORM_INIT);
+      setProdPage(1);
+      fetchProduits();
+    } catch (e) { toast.error(e.message || "Erreur sauvegarde"); }
+    finally { setProdSaving(false); }
+  };
+
+  const toggleProduitActif = async (id, actif) => {
+    try {
+      await fetch(`${API_URL}/api/boutique/produits/${id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ actif: !actif }),
+      });
+      setProduits(p => p.map(x => x.id === id ? { ...x, actif: !actif } : x));
+    } catch { toast.error("Erreur"); }
+  };
+
+  const deleteProduit = async (id) => {
+    if (!window.confirm("Supprimer ce produit ?")) return;
+    try {
+      await fetch(`${API_URL}/api/boutique/produits/${id}`, { method:"DELETE", headers: authHeaders() });
+      toast.success("Produit supprimé");
+      setProduits(p => p.filter(x => x.id !== id));
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const updateCmdStatut = async (id, statut) => {
+    try {
+      await fetch(`${API_URL}/api/boutique/commandes/${id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ statut }),
+      });
+      setCommandes(c => c.map(x => x.id === id ? { ...x, statut } : x));
+      toast.success("Statut mis à jour");
+    } catch { toast.error("Erreur"); }
+  };
+
+  const uploadProduitImage = async (file) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Image trop lourde — maximum 10 Mo");
+      return;
+    }
+    setProdImageUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_URL}/api/upload/image`, { method:"POST", headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` }, body: fd });
+      if (res.status === 413) throw new Error("Fichier trop volumineux pour le serveur (max 10 Mo)");
+      let d;
+      try { d = await res.json(); } catch { throw new Error(`Erreur serveur (${res.status})`); }
+      if (!res.ok) throw new Error(d.error || `Erreur ${res.status}`);
+      setProdForm(f => ({ ...f, images: [...(f.images||[]), d.file.url] }));
+      toast.success("Image ajoutée");
+    } catch (e) { toast.error(e.message || "Erreur upload image"); }
+    finally { setProdImageUploading(false); }
+  };
+
+  // ── Commentaires Blog ────────────────────────────────────
+  const [blogComments,        setBlogComments]        = useState([]);
+  const [blogCommentsLoading, setBlogCommentsLoading] = useState(false);
+  const [blogCommentsSearch,  setBlogCommentsSearch]  = useState("");
+
+  const fetchBlogComments = async () => {
+    setBlogCommentsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/blog/admin/commentaires/all`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setBlogComments(d.commentaires || []);
+    } catch { toast.error("Erreur chargement commentaires"); }
+    finally { setBlogCommentsLoading(false); }
+  };
+
+  const deleteBlogComment = async (id) => {
+    if (!window.confirm("Supprimer ce commentaire définitivement ?")) return;
+    try {
+      await fetch(`${API_URL}/api/blog/commentaires/${id}`, { method:"DELETE", headers: authHeaders() });
+      setBlogComments(c => c.filter(x => x.id !== id));
+      toast.success("Commentaire supprimé");
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  useEffect(() => { if (activeTab === "blog_comments") fetchBlogComments(); }, [activeTab]);
+
+  useEffect(() => { if (activeTab === "boutique") { fetchProduits(); fetchCommandes(); } }, [activeTab]);
+  useEffect(() => { if (activeTab === "boutique" && boutiqueSubTab === "commandes") fetchCommandes(); }, [cmdFiltreStatut]);
+
   // États pour les onglets Coachs & Apprenants
   const [selectedCoach,     setSelectedCoach]     = useState(null);
   const [selectedApprenant, setSelectedApprenant] = useState(null);
@@ -1007,11 +1270,14 @@ export default function SuperAdminDashboard() {
     { key: "paiements",     label: "Paiements",              icon: "💳" },
     { key: "progression",   label: "Progression apprenants", icon: "📈" },
     { key: "support",       label: "Requêtes & Support",     icon: "🛠️" },
+    { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
     { key: "apprenants",    label: "Apprenants",             icon: "🎓",  badge: APPRENANTS_MOCK.length },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
     { key: "temoignages",   label: "Témoignages",            icon: "⭐",  badge: temosPending||null, danger: temosPending>0 },
+    { key: "boutique",      label: "Boutique",               icon: "🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
+    { key: "blog_comments", label: "Commentaires Blog",      icon: "💬",  badge: blogComments.length || null },
   ];
 
   const permTabs = [
@@ -1451,7 +1717,16 @@ export default function SuperAdminDashboard() {
                 {permSubTab === "utilisateurs" && (
                   <div>
                   {loadingUsers && <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:14 }}>⏳ Chargement des utilisateurs…</div>}
-                  {!loadingUsers && users.length === 0 && <div style={{ textAlign:"center", padding:"40px 0" }}><div style={{ fontSize:40, marginBottom:12 }}>👥</div><div style={{ fontWeight:700, color:"#0f172a", marginBottom:6 }}>Aucun utilisateur</div><p style={{ color:"#9ca3af", fontSize:13 }}>Cliquez sur "+ Inviter" pour créer le premier utilisateur.</p></div>}
+                  {!loadingUsers && users.length === 0 && (
+                    <div style={{ textAlign:"center", padding:"40px 0" }}>
+                      <div style={{ fontSize:40, marginBottom:12 }}>👥</div>
+                      <div style={{ fontWeight:700, color:"#0f172a", marginBottom:6 }}>Aucun utilisateur</div>
+                      <p style={{ color:"#9ca3af", fontSize:13, marginBottom:16 }}>Créez le premier utilisateur de la plateforme.</p>
+                      <button onClick={()=>setShowInviteModal(true)} style={{ padding:"10px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                        ➕ Créer un utilisateur
+                      </button>
+                    </div>
+                  )}
                   {!loadingUsers && users.length > 0 && <div><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}><div><h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>Utilisateurs</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>{usersFiltres.length} affiché(s) sur {users.length}</p></div><div style={{ display:"flex", gap:8 }}><button onClick={exportUsers} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export CSV</button><button onClick={()=>setShowInviteModal(true)} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>+ Inviter</button></div></div>
                     <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:18 }}><input type="text" placeholder="🔍 Nom ou email…" value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:200, marginBottom:0 }} /><div style={{ display:"flex", gap:5 }}>{["Tous","super_admin","admin","manager","responsable","commercial","gestionnaire","coach","data_collector"].map(r=><button key={r} onClick={()=>setFiltreRole(r)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, fontWeight:600, cursor:"pointer", background:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#fff", color:filtreRole===r?"#fff":"#6b7280", borderColor:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#e5e7eb" }}>{r==="Tous"?"Tous":ROLES_DEF[r]?.emoji+" "+ROLES_DEF[r]?.label}</button>)}</div><div style={{ display:"flex", gap:5 }}>{["Tous","Actifs","Inactifs","Sans 2FA","En ligne"].map(s=><button key={s} onClick={()=>setFiltreStatut(s)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, cursor:"pointer", background:filtreStatut===s?BET_COLOR:"#fff", color:filtreStatut===s?"#fff":"#6b7280", borderColor:filtreStatut===s?BET_COLOR:"#e5e7eb" }}>{s}</button>)}</div></div>
                     <div style={{ overflowX:"auto" }}>
@@ -2289,47 +2564,126 @@ export default function SuperAdminDashboard() {
 
         {/* MODALES (invitation, utilisateur, révocation, clone, demande) identiques à AdminDashboard */}
         {showInviteModal && (
-          <Modal title="Inviter un administrateur" subtitle="L'utilisateur recevra un email avec ses accès" onClose={()=>setShowInviteModal(false)}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <Modal title="Créer un utilisateur" subtitle="Un mot de passe temporaire sera généré automatiquement" onClose={()=>setShowInviteModal(false)}>
+            {/* Identité */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
               <div><label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Nom complet *</label><input value={inviteForm.nom} onChange={e=>setInviteForm({...inviteForm,nom:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%" }} placeholder="Prénom Nom"/></div>
-              <div><label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Email *</label><input type="email" value={inviteForm.email} onChange={e=>setInviteForm({...inviteForm,email:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%" }} placeholder="email@domaine.ci"/></div>
+              <div><label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Téléphone</label><input value={inviteForm.telephone} onChange={e=>setInviteForm({...inviteForm,telephone:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%" }} placeholder="+225 07 …"/></div>
             </div>
-            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Rôle à attribuer *</label>
+            <div style={{ marginBottom:14 }}><label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Email *</label><input type="email" value={inviteForm.email} onChange={e=>setInviteForm({...inviteForm,email:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%" }} placeholder="email@domaine.ci"/></div>
+
+            {/* Rôle */}
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:6 }}>Rôle à attribuer *</label>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
               {Object.values(ROLES_DEF).filter(r=>r.id!=="super_admin").map(r=>(
-                <div key={r.id} onClick={()=>setInviteForm({...inviteForm,role:r.id,centre_id:""})} style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${inviteForm.role===r.id?r.color:"#e5e7eb"}`, background:inviteForm.role===r.id?r.color+"08":"#fff", cursor:"pointer" }}>
-                  <div style={{ fontWeight:700, color:inviteForm.role===r.id?r.color:"#0f172a", fontSize:14 }}>{r.emoji} {r.label}</div><div style={{ fontSize:11, color:"#9ca3af", marginTop:3 }}>{r.description.slice(0,60)}…</div>
+                <div key={r.id} onClick={()=>setInviteForm({...inviteForm,role:r.id,centre_id:""})} style={{ padding:"10px 12px", borderRadius:10, border:`2px solid ${inviteForm.role===r.id?r.color:"#e5e7eb"}`, background:inviteForm.role===r.id?r.color+"08":"#fff", cursor:"pointer" }}>
+                  <div style={{ fontWeight:700, color:inviteForm.role===r.id?r.color:"#0f172a", fontSize:13 }}>{r.emoji} {r.label}</div>
+                  <div style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{r.description.slice(0,55)}…</div>
                 </div>
               ))}
             </div>
-            {/* Centre — obligatoire pour tous les rôles sauf super_admin et data_collector */}
+
+            {/* Centre BET — pour les rôles qui en ont besoin */}
             {ROLES_AVEC_CENTRE.includes(inviteForm.role) && (
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:inviteForm.centre_id?"#1e3a8a":"#dc2626", marginBottom:4 }}>
-                  🏢 Centre BET attribué *
-                </label>
-                <select
-                  value={inviteForm.centre_id}
-                  onChange={e=>setInviteForm({...inviteForm,centre_id:e.target.value})}
-                  style={{ padding:9, borderRadius:6, border:`2px solid ${inviteForm.centre_id?"#1e3a8a":"#fca5a5"}`, fontSize:13, width:"100%", cursor:"pointer", background:"#fff" }}
-                >
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:inviteForm.centre_id?"#1e3a8a":"#dc2626", marginBottom:4 }}>🏢 Centre BET *</label>
+                <select value={inviteForm.centre_id} onChange={e=>setInviteForm({...inviteForm,centre_id:e.target.value})}
+                  style={{ padding:9, borderRadius:6, border:`2px solid ${inviteForm.centre_id?"#1e3a8a":"#fca5a5"}`, fontSize:13, width:"100%", background:"#fff" }}>
                   <option value="">— Choisir le centre —</option>
-                  {CENTRES_BET.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                  {inviteForm.role === "commercial"
+                    ? centresList.map(c=><option key={c.id} value={c.id}>{c.nom}{c.ville ? ` — ${c.ville}` : ""}</option>)
+                    : CENTRES_BET.map(c=><option key={c.id} value={c.id}>{c.label}</option>)
+                  }
                 </select>
-                <div style={{ fontSize:11, color:"#64748b", marginTop:4 }}>
-                  {inviteForm.role==="commercial"
-                    ? "La conseillère apparaîtra uniquement pour les prospects de ce centre."
-                    : "Le profil sera associé à ce centre et limité à son périmètre."}
+              </div>
+            )}
+
+            {/* ── Section planning (assistante commerciale uniquement) ── */}
+            {inviteForm.role === "commercial" && (
+              <div style={{ marginBottom:14, padding:"16px 18px", borderRadius:12, background:"#f0fdf4", border:"2px solid #bbf7d0" }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"#166534", marginBottom:14, display:"flex", alignItems:"center", gap:6 }}>
+                  📅 Planning de l'assistante commerciale
+                </div>
+
+                {/* Profil B2C / B2B */}
+                <div style={{ marginBottom:14 }}>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:6 }}>Profil de l'assistante</label>
+                  <div style={{ display:"flex", gap:8 }}>
+                    {[{v:"b2c",l:"👤 B2C — Particuliers"},{v:"b2b",l:"🏢 Corporate — Entreprises"},{v:"les_deux",l:"🔀 Les deux"}].map(opt=>(
+                      <button key={opt.v} onClick={()=>setInviteForm({...inviteForm,profil_assistante:opt.v})}
+                        style={{ flex:1, padding:"8px 6px", borderRadius:8, border:`2px solid ${inviteForm.profil_assistante===opt.v?"#0891b2":"#e5e7eb"}`,
+                          background:inviteForm.profil_assistante===opt.v?"#e0f2fe":"#fff",
+                          color:inviteForm.profil_assistante===opt.v?"#0891b2":"#374151",
+                          fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                        {opt.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Type de cours */}
+                <div style={{ marginBottom:12 }}>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:6 }}>Type de coaching</label>
+                  <div style={{ display:"flex", gap:8 }}>
+                    {[{v:"en_ligne",l:"💻 En ligne"},{v:"presentiel",l:"🏢 Présentiel"},{v:"les_deux",l:"🔀 Les deux"}].map(opt=>(
+                      <button key={opt.v} onClick={()=>setInviteForm({...inviteForm,type_cours:opt.v})}
+                        style={{ flex:1, padding:"8px 6px", borderRadius:8, border:`2px solid ${inviteForm.type_cours===opt.v?"#22c55e":"#e5e7eb"}`,
+                          background:inviteForm.type_cours===opt.v?"#dcfce7":"#fff",
+                          color:inviteForm.type_cours===opt.v?"#166534":"#374151",
+                          fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                        {opt.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quota par jour */}
+                <div style={{ marginBottom:12 }}>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Quota d'assignations / jour</label>
+                  <input type="number" min={1} max={50} value={inviteForm.quota_jour}
+                    onChange={e=>setInviteForm({...inviteForm,quota_jour:parseInt(e.target.value)||10})}
+                    style={{ width:80, padding:"7px 10px", borderRadius:7, border:"1.5px solid #d1d5db", fontSize:14, fontWeight:700, textAlign:"center" }}/>
+                </div>
+
+                {/* Jours de service */}
+                <div>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:8 }}>
+                    Jours de service · <span style={{ color:"#16a34a" }}>{inviteForm.jours_travail.length} sélectionné(s)</span>
+                  </label>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"].map(jour=>{
+                      const COURT = { lundi:"L", mardi:"M", mercredi:"Me", jeudi:"J", vendredi:"V", samedi:"S", dimanche:"D" };
+                      const actif = inviteForm.jours_travail.includes(jour);
+                      return (
+                        <button key={jour} title={jour.charAt(0).toUpperCase()+jour.slice(1)}
+                          onClick={()=>{
+                            const nv = actif ? inviteForm.jours_travail.filter(j=>j!==jour) : [...inviteForm.jours_travail,jour];
+                            setInviteForm({...inviteForm,jours_travail:nv});
+                          }}
+                          style={{ width:34, height:34, borderRadius:999, border:`1.5px solid ${actif?"#22c55e":"#e2e8f0"}`,
+                            background:actif?"#22c55e":"#f8fafc", color:actif?"#fff":"#94a3b8",
+                            fontWeight:800, fontSize:11, cursor:"pointer" }}>
+                          {COURT[jour]}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
-            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Accès temporaire (optionnel)</label>
-            <input type="date" value={inviteForm.accessTemp} onChange={e=>setInviteForm({...inviteForm,accessTemp:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%", marginBottom:8 }} min={new Date().toISOString().split("T")[0]}/>
-            <div style={{ fontSize:11, color:"#9ca3af", marginTop:-4, marginBottom:12 }}>Laissez vide pour un accès permanent.</div>
-            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Message personnalisé (optionnel)</label>
-            <textarea value={inviteForm.note} onChange={e=>setInviteForm({...inviteForm,note:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%", minHeight:60, resize:"vertical", marginBottom:12 }} placeholder="Message à inclure dans l'email d'invitation…"/>
-            <div style={{ padding:"10px 14px", borderRadius:8, background:"#f0f9ff", border:"1px solid #bae6fd", fontSize:12, color:BET_COLOR, marginBottom:16 }}>📧 Un email avec un lien d'activation sera envoyé à <strong>{inviteForm.email||"l'adresse saisie"}</strong>.</div>
-            <div style={{ display:"flex", gap:10 }}><button onClick={sendInvite} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>📨 Envoyer l'invitation</button><button onClick={()=>setShowInviteModal(false)} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>Annuler</button></div>
+
+            {/* Note */}
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Note interne (optionnel)</label>
+            <textarea value={inviteForm.note} onChange={e=>setInviteForm({...inviteForm,note:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%", minHeight:52, resize:"vertical", marginBottom:14 }} placeholder="Note visible uniquement par les admins…"/>
+
+            <div style={{ padding:"10px 14px", borderRadius:8, background:"#f0f9ff", border:"1px solid #bae6fd", fontSize:12, color:BET_COLOR, marginBottom:16 }}>
+              🔑 Un mot de passe temporaire sera généré automatiquement et affiché après création.
+              {inviteForm.role === "commercial" && <><br/><span style={{ color:"#166534" }}>✅ Le profil planning de l'assistante sera créé en même temps.</span></>}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={sendInvite} style={{ padding:"10px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>✅ Créer l'utilisateur</button>
+              <button onClick={()=>setShowInviteModal(false)} style={{ padding:"10px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:13 }}>Annuler</button>
+            </div>
           </Modal>
         )}
 
@@ -3006,6 +3360,705 @@ export default function SuperAdminDashboard() {
               })()}
             </div>
           )}
+
+          {/* ══ BOUTIQUE ══ */}
+          {activeTab === "boutique" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", padding:0, overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>🛍️ Boutique BET</h2>
+                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                    {produits.length} produit{produits.length!==1?"s":""} · {commandes.length} commande{commandes.length!==1?"s":""}
+                    {commandes.filter(c=>c.statut==="en_attente").length > 0 &&
+                      <span style={{ marginLeft:10, background:"#fbbf24", color:"#7c2d12", padding:"2px 10px", borderRadius:999, fontWeight:700, fontSize:11 }}>
+                        {commandes.filter(c=>c.statut==="en_attente").length} en attente
+                      </span>
+                    }
+                  </p>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => { setBoutiqueSubTab("produits"); setProdFormOpen(true); setSelectedProduit(null); setProdForm(PROD_FORM_INIT); }}
+                    style={{ padding:"9px 18px", background:"#fff", color:BET_COLOR, border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+                    + Nouveau produit
+                  </button>
+                </div>
+              </div>
+
+              {/* Sous-onglets */}
+              <div style={{ display:"flex", gap:0, borderBottom:"2px solid #e5e7eb", padding:"0 28px" }}>
+                {[{ key:"produits", label:"📦 Produits" }, { key:"commandes", label:"🧾 Commandes" }].map(t => (
+                  <button key={t.key} onClick={() => setBoutiqueSubTab(t.key)}
+                    style={{ padding:"12px 20px", border:"none", background:"none", cursor:"pointer", fontWeight:700, fontSize:13,
+                      color: boutiqueSubTab===t.key ? BET_COLOR : "#6b7280",
+                      borderBottom: boutiqueSubTab===t.key ? `3px solid ${BET_COLOR}` : "3px solid transparent",
+                      marginBottom:-2 }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ padding:28 }}>
+
+                {/* ── Formulaire ajout/édition produit ── */}
+                {boutiqueSubTab === "produits" && prodFormOpen && (
+                  <div style={{ background:"#f0f9ff", border:`1.5px solid ${BET_COLOR}40`, borderRadius:12, padding:24, marginBottom:28 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+                      <h3 style={{ margin:0, color:BET_DARK, fontWeight:800 }}>
+                        {selectedProduit ? "✏️ Modifier le produit" : "➕ Nouveau produit"}
+                      </h3>
+                      <button onClick={() => { setProdFormOpen(false); setSelectedProduit(null); }}
+                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:18, color:"#6b7280" }}>✕</button>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Nom du produit *</label>
+                        <input value={prodForm.nom} onChange={e=>setProdForm(f=>({...f,nom:e.target.value}))}
+                          placeholder="Ex: T-Shirt BET"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Catégorie</label>
+                        <select
+                          value={CATEGORIES_BOUTIQUE.includes(prodForm.categorie) ? prodForm.categorie : "__custom__"}
+                          onChange={e => {
+                            if (e.target.value === "__custom__") setProdForm(f=>({...f, categorie:""}));
+                            else setProdForm(f=>({...f, categorie:e.target.value}));
+                          }}
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }}>
+                          {CATEGORIES_BOUTIQUE.map(c=><option key={c}>{c}</option>)}
+                          <option value="__custom__">✏️ Saisir manuellement…</option>
+                        </select>
+                        {!CATEGORIES_BOUTIQUE.includes(prodForm.categorie) && (
+                          <input
+                            autoFocus
+                            value={prodForm.categorie}
+                            onChange={e=>setProdForm(f=>({...f,categorie:e.target.value}))}
+                            placeholder="Nom de la catégorie…"
+                            style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}`, borderRadius:8, fontSize:13 }}
+                          />
+                        )}
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Prix (FCFA) *</label>
+                        <input type="number" min="0" value={prodForm.prix} onChange={e=>setProdForm(f=>({...f,prix:e.target.value}))}
+                          placeholder="5000"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Stock</label>
+                        <input type="number" min="0" value={prodForm.stock} onChange={e=>setProdForm(f=>({...f,stock:e.target.value}))}
+                          placeholder="0"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6, gridColumn:"1/-1" }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Description</label>
+                        <textarea value={prodForm.description} onChange={e=>setProdForm(f=>({...f,description:e.target.value}))}
+                          placeholder="Description du produit…" rows={3}
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13, resize:"vertical" }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:8, gridColumn:"1/-1" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>
+                            Photos du produit <span style={{ color:"#94a3b8", fontWeight:400 }}>({prodForm.images.length} / 6)</span>
+                          </label>
+                          {prodForm.images.length < 6 && (
+                            <label style={{ padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
+                              {prodImageUploading ? "⏳ Upload…" : "📷 Ajouter une photo"}
+                              <input type="file" accept="image/*" style={{ display:"none" }}
+                                onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
+                            </label>
+                          )}
+                        </div>
+                        {prodForm.images.length === 0 ? (
+                          <label style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:100, border:`2px dashed ${BET_COLOR}40`, borderRadius:10, cursor:"pointer", color:"#94a3b8", fontSize:13, gap:6 }}>
+                            <span style={{ fontSize:28 }}>📷</span>
+                            Cliquez pour ajouter des photos
+                            <input type="file" accept="image/*" style={{ display:"none" }}
+                              onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
+                          </label>
+                        ) : (
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                            {prodForm.images.map((url, i) => (
+                              <div key={i} style={{ position:"relative", width:90, height:90 }}>
+                                <img src={url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:8, border: i===0?"2.5px solid "+BET_COLOR:"1.5px solid #e5e7eb" }} />
+                                {i===0 && <span style={{ position:"absolute", top:4, left:4, background:BET_COLOR, color:"#fff", fontSize:9, fontWeight:800, padding:"1px 5px", borderRadius:4 }}>PRINCIPALE</span>}
+                                <button onClick={()=>setProdForm(f=>({...f, images:f.images.filter((_,j)=>j!==i)}))}
+                                  style={{ position:"absolute", top:2, right:2, width:20, height:20, borderRadius:"50%", background:"#dc2626", color:"#fff", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p style={{ fontSize:11, color:"#94a3b8", margin:0 }}>La 1ère photo est l'image principale. Max 6 photos · 10 Mo par photo.</p>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:10, marginTop:20, justifyContent:"flex-end" }}>
+                      <button onClick={()=>{ setProdFormOpen(false); setSelectedProduit(null); }}
+                        style={{ padding:"9px 20px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:600 }}>
+                        Annuler
+                      </button>
+                      <button onClick={saveProduit} disabled={prodSaving}
+                        style={{ padding:"9px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, opacity:prodSaving?0.7:1 }}>
+                        {prodSaving ? "Enregistrement…" : selectedProduit ? "Mettre à jour" : "Créer le produit"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Liste des produits ── */}
+                {boutiqueSubTab === "produits" && (() => {
+                  const totalPages = Math.max(1, Math.ceil(produits.length / PROD_PER_PAGE));
+                  const paginated  = produits.slice((prodPage-1)*PROD_PER_PAGE, prodPage*PROD_PER_PAGE);
+                  return (
+                  <>
+                    {prodLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                    ) : produits.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:60 }}>
+                        <div style={{ fontSize:48, marginBottom:12 }}>📦</div>
+                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun produit pour l'instant</p>
+                        <button onClick={()=>setProdFormOpen(true)} style={{ padding:"10px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, marginTop:8 }}>
+                          + Ajouter le premier produit
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:18 }}>
+                        {paginated.map(p => {
+                          const imgs = Array.isArray(p.images) && p.images.length > 0 ? p.images : (p.image_url ? [p.image_url] : []);
+                          const mainImg = imgs[0] || null;
+                          return (
+                          <div key={p.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden", background:"#fff", boxShadow:"0 1px 4px rgba(0,0,0,0.05)", opacity:p.actif?1:0.65 }}>
+                            {/* Image principale */}
+                            <div style={{ height:150, background:"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative" }}>
+                              {mainImg
+                                ? <img src={mainImg} alt={p.nom} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                                : <span style={{ fontSize:48 }}>📦</span>
+                              }
+                              {imgs.length > 1 && (
+                                <span style={{ position:"absolute", bottom:6, right:6, background:"rgba(0,0,0,0.55)", color:"#fff", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999 }}>
+                                  +{imgs.length-1} photo{imgs.length>2?"s":""}
+                                </span>
+                              )}
+                            </div>
+                            {/* Miniatures */}
+                            {imgs.length > 1 && (
+                              <div style={{ display:"flex", gap:4, padding:"6px 8px", background:"#f8fafc", overflowX:"auto" }}>
+                                {imgs.slice(1).map((url, i) => (
+                                  <img key={i} src={url} alt="" style={{ width:36, height:36, objectFit:"cover", borderRadius:5, border:"1px solid #e5e7eb", flexShrink:0 }} />
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ padding:"12px 14px" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                                <div>
+                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{p.nom}</div>
+                                  <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>{p.categorie}</div>
+                                </div>
+                                <span style={{ padding:"2px 8px", borderRadius:999, fontSize:10, fontWeight:700,
+                                  background:p.actif?"#dcfce7":"#f1f5f9", color:p.actif?"#166534":"#6b7280" }}>
+                                  {p.actif?"Actif":"Inactif"}
+                                </span>
+                              </div>
+                              {p.description && <p style={{ fontSize:12, color:"#64748b", margin:"4px 0 8px", lineHeight:1.4 }}>{p.description.slice(0,70)}{p.description.length>70?"…":""}</p>}
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                                <span style={{ fontWeight:800, fontSize:15, color:BET_COLOR }}>{Number(p.prix).toLocaleString("fr-FR")} FCFA</span>
+                                <span style={{ fontSize:11, color: p.stock===0?"#dc2626":"#6b7280" }}>
+                                  {p.stock===0 ? "⚠ Rupture" : `Stock : ${p.stock}`}
+                                </span>
+                              </div>
+                              <div style={{ display:"flex", gap:7 }}>
+                                <button onClick={()=>{ setSelectedProduit(p); setProdForm({ nom:p.nom, description:p.description||"", prix:p.prix, stock:p.stock, categorie:p.categorie, images: imgs }); setProdFormOpen(true); }}
+                                  style={{ flex:1, padding:"7px 0", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  ✏️ Modifier
+                                </button>
+                                <button onClick={()=>toggleProduitActif(p.id, p.actif)}
+                                  style={{ padding:"7px 10px", background:p.actif?"#fff7ed":"#f0fdf4", color:p.actif?"#c2410c":"#166534", border:`1.5px solid ${p.actif?"#fed7aa":"#bbf7d0"}`, borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  {p.actif?"⏸":"▶"}
+                                </button>
+                                <button onClick={()=>deleteProduit(p.id)}
+                                  style={{ padding:"7px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );})}
+                      </div>
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:8, marginTop:24 }}>
+                          <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage===1}
+                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===1?"#f8fafc":"#fff", color:prodPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===1?"not-allowed":"pointer" }}>
+                            ← Précédent
+                          </button>
+                          {Array.from({length:totalPages},(_,i)=>i+1).map(n=>(
+                            <button key={n} onClick={()=>setProdPage(n)}
+                              style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===prodPage?BET_COLOR:"#f1f5f9", color:n===prodPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
+                              {n}
+                            </button>
+                          ))}
+                          <button onClick={()=>setProdPage(p=>Math.min(totalPages,p+1))} disabled={prodPage===totalPages}
+                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===totalPages?"#f8fafc":"#fff", color:prodPage===totalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===totalPages?"not-allowed":"pointer" }}>
+                            Suivant →
+                          </button>
+                          <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{produits.length} produit{produits.length>1?"s":""} · page {prodPage}/{totalPages}</span>
+                        </div>
+                      )}
+                      </>
+                    )}
+                  </>
+                  );
+                })()}
+
+
+                {/* ── Commandes ── */}
+                {boutiqueSubTab === "commandes" && (
+                  <>
+                    {/* Filtres statut */}
+                    <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+                      {STATUTS_CMD.map(s => (
+                        <button key={s.key} onClick={()=>setCmdFiltreStatut(s.key)}
+                          style={{ padding:"6px 16px", borderRadius:999, border:`1.5px solid ${cmdFiltreStatut===s.key?s.color:"#e5e7eb"}`,
+                            background:cmdFiltreStatut===s.key?s.color:"#fff",
+                            color:cmdFiltreStatut===s.key?"#fff":s.color,
+                            fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                          {s.label}
+                          {s.key!=="tous" && <span style={{ marginLeft:6, opacity:.85 }}>({commandes.filter(c=>c.statut===s.key).length})</span>}
+                        </button>
+                      ))}
+                      <button onClick={fetchCommandes} style={{ marginLeft:"auto", padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:999, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+                    </div>
+
+                    {cmdLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                    ) : commandes.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:60 }}>
+                        <div style={{ fontSize:48, marginBottom:12 }}>🧾</div>
+                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucune commande{cmdFiltreStatut!=="tous"?" dans ce statut":""}</p>
+                      </div>
+                    ) : (
+                      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                        {commandes.map(cmd => {
+                          const statutInfo = STATUTS_CMD.find(s=>s.key===cmd.statut) || STATUTS_CMD[0];
+                          return (
+                            <div key={cmd.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"16px 20px", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                                <div>
+                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{cmd.client_nom}</div>
+                                  <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>
+                                    {cmd.client_email} {cmd.client_telephone && `· ${cmd.client_telephone}`}
+                                  </div>
+                                  <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>
+                                    {new Date(cmd.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                  </div>
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                                  <span style={{ fontWeight:800, fontSize:16, color:BET_COLOR }}>{Number(cmd.total).toLocaleString("fr-FR")} FCFA</span>
+                                  <span style={{ padding:"3px 10px", borderRadius:999, fontSize:11, fontWeight:700, background:`${statutInfo.color}18`, color:statutInfo.color }}>
+                                    {statutInfo.label}
+                                  </span>
+                                </div>
+                              </div>
+                              {/* Articles */}
+                              {Array.isArray(cmd.items) && cmd.items.length > 0 && (
+                                <div style={{ background:"#f8fafc", borderRadius:8, padding:"10px 12px", marginBottom:10, fontSize:12 }}>
+                                  {cmd.items.map((item, i) => (
+                                    <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"2px 0", color:"#374151" }}>
+                                      <span>{item.nom} × {item.quantite}</span>
+                                      <span style={{ fontWeight:700 }}>{(Number(item.prix_unitaire)*Number(item.quantite)).toLocaleString("fr-FR")} FCFA</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {cmd.notes && <p style={{ fontSize:12, color:"#64748b", margin:"0 0 10px", fontStyle:"italic" }}>📝 {cmd.notes}</p>}
+                              {/* Actions statut */}
+                              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                                {STATUTS_CMD.filter(s=>s.key!=="tous"&&s.key!==cmd.statut).map(s => (
+                                  <button key={s.key} onClick={()=>updateCmdStatut(cmd.id, s.key)}
+                                    style={{ padding:"5px 12px", borderRadius:6, border:`1.5px solid ${s.color}40`, background:`${s.color}10`, color:s.color, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                                    → {s.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* ══ COMMENTAIRES BLOG ══ */}
+          {activeTab === "blog_comments" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>💬 Commentaires Blog</h2>
+                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                    {blogComments.length} commentaire{blogComments.length!==1?"s":""} · supprimez les contenus inappropriés
+                  </p>
+                </div>
+                <button onClick={fetchBlogComments} style={{ padding:"9px 18px", background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                  🔄 Actualiser
+                </button>
+              </div>
+
+              <div style={{ padding:28 }}>
+                {/* Recherche */}
+                <div style={{ marginBottom:20 }}>
+                  <input
+                    value={blogCommentsSearch}
+                    onChange={e => setBlogCommentsSearch(e.target.value)}
+                    placeholder="🔍 Rechercher par nom, article, contenu…"
+                    style={{ width:"100%", padding:"10px 14px", border:"1.5px solid #e5e7eb", borderRadius:10, fontSize:13, boxSizing:"border-box" }}
+                  />
+                </div>
+
+                {blogCommentsLoading ? (
+                  <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                ) : blogComments.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:60 }}>
+                    <div style={{ fontSize:48, marginBottom:12 }}>💬</div>
+                    <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun commentaire pour l'instant</p>
+                  </div>
+                ) : (() => {
+                  const q = blogCommentsSearch.toLowerCase();
+                  const filtered = blogComments.filter(c =>
+                    !q ||
+                    c.nom?.toLowerCase().includes(q) ||
+                    c.commentaire?.toLowerCase().includes(q) ||
+                    c.article_titre?.toLowerCase().includes(q) ||
+                    c.email?.toLowerCase().includes(q)
+                  );
+                  return (
+                    <>
+                      {filtered.length === 0 ? (
+                        <p style={{ color:"#94a3b8", textAlign:"center", padding:32 }}>Aucun résultat pour « {blogCommentsSearch} »</p>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          {filtered.map(c => (
+                            <div key={c.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"14px 18px", background:"#fff", display:"flex", gap:16, alignItems:"flex-start" }}>
+                              {/* Avatar */}
+                              <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".9rem", flexShrink:0 }}>
+                                {(c.nom||"?")[0].toUpperCase()}
+                              </div>
+                              {/* Contenu */}
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
+                                  <div>
+                                    <span style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{c.nom}</span>
+                                    {c.email && <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{c.email}</span>}
+                                  </div>
+                                  <span style={{ fontSize:11, color:"#94a3b8", flexShrink:0 }}>
+                                    {new Date(c.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize:11, fontWeight:700, margin:"4px 0 8px" }}>
+                                  📄{" "}
+                                  {c.article_id ? (
+                                    <a
+                                      href={`${FRONTEND_URL}/blog/${c.article_id}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ color:BET_COLOR, textDecoration:"none", borderBottom:`1px dashed ${BET_COLOR}` }}
+                                    >
+                                      {c.article_titre || "Voir l'article"}
+                                    </a>
+                                  ) : (
+                                    <span style={{ color:"#94a3b8" }}>{c.article_titre || "—"}</span>
+                                  )}
+                                </div>
+                                <p style={{ fontSize:13, color:"#334155", margin:0, lineHeight:1.6, wordBreak:"break-word" }}>{c.commentaire}</p>
+                              </div>
+                              {/* Supprimer */}
+                              <button
+                                onClick={() => deleteBlogComment(c.id)}
+                                title="Supprimer ce commentaire"
+                                style={{ padding:"6px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>
+                                🗑 Supprimer
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p style={{ textAlign:"right", fontSize:12, color:"#94a3b8", marginTop:14 }}>
+                        {filtered.length} / {blogComments.length} commentaire{blogComments.length>1?"s":""}
+                      </p>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* ══ PLANNING ASSISTANTES ══ */}
+          {activeTab === "assistantes" && (() => {
+            const JOURS = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"];
+            const JOURS_COURT = { lundi:"L", mardi:"M", mercredi:"Me", jeudi:"J", vendredi:"V", samedi:"S", dimanche:"D" };
+            const jourCourant = (() => {
+              const j = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+              return j[new Date().getDay()];
+            })();
+            const TYPE_LABEL = { en_ligne:"💻 En ligne", presentiel:"🏢 Présentiel", les_deux:"🔀 Les deux" };
+
+            return (
+              <div style={{ maxWidth:900, margin:"0 auto", padding:"0 4px" }}>
+                {/* Header */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+                  <div>
+                    <h2 style={{ margin:"0 0 4px", fontSize:17, fontWeight:800, color:"#0f172a" }}>📅 Planning des assistantes</h2>
+                    <p style={{ margin:0, fontSize:12, color:"#6b7280", maxWidth:520 }}>
+                      Modifiez les jours de service et le quota. Seules les assistantes actives présentes aujourd'hui ({jourCourant}) sont proposées aux prospects.
+                    </p>
+                  </div>
+                  <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                    <button onClick={()=>{ setActiveTab("permissions"); setPermSubTab("utilisateurs"); setInviteForm(f=>({...f,profil_assistante:assistanteProfilFilter==="b2b"?"b2b":"b2c"})); setShowInviteModal(true); }}
+                      style={{ padding:"8px 14px", background: assistanteProfilFilter==="b2b" ? "#eff6ff" : "#f0fdf4", color: assistanteProfilFilter==="b2b" ? "#1d4ed8" : "#166534", border: `2px solid ${assistanteProfilFilter==="b2b" ? "#bfdbfe" : "#bbf7d0"}`, borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                      {assistanteProfilFilter==="b2b" ? "➕ Nouvelle assistante Corporate" : "➕ Nouvelle assistante"}
+                    </button>
+                    <button onClick={fetchAssistantesAdmin} style={{ padding:"8px 14px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                      🔄 Actualiser
+                    </button>
+                  </div>
+                </div>
+                <div style={{ marginBottom:16, padding:"10px 14px", borderRadius:10, background:"#fffbeb", border:"1px solid #fde68a", fontSize:12, color:"#92400e" }}>
+                  💡 Pour <strong>créer une assistante</strong> (B2C ou Corporate B2B), allez dans <strong>Gestion des droits → Utilisateurs → Créer</strong> et choisissez le rôle <strong>Commercial</strong> — sélectionnez ensuite le profil <strong>B2C</strong> ou <strong>Corporate B2B</strong> dans le planning.
+                </div>
+
+                {/* Légende */}
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18, padding:"10px 14px", background:"#eff6ff", borderRadius:10, border:"1px solid #bae6fd", fontSize:12, color:"#1e40af", flexWrap:"wrap" }}>
+                  <span style={{ fontWeight:700 }}>📍 Aujourd'hui :</span>
+                  <span style={{ background:"#1e3a8a", color:"#fff", borderRadius:999, padding:"3px 10px", fontWeight:800, textTransform:"capitalize" }}>{jourCourant}</span>
+                  <span style={{ color:"#64748b" }}>Les assistantes absentes ce jour ne sont pas visibles sur le site.</span>
+                </div>
+
+                {/* Toggle B2C / Corporate */}
+                <div style={{ display:"flex", gap:8, marginBottom:16, alignItems:"center" }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:"#374151", marginRight:4 }}>Afficher :</span>
+                  {[{v:"b2c",l:"👤 Commerciales B2C"},{v:"b2b",l:"🏢 Corporate B2B"}].map(opt=>(
+                    <button key={opt.v} onClick={()=>setAssistanteProfilFilter(opt.v)}
+                      style={{ padding:"7px 16px", borderRadius:999, border:`2px solid ${assistanteProfilFilter===opt.v ? (opt.v==="b2b"?"#2563eb":"#0891b2") : "#e5e7eb"}`,
+                        background: assistanteProfilFilter===opt.v ? (opt.v==="b2b"?"#eff6ff":"#e0f2fe") : "#fff",
+                        color: assistanteProfilFilter===opt.v ? (opt.v==="b2b"?"#1d4ed8":"#0891b2") : "#374151",
+                        fontWeight: assistanteProfilFilter===opt.v ? 800 : 600, fontSize:12, cursor:"pointer", transition:"all .15s" }}>
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+
+                {(() => {
+                  const CENTRES_CONFIG = [
+                    { nom:"Angré",         couleur:"#0891b2" },
+                    { nom:"II Plateaux",   couleur:"#6366f1" },
+                    { nom:"Yopougon",      couleur:"#a855f7" },
+                    { nom:"Koumassi",      couleur:"#f97316" },
+                    { nom:"Bouaké",        couleur:"#eab308" },
+                    { nom:"Abatta",        couleur:"#ef4444" },
+                    { nom:"__sans_centre", couleur:"#94a3b8", label:"Non assignées" },
+                  ];
+
+                  // Filtrer par profil sélectionné (b2c ou b2b) — "les_deux" apparaît dans les deux vues
+                  const assistantesFiltrees = assistantesAdmin.filter(a => {
+                    const p = a.profil || "b2c";
+                    if (assistanteProfilFilter === "b2b") return p === "b2b" || p === "les_deux";
+                    return p === "b2c" || p === "les_deux";
+                  });
+
+                  // Grouper par centre_nom — on retire le préfixe "BET " pour matcher CENTRES_CONFIG
+                  const normaliseCentre = (nom) => (nom || "").replace(/^BET\s+/i, "") || "__sans_centre";
+                  const grouped = {};
+                  assistantesFiltrees.forEach(a => {
+                    const key = normaliseCentre(a.centre_nom);
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(a);
+                  });
+
+                  const cfg = CENTRES_CONFIG.find(c => c.nom === centreTab) || CENTRES_CONFIG[0];
+                  const liste = grouped[cfg.nom] || [];
+                  const centreColor = cfg.couleur;
+
+                  const renderCard = (a) => {
+                    const da = getDraftedA(a);
+                    const jours = da.jours_travail || ["lundi","mardi","mercredi","jeudi","vendredi"];
+                    const travailleAujourdHui = jours.includes(jourCourant);
+                    const initiales = `${(a.prenom||"")[0]||""}${(a.nom||"")[0]||""}`.toUpperCase();
+                    const hasDraft = !!(assistantesDrafts[a.id] && Object.keys(assistantesDrafts[a.id]).length > 0);
+                    const isSaving = !!assistantesSaving[a.id];
+                    return (
+                      <div key={a.id} style={{ background:"#fff", borderRadius:12, border:`2px solid ${hasDraft ? "#fde68a" : travailleAujourdHui && da.actif ? `${centreColor}40` : "#e5e7eb"}`, overflow:"hidden" }}>
+                        <div style={{ height:3, background: hasDraft ? "#f59e0b" : travailleAujourdHui && da.actif ? centreColor : "#e5e7eb" }} />
+                        <div style={{ padding:"14px 18px" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                            <div style={{ position:"relative", flexShrink:0 }}>
+                              <div style={{ width:42, height:42, borderRadius:"50%", background:`linear-gradient(135deg,#0f172a,${centreColor})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13 }}>{initiales}</div>
+                              <div style={{ position:"absolute", bottom:-1, right:-1, width:12, height:12, borderRadius:"50%", background: travailleAujourdHui && da.actif ? "#22c55e" : "#d1d5db", border:"2px solid #fff" }} />
+                            </div>
+                            <div style={{ flex:1, minWidth:130 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:2 }}>
+                                <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>{a.prenom} {a.nom}</span>
+                                <span style={{ fontSize:10, padding:"2px 7px", borderRadius:999, background:`${centreColor}18`, color:centreColor, fontWeight:700 }}>{TYPE_LABEL[da.type_cours] || da.type_cours}</span>
+                                {(da.profil === "b2b" || da.profil === "les_deux") && (
+                                  <span style={{ fontSize:10, padding:"2px 7px", borderRadius:999, background:"#eff6ff", color:"#2563eb", fontWeight:700 }}>
+                                    {da.profil === "les_deux" ? "🔀 B2C+B2B" : "🏢 Corporate B2B"}
+                                  </span>
+                                )}
+                                {!travailleAujourdHui && da.actif && <span style={{ fontSize:10, padding:"2px 6px", borderRadius:999, background:"#fef3c7", color:"#d97706", fontWeight:700 }}>⚠ Absente aujourd'hui</span>}
+                                {!da.actif && <span style={{ fontSize:10, padding:"2px 6px", borderRadius:999, background:"#fee2e2", color:"#dc2626", fontWeight:700 }}>● Inactive</span>}
+                              </div>
+                              {a.email && <div style={{ fontSize:11, color:"#94a3b8" }}>{a.email}</div>}
+                            </div>
+                            <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0, flexWrap:"wrap" }}>
+                              {/* Mode coaching */}
+                              <div style={{ textAlign:"center" }}>
+                                <div style={{ fontSize:10, color:"#9ca3af", marginBottom:3 }}>Mode</div>
+                                <select value={da.type_cours || "en_ligne"}
+                                  onChange={e => setDraft(a.id, { type_cours: e.target.value })}
+                                  style={{ padding:"5px 7px", borderRadius:7, border:`1.5px solid ${hasDraft ? "#fde68a" : "#d1d5db"}`, fontSize:11, color:"#0f172a", cursor:"pointer", background:"#fff" }}>
+                                  <option value="en_ligne">💻 En ligne</option>
+                                  <option value="presentiel">🏢 Présentiel</option>
+                                  <option value="les_deux">🔀 Les deux</option>
+                                </select>
+                              </div>
+                              {/* Quota */}
+                              <div style={{ textAlign:"center" }}>
+                                <div style={{ fontSize:10, color:"#9ca3af", marginBottom:3 }}>Quota/j</div>
+                                <input type="number" min={1} max={50} value={da.quota_jour ?? 10}
+                                  onChange={e => setDraft(a.id, { quota_jour: parseInt(e.target.value) || 10 })}
+                                  style={{ width:50, padding:"4px 6px", borderRadius:7, border:`1.5px solid ${hasDraft ? "#fde68a" : "#d1d5db"}`, fontSize:13, fontWeight:700, textAlign:"center", color:"#0f172a" }}
+                                />
+                              </div>
+                              {/* Profil */}
+                              <div style={{ textAlign:"center" }}>
+                                <div style={{ fontSize:10, color:"#9ca3af", marginBottom:3 }}>Profil</div>
+                                <select value={da.profil || "b2c"}
+                                  onChange={e => setDraft(a.id, { profil: e.target.value })}
+                                  style={{ padding:"5px 7px", borderRadius:7, border:`1.5px solid ${hasDraft ? "#fde68a" : "#d1d5db"}`, fontSize:11, color:"#0f172a", cursor:"pointer", background:"#fff" }}>
+                                  <option value="b2c">👤 B2C</option>
+                                  <option value="b2b">🏢 B2B</option>
+                                  <option value="les_deux">🔀 Les deux</option>
+                                </select>
+                              </div>
+                              {/* Actif */}
+                              <div style={{ textAlign:"center" }}>
+                                <div style={{ fontSize:10, color:"#9ca3af", marginBottom:5 }}>Actif site</div>
+                                <ToggleSwitch on={!!da.actif} color={centreColor} onChange={() => setDraft(a.id, { actif: !da.actif })} />
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ marginTop:12, paddingTop:10, borderTop:"1px solid #f1f5f9" }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                              <span style={{ fontSize:11, fontWeight:700, color:"#64748b" }}>Jours de service :</span>
+                              <span style={{ fontSize:11, color:"#94a3b8" }}>{jours.length}j/sem</span>
+                            </div>
+                            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                              {JOURS.map(jour => {
+                                const actif = jours.includes(jour);
+                                const estAujourd = jour === jourCourant;
+                                return (
+                                  <button key={jour} onClick={() => toggleJourTravailDraft(a.id, jour)}
+                                    title={jour.charAt(0).toUpperCase() + jour.slice(1)}
+                                    style={{ width:32, height:32, borderRadius:999,
+                                      border: estAujourd ? `2.5px solid ${centreColor}` : `1.5px solid ${actif ? "#22c55e" : "#e2e8f0"}`,
+                                      background: actif ? (estAujourd ? centreColor : "#22c55e") : "#f8fafc",
+                                      color: actif ? "#fff" : "#cbd5e1",
+                                      fontWeight:800, fontSize:11, cursor:"pointer", transition:"all .15s", flexShrink:0,
+                                    }}
+                                  >{JOURS_COURT[jour]}</button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div style={{ marginTop:12, paddingTop:10, borderTop:"1px solid #f1f5f9", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
+                            <span style={{ fontSize:11, color: hasDraft ? "#d97706" : "#94a3b8", fontWeight: hasDraft ? 700 : 400 }}>
+                              {hasDraft ? "⚠ Modifications non enregistrées" : "✓ À jour"}
+                            </span>
+                            <button onClick={() => saveDraftAssistante(a.id)} disabled={!hasDraft || isSaving}
+                              style={{ padding:"7px 18px", borderRadius:8, border:"none", cursor: hasDraft && !isSaving ? "pointer" : "default",
+                                background: hasDraft ? (isSaving ? "#e2e8f0" : centreColor) : "#f1f5f9",
+                                color: hasDraft ? (isSaving ? "#94a3b8" : "#fff") : "#94a3b8",
+                                fontWeight:700, fontSize:12, display:"flex", alignItems:"center", gap:5,
+                              }}
+                            >
+                              {isSaving ? <><div style={{ width:11,height:11,border:"2px solid #94a3b8",borderTopColor:centreColor,borderRadius:"50%",animation:"spin .7s linear infinite" }} />Enregistrement…</> : "💾 Enregistrer"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div>
+                      {/* Sous-onglets centres */}
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+                        {CENTRES_CONFIG.map(c => {
+                          const grp = grouped[c.nom] || [];
+                          const dispoDuJour = grp.filter(a => {
+                            const da = getDraftedA(a);
+                            const j = da.jours_travail || ["lundi","mardi","mercredi","jeudi","vendredi"];
+                            return da.actif && j.includes(jourCourant);
+                          }).length;
+                          const hasPendingDraft = grp.some(a => assistantesDrafts[a.id] && Object.keys(assistantesDrafts[a.id]).length > 0);
+                          const isActive = centreTab === c.nom;
+                          return (
+                            <button key={c.nom} onClick={() => setCentreTab(c.nom)}
+                              style={{
+                                display:"flex", alignItems:"center", gap:6,
+                                padding:"7px 13px", borderRadius:999, border:`2px solid ${isActive ? c.couleur : "#e5e7eb"}`,
+                                background: isActive ? c.couleur : "#fff",
+                                color: isActive ? "#fff" : "#374151",
+                                fontWeight: isActive ? 800 : 600, fontSize:12,
+                                cursor:"pointer", transition:"all .15s", position:"relative",
+                              }}
+                            >
+                              {c.label || c.nom}
+                              {/* badge nb assistantes */}
+                              <span style={{ background: isActive ? "rgba(255,255,255,0.25)" : `${c.couleur}20`, color: isActive ? "#fff" : c.couleur, borderRadius:999, padding:"1px 7px", fontSize:11, fontWeight:800 }}>
+                                {grp.length}
+                              </span>
+                              {/* point dispo */}
+                              {grp.length > 0 && (
+                                <span style={{ width:7, height:7, borderRadius:"50%", background: dispoDuJour > 0 ? "#22c55e" : "#e5e7eb", flexShrink:0 }} />
+                              )}
+                              {/* point draft non sauvegardé */}
+                              {hasPendingDraft && (
+                                <span style={{ position:"absolute", top:2, right:2, width:8, height:8, borderRadius:"50%", background:"#f59e0b", border:"1.5px solid #fff" }} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Infos centre actif */}
+                      {assistantesLoading ? (
+                        <div style={{ textAlign:"center", padding:40, color:"#94a3b8" }}>Chargement…</div>
+                      ) : liste.length === 0 ? (
+                        <div style={{ padding:"24px", borderRadius:12, border:"1.5px dashed #e2e8f0", background:"#fafafa", color:"#94a3b8", fontSize:13, textAlign:"center" }}>
+                          Aucune assistante assignée au centre <strong>{cfg.label || cfg.nom}</strong>.<br/>
+                          <span style={{ fontSize:11 }}>Vérifiez que les assistantes ont un <code>centre_id</code> correct dans Supabase.</span>
+                        </div>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          {liste.map(a => renderCard(a))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <p style={{ marginTop:24, fontSize:11, color:"#94a3b8", textAlign:"center" }}>
+                  🔒 La gestion complète du planning (horaires, congés, rotations) sera transférée vers le service RH.
+                </p>
+              </div>
+            );
+          })()}
 
       </div>
     </div>

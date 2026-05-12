@@ -105,7 +105,7 @@ router.put("/profile", authenticateUser, async (req, res) => {
       telephone:         telephone         ?? currentMeta.telephone,
       niveau_anglais:    niveau_anglais    ?? currentMeta.niveau_anglais,
       acces_mediatheque: acces_mediatheque ?? currentMeta.acces_mediatheque,
-      avatar_url:        avatar_url        ?? currentMeta.avatar_url,
+      bet_avatar_url:    avatar_url        ?? currentMeta.bet_avatar_url,
     };
 
     const { data, error: updateError } = await supabase.auth.admin.updateUserById(userId, {

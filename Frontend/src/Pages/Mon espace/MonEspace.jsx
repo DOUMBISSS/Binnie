@@ -4,6 +4,8 @@ import { supabase } from "../../config/supabase";
 import { getUTM } from "../../utils/utm";
 import Footer from "../Footer/Footer";
 import toast, { Toaster } from "react-hot-toast";
+import ParcoursModal from "../Parcours/ParcoursModal";
+import ProspectChat from "../Components/ProspectChat/ProspectChat";
 
 /* ── Fonts & animations ─────────────────────────────── */
 if (!document.querySelector("#me-fonts")) {
@@ -66,7 +68,16 @@ const MonEspace = () => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
-      if (event === "SIGNED_OUT") navigate("/");
+      if (event === "SIGNED_OUT") {
+        navigate("/");
+      } else if ((event === "USER_UPDATED" || event === "TOKEN_REFRESHED") && s?.user) {
+        const meta = s.user.user_metadata || {};
+        const fullName = (meta.nom && meta.prenom)
+          ? `${meta.nom} ${meta.prenom}`
+          : meta.full_name || s.user.email.split("@")[0];
+        setUser(prev => ({ ...prev, ...s.user, displayName: fullName, role: meta.role || prev?.role || "prospect" }));
+        setSession(s);
+      }
     });
     return () => subscription.unsubscribe();
   }, [navigate]);
@@ -214,8 +225,9 @@ const ProspectView = ({ user, session, activeTab, setActiveTab, prospectInfo }) 
         {activeTab === "test"        && <TabTestNiveau user={user}
           onConseillereAssigned={(id) => { setConseillereOk(true); }}
           onResultLoaded={(hasR) => setHasResult(hasR)}
+          setActiveTab={setActiveTab}
         />}
-        {activeTab === "conseiller"  && <TabConseillereContact user={user} />}
+        {activeTab === "conseiller"  && <TabConseillereContact user={user} setActiveTab={setActiveTab} />}
         {activeTab === "catalogue"   && <TabCatalogue />}
         {activeTab === "profil"      && <TabProfil user={user} prospectInfo={prospectInfo} />}
         {activeTab === "parametres"  && <TabParametres user={user} />}
@@ -330,7 +342,7 @@ const SondageCard = ({ user }) => {
 };
 
 /* ── Onglet 1 : Résultat test de niveau ───────────────── */
-const TabTestNiveau = ({ user, onConseillereAssigned, onResultLoaded }) => {
+const TabTestNiveau = ({ user, onConseillereAssigned, onResultLoaded, setActiveTab }) => {
   const [result,  setResult]  = useState(null);
   const [loading, setLoading] = useState(true);
   const [conseillereAssigned, setConseillereAssigned] = useState(!!user.user_metadata?.commercial_id);
@@ -352,18 +364,23 @@ const TabTestNiveau = ({ user, onConseillereAssigned, onResultLoaded }) => {
 
   if (loading) return <Loader />;
 
-  if (!result) return (
-    <div style={S.emptyCard}>
-      <div style={{ fontSize:"3rem", marginBottom:16 }}>📝</div>
-      <h3 style={S.emptyTitle}>Aucun test effectué</h3>
-      <p style={{ color:"#64748b", marginBottom:24 }}>
-        Passez notre test de niveau gratuit pour connaître votre niveau d'anglais (CECRL).
-      </p>
-      <Link to="/test-niveau">
-        <button style={S.ctaBtn}>Passer le test gratuit →</button>
-      </Link>
-    </div>
-  );
+  if (!result) {
+    const refParam = user.user_metadata?.commercial_id
+      ? `?ref=${user.user_metadata.commercial_id}`
+      : "";
+    return (
+      <div style={S.emptyCard}>
+        <div style={{ fontSize:"3rem", marginBottom:16 }}>📝</div>
+        <h3 style={S.emptyTitle}>Aucun test effectué</h3>
+        <p style={{ color:"#64748b", marginBottom:24 }}>
+          Passez notre test de niveau gratuit pour connaître votre niveau d'anglais (CECRL).
+        </p>
+        <Link to={`/test-niveau${refParam}`}>
+          <button style={S.ctaBtn}>Passer le test gratuit →</button>
+        </Link>
+      </div>
+    );
+  }
 
   const pct = Math.round((result.points_earned / result.points_total) * 100);
   const color = LEVEL_COLOR[result.level] || "#1e3a8a";
@@ -432,28 +449,27 @@ const TabTestNiveau = ({ user, onConseillereAssigned, onResultLoaded }) => {
       {/* Sondage "Comment nous avez-vous connu ?" */}
       <SondageCard user={user} />
 
-      {/* ── Bloc obligatoire conseillère ── */}
-      {!conseillereAssigned && (
-        <div style={{ marginBottom:24, border:"2.5px solid #f97316", borderRadius:16, overflow:"hidden" }}>
-          <div style={{ background:"linear-gradient(135deg,#ea580c,#dc2626)", padding:"16px 22px", display:"flex", alignItems:"center", gap:12 }}>
-            <span style={{ fontSize:"1.5rem" }}>⚠️</span>
-            <div>
-              <div style={{ fontWeight:800, color:"#fff", fontSize:".95rem" }}>Étape obligatoire — Choisissez votre conseillère</div>
-              <div style={{ color:"rgba(255,255,255,.8)", fontSize:".8rem", marginTop:2 }}>
-                Votre conseillère recevra votre résultat et vous contactera pour un programme personnalisé. Vous ne pouvez pas accéder à votre espace complet sans cette étape.
-              </div>
+      {/* ── CTA vers conseillère (si pas encore assignée) ── */}
+      {!conseillereAssigned && setActiveTab && (
+        <div style={{ marginBottom:24, background:"linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius:16, padding:"22px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
+          <div>
+            <div style={{ fontWeight:800, color:"#fff", fontSize:".95rem", marginBottom:4 }}>
+              👩‍💼 Choisissez votre conseillère BET
+            </div>
+            <div style={{ color:"rgba(255,255,255,.75)", fontSize:".82rem" }}>
+              Elle recevra votre résultat et vous proposera un programme personnalisé.
             </div>
           </div>
-          <div style={{ padding:"20px 22px", background:"#fff" }}>
-            <TabConseiller user={user} onSelected={(id) => {
-              setConseillereAssigned(true);
-              if (onConseillereAssigned) onConseillereAssigned(id);
-            }} />
-          </div>
+          <button
+            onClick={() => setActiveTab("conseiller")}
+            style={{ padding:"11px 22px", background:"#dc2626", color:"#fff", border:"none", borderRadius:10, fontWeight:700, fontSize:".88rem", cursor:"pointer", whiteSpace:"nowrap", fontFamily:"'Montserrat',sans-serif" }}
+          >
+            Choisir ma conseillère →
+          </button>
         </div>
       )}
 
-      {/* CTA */}
+      {/* CTA formation */}
       {conseillereAssigned && (
         <div style={{ ...S.scoreCard, background:"linear-gradient(135deg,#0f172a,#1e3a8a)", textAlign:"center" }}>
           <p style={{ color:"rgba(255,255,255,.8)", fontSize:".9rem", marginBottom:16 }}>
@@ -561,13 +577,12 @@ const TabConseiller = ({ user, onSelected }) => {
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
       {/* Bandeau intro */}
-      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius:16, padding:"24px 28px", marginBottom:24, color:"#fff" }}>
-        <div style={{ fontSize:"1.8rem", marginBottom:8 }}>🤝</div>
-        <h2 style={{ fontFamily:FF, fontWeight:800, margin:"0 0 8px", fontSize:"1.2rem" }}>Votre conseiller(ère) personnel(le) BET</h2>
-        <p style={{ color:"rgba(255,255,255,.75)", fontSize:".88rem", lineHeight:1.6, margin:0 }}>
-          Choisissez la conseillère qui vous accompagnera tout au long de votre parcours chez BET Languages —
-          de la première prise de contact jusqu'à l'obtention de votre certification.
-        </p>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+        <span style={{ fontSize:"1.4rem" }}>🤝</span>
+        <div>
+          <div style={{ fontFamily:FF, fontWeight:800, color:"#0f172a", fontSize:"1rem" }}>Votre conseiller(ère) BET</div>
+          <div style={{ color:"#64748b", fontSize:".82rem" }}>Sélectionnez la personne qui suivra votre dossier d'inscription.</div>
+        </div>
       </div>
 
       {/* Conseillère assignée */}
@@ -584,18 +599,9 @@ const TabConseiller = ({ user, onSelected }) => {
               {assigned.telephone && (
                 <a href={`tel:${assigned.telephone}`} style={{ color:"#0891b2", fontSize:".8rem", marginTop:4, display:"block", textDecoration:"none" }}>📞 {assigned.telephone}</a>
               )}
-              <div style={{ color:"#64748b", fontSize:".76rem", marginTop:6, lineHeight:1.5 }}>
-                Cette personne est votre référente unique. Elle connaît votre profil, votre niveau et vos objectifs. Contactez-la directement pour toute question.
-              </div>
             </div>
           </div>
-          {/* Mention verrouillage */}
-          <div style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 16px", background:"#fefce8", borderRadius:10, border:"1px solid #fde68a", marginTop:4 }}>
-            <span style={{ fontSize:"1.1rem", flexShrink:0 }}>🔒</span>
-            <p style={{ margin:0, fontSize:".78rem", color:"#92400e", lineHeight:1.6 }}>
-              Ce choix est définitif et ne peut être modifié en ligne. Pour tout changement de conseiller(ère), veuillez vous rendre directement dans l'un de nos centres BET Languages.
-            </p>
-          </div>
+          <p style={{ margin:"8px 0 0", fontSize:".74rem", color:"#94a3b8" }}>🔒 Ce choix est définitif. Pour le modifier, rendez-vous en cabinet.</p>
         </div>
       ) : (
         <div style={S.scoreCard}>
@@ -688,22 +694,6 @@ const TabConseiller = ({ user, onSelected }) => {
         </div>
       )}
 
-      {/* Bloc engagement */}
-      <div style={{ ...S.scoreCard, marginTop:16, background:"#f8fafc" }}>
-        <h4 style={{ ...S.cardTitle, marginBottom:12 }}>💼 Ce que fait votre conseiller(ère)</h4>
-        {[
-          ["📞", "Vous appelle sous 24h après votre choix"],
-          ["🎯", "Vous propose les formations adaptées à votre niveau et objectifs"],
-          ["📄", "Prépare votre devis personnalisé"],
-          ["✅", "Suit votre dossier d'inscription de A à Z"],
-          ["🎓", "Reste votre référente tout au long de votre parcours BET"],
-        ].map(([ico, txt], i) => (
-          <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
-            <span style={{ fontSize:"1rem", flexShrink:0 }}>{ico}</span>
-            <span style={{ fontSize:".85rem", color:"#475569", lineHeight:1.5 }}>{txt}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 };
@@ -925,35 +915,180 @@ const TabContact = ({ user, commercialId }) => {
 };
 
 /* ── Onglet fusionné : Conseillère + Contact ──────────── */
-const TabConseillereContact = ({ user }) => {
-  const [localCommercialId, setLocalCommercialId] = useState(
-    user.user_metadata?.commercial_id || ""
-  );
+const TabConseillereContact = ({ user, setActiveTab }) => {
+  const [parcoursOpen,  setParcoursOpen]  = useState(false);
+  const [parcoursMode,  setParcoursMode]  = useState(null);
+  const [currentUser,   setCurrentUser]   = useState(user);
+  const [testResult,    setTestResult]    = useState(null);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    fetch(`${API}/api/level-test/result?email=${encodeURIComponent(user.email)}`)
+      .then(r => r.json())
+      .then(d => setTestResult(d.result || null))
+      .catch(() => {});
+  }, [user.email]);
+
+  const openParcours = (mode) => { setParcoursMode(mode); setParcoursOpen(true); };
+
+  // Rafraîchir le user depuis Supabase après fermeture du modal (pour afficher l'assignation)
+  const handleParcoursClose = async () => {
+    setParcoursOpen(false);
+    const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+    if (session?.user) setCurrentUser(session.user);
+  };
+
+  const assignation = currentUser?.user_metadata?.parcours_assignation;
+  const iniAss = assignation
+    ? `${assignation.assistante_prenom?.[0]||""}${assignation.assistante_nom?.[0]||""}`.toUpperCase()
+    : "?";
 
   return (
     <div style={{ maxWidth: 660, margin: "0 auto" }}>
-      {/* Section 1 : Conseillère */}
-      <TabConseiller user={user} onSelected={setLocalCommercialId} />
 
-      {/* Section 2 : Contact — apparaît dès qu'une conseillère est assignée */}
-      {localCommercialId ? (
-        <>
-          <div style={{ display:"flex", alignItems:"center", gap:12, margin:"32px 0 24px" }}>
-            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
-            <span style={{ fontSize:".78rem", fontWeight:700, color:"#94a3b8", whiteSpace:"nowrap" }}>
-              📩 ENVOYER UN MESSAGE
-            </span>
-            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+      {/* ── Assignation existante ── */}
+      {assignation ? (
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius:16, padding:"24px 28px", marginBottom:24, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
+            {assignation.assistante_photo
+              ? <img src={assignation.assistante_photo} alt="" style={{ width:56, height:56, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+              : <div style={{ width:56, height:56, borderRadius:"50%", background:"linear-gradient(135deg,#0891b2,#1e3a8a)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:"1rem", flexShrink:0 }}>{iniAss}</div>
+            }
+            <div>
+              <div style={{ fontSize:".72rem", color:"rgba(255,255,255,.6)", fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:3 }}>Votre assistante de parcours</div>
+              <div style={{ fontWeight:800, fontSize:"1.05rem" }}>{assignation.assistante_prenom} {assignation.assistante_nom}</div>
+              <div style={{ fontSize:".78rem", color:"rgba(255,255,255,.7)", marginTop:2 }}>
+                {assignation.type_cours === "en_ligne"
+                  ? `En ligne · ${assignation.type_coaching === "groupe" ? "Coaching de groupe" : "Coaching privé"}`
+                  : `Présentiel · ${assignation.centre_nom || ""}`}
+                {assignation.type_jour && assignation.type_cours === "presentiel" && (
+                  <span style={{ marginLeft:8, background:"rgba(255,255,255,.15)", borderRadius:999, padding:"1px 8px", fontSize:".7rem" }}>
+                    {assignation.type_jour === "weekend" ? "Week-end" : "Lun – Ven"}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span style={{ marginLeft:"auto", flexShrink:0, background:"#22c55e", color:"#fff", borderRadius:999, padding:"4px 12px", fontSize:".7rem", fontWeight:800 }}>✓ Assignée</span>
           </div>
-          <TabContact user={user} commercialId={localCommercialId} />
-        </>
+
+          <div style={{ background:"rgba(255,255,255,.08)", borderRadius:12, padding:"12px 14px", fontSize:".78rem", color:"rgba(255,255,255,.75)", lineHeight:1.6, marginBottom:14 }}>
+            📅 Assignée le {new Date(assignation.date).toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" })}
+            {assignation.type_cours === "presentiel" && assignation.type_jour && (
+              <> · assistante <strong>{assignation.type_jour === "weekend" ? "week-end" : "semaine"}</strong> du cabinet {assignation.centre_nom}</>
+            )}
+          </div>
+
+          {/* Boutons contact rapide */}
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+            {assignation.assistante_tel && (
+              <a
+                href={`https://wa.me/${(assignation.assistante_tel||"").replace(/[\s+\-()]/g,"")}`}
+                target="_blank" rel="noopener noreferrer"
+                style={{ flex:1, minWidth:120, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:"#22c55e", color:"#fff", borderRadius:10, padding:"10px 14px", textDecoration:"none", fontWeight:800, fontSize:".82rem" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="16" fill="#fff" fillOpacity=".2"/><path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/></svg>
+                WhatsApp
+              </a>
+            )}
+            <div style={{ flex:1, minWidth:120, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.15)", borderRadius:10, padding:"10px 14px", color:"rgba(255,255,255,.6)", fontSize:".78rem", textAlign:"center", lineHeight:1.4 }}>
+              🏢 Pour changer d'assistante,<br />rendez-vous dans un cabinet BET
+            </div>
+          </div>
+        </div>
       ) : (
-        <div style={{ marginTop:28, padding:"20px 24px", borderRadius:14, background:"#f8fafc", border:"1.5px dashed #cbd5e1", textAlign:"center" }}>
-          <p style={{ color:"#94a3b8", fontSize:".88rem", margin:0 }}>
-            👆 Choisissez votre centre et votre conseillère pour débloquer le formulaire de contact.
+        /* ── Options parcours (aucune assignation) ── */
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a8a)", borderRadius:16, padding:"24px 28px", marginBottom:24, color:"#fff" }}>
+          <div style={{ fontSize:"1.6rem", marginBottom:8 }}>🎯</div>
+          <h2 style={{ fontFamily:FF, fontWeight:800, margin:"0 0 8px", fontSize:"1.15rem" }}>Trouver votre assistante BET</h2>
+          <p style={{ color:"rgba(255,255,255,.75)", fontSize:".88rem", lineHeight:1.6, margin:"0 0 20px" }}>
+            Obtenez une assistante dédiée en quelques étapes. Choisissez votre mode d'apprentissage.
           </p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <button
+              onClick={() => openParcours("en_ligne")}
+              style={{ background:"rgba(255,255,255,.1)", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:12, padding:"18px 16px", cursor:"pointer", textAlign:"center", color:"#fff", transition:"all .2s" }}
+              onMouseOver={e => e.currentTarget.style.background="rgba(255,255,255,.18)"}
+              onMouseOut={e => e.currentTarget.style.background="rgba(255,255,255,.1)"}
+            >
+              <div style={{ fontSize:"1.8rem", marginBottom:6 }}>💻</div>
+              <div style={{ fontWeight:800, fontSize:".95rem", marginBottom:4 }}>En ligne</div>
+              <div style={{ fontSize:".78rem", color:"rgba(255,255,255,.7)", lineHeight:1.5 }}>Cours 100% à distance, assistante disponible rapidement</div>
+            </button>
+            <button
+              onClick={() => openParcours("presentiel")}
+              style={{ background:"rgba(255,255,255,.1)", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:12, padding:"18px 16px", cursor:"pointer", textAlign:"center", color:"#fff", transition:"all .2s" }}
+              onMouseOver={e => e.currentTarget.style.background="rgba(255,255,255,.18)"}
+              onMouseOut={e => e.currentTarget.style.background="rgba(255,255,255,.1)"}
+            >
+              <div style={{ fontSize:"1.8rem", marginBottom:6 }}>🏢</div>
+              <div style={{ fontWeight:800, fontSize:".95rem", marginBottom:4 }}>En présentiel</div>
+              <div style={{ fontSize:".78rem", color:"rgba(255,255,255,.7)", lineHeight:1.5 }}>En cabinet dans l'un de nos 6 centres BET</div>
+            </button>
+          </div>
         </div>
       )}
+
+      {/* ── Bloc test de niveau ── */}
+      {(() => {
+        const commercialId = currentUser?.user_metadata?.commercial_id;
+        const refParam = commercialId ? `?ref=${commercialId}` : "";
+        const LEVEL_COLOR = { A1:"#94a3b8", A2:"#64748b", B1:"#3b82f6", B2:"#1e3a8a", C1:"#7c3aed", C2:"#059669" };
+
+        if (testResult) {
+          const color = LEVEL_COLOR[testResult.level] || "#1e3a8a";
+          const pct   = testResult.points_total
+            ? Math.round((testResult.points_earned / testResult.points_total) * 100)
+            : testResult.score || 0;
+          return (
+            <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:14, padding:"16px 20px", marginBottom:16, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+              <div style={{ width:48, height:48, borderRadius:12, background:color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>
+                {testResult.level}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, color:"#0f172a", fontSize:".9rem" }}>Test de niveau effectué ✅</div>
+                <div style={{ fontSize:".78rem", color:"#64748b", marginTop:2 }}>
+                  Score : <strong style={{ color }}>{pct}%</strong> · {new Date(testResult.submitted_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" })}
+                </div>
+              </div>
+              {setActiveTab && (
+                <button
+                  onClick={() => setActiveTab("test")}
+                  style={{ background:color, color:"#fff", border:"none", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:".8rem", cursor:"pointer", whiteSpace:"nowrap" }}
+                >
+                  📊 Voir mes résultats →
+                </button>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ background:"#fffbeb", border:"1.5px dashed #fbbf24", borderRadius:14, padding:"16px 20px", marginBottom:16, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+            <span style={{ fontSize:"1.6rem", flexShrink:0 }}>📝</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:800, color:"#92400e", fontSize:".9rem" }}>Test de niveau non effectué</div>
+              <div style={{ fontSize:".78rem", color:"#b45309", marginTop:2 }}>
+                Votre assistante a besoin de votre niveau pour vous proposer le programme adapté.
+              </div>
+            </div>
+            <Link to={`/test-niveau${refParam}`} style={{ textDecoration:"none", flexShrink:0 }}>
+              <button style={{ background:"#f59e0b", color:"#fff", border:"none", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:".8rem", cursor:"pointer", whiteSpace:"nowrap" }}>
+                Passer le test →
+              </button>
+            </Link>
+          </div>
+        );
+      })()}
+
+      {/* Chat privé avec l'assistante */}
+      {assignation && <ProspectChat sbUser={currentUser} assignation={assignation} />}
+
+      <ParcoursModal
+        isOpen={parcoursOpen}
+        onClose={handleParcoursClose}
+        user={currentUser}
+        defaultMode={parcoursMode}
+      />
     </div>
   );
 };
@@ -969,7 +1104,7 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
   const [saving,       setSaving]       = useState(false);
   const [saveOk,       setSaveOk]       = useState(false);
   const [saveErr,      setSaveErr]      = useState("");
-  const [avatarUrl,    setAvatarUrl]    = useState(meta.avatar_url || "");
+  const [avatarUrl,    setAvatarUrl]    = useState(meta.bet_avatar_url || "");
   const [avatarHov,    setAvatarHov]    = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [niveauReel,   setNiveauReel]   = useState(meta.niveau_anglais || null);
@@ -980,6 +1115,11 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
       .then(d => { if (d.result?.level) setNiveauReel(d.result.level); })
       .catch(() => {});
   }, [user.email]);
+
+  useEffect(() => {
+    const url = user.user_metadata?.bet_avatar_url;
+    if (url) setAvatarUrl(url);
+  }, [user.user_metadata?.bet_avatar_url]);
 
   const handleAvatarUpload = async (file) => {
     setAvatarUploading(true);
@@ -996,8 +1136,9 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur upload");
       const url = data.file.url;
-      // Sauvegarde dans user_metadata
-      await supabase.auth.updateUser({ data: { avatar_url: url } });
+      // Sauvegarde dans user_metadata (client SDK + admin API pour persistance complète)
+      const { error: updateErr } = await supabase.auth.updateUser({ data: { bet_avatar_url: url } });
+      if (updateErr) throw new Error(updateErr.message);
       await fetch(`${API}/api/auth/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -1088,6 +1229,12 @@ const TabProfil = ({ user, prospectInfo = {} }) => {
             </div>
           </div>
           <div style={S.infoRow}><span>📧 Email</span><span style={{ color:"#0f172a", fontWeight:600 }}>{user.email}</span></div>
+          <div style={S.infoRow}>
+            <span>📞 Téléphone</span>
+            <span style={{ color: tel ? "#0f172a" : "#94a3b8", fontWeight: tel ? 600 : 400 }}>
+              {tel || "Non renseigné"}
+            </span>
+          </div>
           {prospectInfo.centre && (
             <div style={S.infoRow}>
               <span>🏢 Centre BET</span>

@@ -48,6 +48,7 @@ import SuperAdminDashboard from './Pages/SuperAdminDashboard/SuperAdminDashboard
 import ResponsableDashboard from './Pages/ResponsableDashboard/ResponsableDashboard';
 import DataCollectorDashboard from './Pages/DataCollectorDashboard/DataCollectorDashboard';
 import OnboardingDashboard from './Pages/OnboardingDashboard/OnboardingDashboard';
+import CorporateDashboard from './Pages/CorporateDashboard/CorporateDashboard';
 
 
 
@@ -126,10 +127,11 @@ export default function App() {
     <Route path="/responsable-dashboard"    element={<PrivateStaffRoute><ResponsableDashboard /></PrivateStaffRoute>} />
     <Route path="/datacollector-dashboard"  element={<PrivateStaffRoute><DataCollectorDashboard /></PrivateStaffRoute>} />
     <Route path="/onboarding-dashboard"     element={<PrivateStaffRoute><OnboardingDashboard /></PrivateStaffRoute>} />
+    <Route path="/corporate-dashboard"     element={<PrivateStaffRoute><CorporateDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/superAdmin"     element={<PrivateStaffRoute><SuperAdminDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/parent"         element={<ParentDashboard />} />
 <Route path="/espace-apprenant" element={<EspaceApprenant />} />
-<Route path="/espace-professeur" element={<PrivateCoachRoute><EspaceProfesseur /></PrivateCoachRoute>} />
+<Route path="/espace-professeur" element={<PrivateStaffRoute><EspaceProfesseur /></PrivateStaffRoute>} />
 <Route path="/login-apprenant"   element={<LoginApprenant />} />
 <Route path="/login-professeur"  element={<PublicCoachRoute><LoginProfesseur /></PublicCoachRoute>} />
 <Route path="/login-admin"       element={<PublicAdminRoute><LoginAdmin /></PublicAdminRoute>} />

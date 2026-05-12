@@ -3,70 +3,88 @@ import supabase from "../config/supabase.js";
 import { authenticateAdmin } from "../middlewares/requireAdmin.js";
 
 const router = express.Router();
-
 console.log("✅ Route paiements chargée");
 
-// Enregistrer un paiement
+const TABLE = "paiements_parcours";
+const FIELDS = "id, commercial_id, client, email, telephone, inscription, montant_du, montant_recu, date_paiement, mode_paiement, statut, ref_transaction, notes, assignation_id, preuve_image, created_at";
+
+// ── POST /submit ──────────────────────────────────────────────
 router.post("/submit", authenticateAdmin, async (req, res) => {
   try {
     const {
-      client, email, inscription, montant_du, montant_recu,
-      date, mode, statut, notes,
+      client, email, telephone, inscription,
+      montant_du, montant_recu, date_paiement,
+      mode_paiement, statut, ref_transaction, notes, assignation_id,
+      // compat anciens noms
+      date, mode, montantDu, montantRecu,
     } = req.body;
 
-    if (!client) {
+    if (!client?.trim()) {
       return res.status(400).json({ error: "Le nom du client est obligatoire" });
     }
 
-    const { data, error } = await supabase.from("paiements").insert({
-      commercial_id: req.user.id,
-      client,
-      email:         email        || null,
-      inscription:   inscription  || null,
-      montant_du:    montant_du   || 0,
-      montant_recu:  montant_recu || 0,
-      date:          date         || new Date().toISOString().slice(0, 10),
-      mode:          mode         || "Virement",
-      statut:        statut       || "en_attente",
-      notes:         notes        || null,
-    }).select().single();
+    const { data, error } = await supabase
+      .from(TABLE)
+      .insert({
+        commercial_id:   req.user.id,
+        client:          client.trim(),
+        email:           email?.trim()           || null,
+        telephone:       telephone?.trim()       || null,
+        inscription:     inscription?.trim()     || null,
+        montant_du:      montant_du   ?? montantDu  ?? 0,
+        montant_recu:    montant_recu ?? montantRecu ?? 0,
+        date_paiement:   date_paiement || date   || new Date().toISOString().slice(0, 10),
+        mode_paiement:   mode_paiement || mode   || "Mobile Money",
+        statut:          statut                  || "en_attente",
+        ref_transaction: ref_transaction?.trim() || null,
+        notes:           notes?.trim()           || null,
+        assignation_id:  assignation_id          || null,
+        preuve_image:    req.body.preuve_image   || null,
+      })
+      .select(FIELDS)
+      .single();
 
     if (error) {
-      console.error("Erreur Supabase paiement :", error);
+      console.error("Erreur paiement insert:", error);
       return res.status(500).json({ error: error.message });
     }
 
     res.status(201).json({ message: "Paiement enregistré", paiement: data });
   } catch (err) {
-    console.error("Erreur serveur paiement :", err);
+    console.error("Erreur serveur paiement:", err);
     res.status(500).json({ error: "Erreur interne" });
   }
 });
 
-// Modifier un paiement
+// ── PATCH /:id ────────────────────────────────────────────────
 router.patch("/:id", authenticateAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { client, email, inscription, montant_du, montant_recu, date, mode, statut, notes } = req.body;
+    const allowed = ["client","email","telephone","inscription","montant_du","montant_recu","date_paiement","mode_paiement","statut","ref_transaction","notes","assignation_id","preuve_image"];
+    const updates = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
 
-    const { error } = await supabase
-      .from("paiements")
-      .update({ client, email, inscription, montant_du, montant_recu, date, mode, statut, notes })
-      .eq("id", id)
-      .eq("commercial_id", req.user.id);
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update(updates)
+      .eq("id", req.params.id)
+      .eq("commercial_id", req.user.id)
+      .select(FIELDS)
+      .single();
 
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ message: "Paiement mis à jour" });
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
   }
 });
 
-// Supprimer un paiement
+// ── DELETE /:id ───────────────────────────────────────────────
 router.delete("/:id", authenticateAdmin, async (req, res) => {
   try {
     const { error } = await supabase
-      .from("paiements")
+      .from(TABLE)
       .delete()
       .eq("id", req.params.id)
       .eq("commercial_id", req.user.id);
@@ -78,18 +96,23 @@ router.delete("/:id", authenticateAdmin, async (req, res) => {
   }
 });
 
-// Récupérer les paiements de la commerciale connectée
+// ── GET /mes-paiements ────────────────────────────────────────
 router.get("/mes-paiements", authenticateAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from("paiements")
-      .select("id, client, email, inscription, montant_du, montant_recu, date, mode, statut, notes, created_at")
+      .from(TABLE)
+      .select(FIELDS)
       .eq("commercial_id", req.user.id)
-      .order("date", { ascending: false });
+      .order("date_paiement", { ascending: false });
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("Erreur mes-paiements:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
     res.json({ paiements: data || [] });
   } catch (err) {
+    console.error("Erreur serveur mes-paiements:", err);
     res.status(500).json({ error: "Erreur interne" });
   }
 });

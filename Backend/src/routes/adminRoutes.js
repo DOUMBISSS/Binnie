@@ -595,7 +595,7 @@ router.get("/utilisateurs", authenticateAdmin, async (req, res) => {
 
 router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, res) => {
   try {
-    const { nom, prenom, email, telephone, role, scope, departement, note } = req.body;
+    const { nom, prenom, email, telephone, role, scope, departement, note, planning } = req.body;
     if (!nom || !prenom || !email || !role) {
       return res.status(400).json({ error: "Champs requis : nom, prenom, email, role" });
     }
@@ -631,12 +631,28 @@ router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, r
       throw insertError;
     }
 
+    // Si c'est une assistante commerciale, créer automatiquement la ligne dans `assistantes`
+    if (role === "commercial" && planning) {
+      const { centre_id, type_cours, type_semaine, quota_jour, jours_travail, profil } = planning;
+      await supabase.from("assistantes").insert({
+        nom, prenom, email,
+        telephone: telephone || null,
+        centre_id: centre_id || null,
+        type_cours: type_cours || "en_ligne",
+        type_semaine: type_semaine || "semaine",
+        quota_jour: quota_jour || 10,
+        jours_travail: jours_travail || ["lundi","mardi","mercredi","jeudi","vendredi"],
+        profil: profil || "b2c",
+        actif: true,
+      });
+    }
+
     await supabase.from("audit_admin").insert({
       acteur_id: req.profil.id,
       acteur_nom: `${req.profil.prenom} ${req.profil.nom}`,
       action: "UTILISATEUR_CREE",
       cible_id: authData.user.id,
-      detail: `Utilisateur ${role} créé : ${prenom} ${nom} (${email})`,
+      detail: `Utilisateur ${role} créé : ${prenom} ${nom} (${email})${role === "commercial" ? " + profil assistante" : ""}`,
       statut: "success",
     });
 
@@ -652,7 +668,13 @@ router.patch("/utilisateurs/:id", authenticateAdmin, requireSuperAdmin, async (r
     const { id } = req.params;
     const { actif, note, scope, departement, twofa_active } = req.body;
     const updates = {};
-    if (actif        !== undefined) { updates.actif        = actif;        await supabase.auth.admin.updateUserById(id, { app_metadata: { actif } }); }
+    if (actif !== undefined) {
+      updates.actif = actif;
+      // Récupérer le app_metadata actuel pour ne pas écraser le rôle
+      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(id);
+      const currentMeta = authUser?.app_metadata || {};
+      await supabase.auth.admin.updateUserById(id, { app_metadata: { ...currentMeta, actif } });
+    }
     if (note         !== undefined)   updates.note         = note;
     if (scope        !== undefined)   updates.scope        = scope;
     if (departement  !== undefined)   updates.departement  = departement;

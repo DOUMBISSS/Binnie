@@ -21,6 +21,9 @@ import centresRouter      from "./routes/centres.js";
 import blogRouter         from "./routes/blog.js";
 import temoignagesRouter  from "./routes/temoignages.js";
 import equipePhotosRouter from "./routes/equipePhotos.js";
+import boutiqueRouter     from "./routes/boutique.js";
+import parcoursRouter     from "./routes/parcours.js";
+import corporateRouter    from "./routes/corporate.js";
 
 const app = express();
 
@@ -62,5 +65,8 @@ app.use("/api/centres",   centresRouter);
 app.use("/api/blog",         blogRouter);
 app.use("/api/temoignages",  temoignagesRouter);
 app.use("/api/equipe-photos", equipePhotosRouter);
+app.use("/api/boutique",     boutiqueRouter);
+app.use("/api/parcours",     parcoursRouter);
+app.use("/api/corporate",   corporateRouter);
 
 export default app;

@@ -91,7 +91,7 @@ router.get("/:id", async (req, res) => {
 
     const { data: commentaires } = await supabase
       .from("commentaires_blog")
-      .select("id, nom, commentaire, created_at")
+      .select("id, nom, commentaire, avatar_url, created_at")
       .eq("article_id", req.params.id)
       .eq("approuve", true)
       .order("created_at", { ascending: false });
@@ -200,7 +200,7 @@ router.delete("/:id", authenticateAdmin, async (req, res) => {
 // ── Poster un commentaire (public, modération avant affichage) ──
 router.post("/:id/commentaires", async (req, res) => {
   try {
-    const { nom, email, commentaire } = req.body;
+    const { nom, email, commentaire, avatar_url } = req.body;
     if (!nom?.trim() || !commentaire?.trim()) {
       return res.status(400).json({ error: "Nom et commentaire requis" });
     }
@@ -214,12 +214,25 @@ router.post("/:id/commentaires", async (req, res) => {
 
     if (!article) return res.status(404).json({ error: "Article introuvable" });
 
-    const { error } = await supabase
+    const payload = { article_id: req.params.id, nom: nom.trim(), email: email?.trim() || null, commentaire: commentaire.trim(), approuve: true };
+    if (avatar_url) payload.avatar_url = avatar_url;
+
+    let { data: inserted, error } = await supabase
       .from("commentaires_blog")
-      .insert({ article_id: req.params.id, nom: nom.trim(), email: email?.trim() || null, commentaire: commentaire.trim(), approuve: false });
+      .insert(payload)
+      .select()
+      .single();
+
+    // Si la colonne avatar_url n'existe pas encore, réessayer sans elle
+    if (error && avatar_url) {
+      delete payload.avatar_url;
+      const retry = await supabase.from("commentaires_blog").insert(payload).select().single();
+      inserted = retry.data;
+      error    = retry.error;
+    }
 
     if (error) return res.status(500).json({ error: error.message });
-    res.status(201).json({ message: "Commentaire soumis — en attente de modération" });
+    res.status(201).json({ message: "Commentaire publié", commentaire: inserted });
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
   }
@@ -254,6 +267,37 @@ router.patch("/commentaires/:commentId", authenticateAdmin, async (req, res) => 
     res.json({ message: "Commentaire mis à jour" });
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+// ── Tous les commentaires (admin, tous articles) ─────────
+router.get("/admin/commentaires/all", authenticateAdmin, async (req, res) => {
+  try {
+    const { data: comments, error } = await supabase
+      .from("commentaires_blog")
+      .select("id, nom, email, commentaire, approuve, created_at, article_id")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    // Récupérer les titres des articles concernés
+    const articleIds = [...new Set((comments || []).map(c => c.article_id).filter(Boolean))];
+    let titlesMap = {};
+    if (articleIds.length > 0) {
+      const { data: articles } = await supabase
+        .from("articles_blog")
+        .select("id, titre")
+        .in("id", articleIds);
+      (articles || []).forEach(a => { titlesMap[a.id] = a.titre; });
+    }
+
+    res.json({
+      commentaires: (comments || []).map(c => ({
+        ...c,
+        article_titre: titlesMap[c.article_id] || "—",
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

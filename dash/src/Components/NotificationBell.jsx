@@ -1,20 +1,50 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useNotifications } from "../hooks/useNotifications";
 
 export default function NotificationBell({ userId }) {
   const { notifications, nbNonLues, marquerLue } = useNotifications(userId);
   const [open, setOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const btnRef  = useRef(null);
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
-  // Fermer le panneau si clic en dehors
+  // Calculer la position du panel sous le bouton
+  const calcPos = () => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    setPanelPos({
+      top:   r.bottom + window.scrollY + 8,
+      right: window.innerWidth - r.right,
+    });
+  };
+
+  const handleToggle = () => {
+    if (!open) calcPos();
+    setOpen(o => !o);
+  };
+
+  // Fermer si clic en dehors
   useEffect(() => {
     const handler = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+      if (
+        panelRef.current && !panelRef.current.contains(e.target) &&
+        btnRef.current   && !btnRef.current.contains(e.target)
+      ) setOpen(false);
     };
     if (open) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Recalculer si scroll/resize pendant que le panel est ouvert
+  useEffect(() => {
+    if (!open) return;
+    const update = () => calcPos();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
   }, [open]);
 
   const handleClick = async (notif) => {
@@ -39,10 +69,11 @@ export default function NotificationBell({ userId }) {
   };
 
   return (
-    <div style={{ position: "relative", display: "inline-block" }} ref={panelRef}>
+    <div style={{ position: "relative", display: "inline-block" }}>
       {/* Bouton cloche */}
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={btnRef}
+        onClick={handleToggle}
         style={{
           background: "none",
           border: "none",
@@ -80,18 +111,18 @@ export default function NotificationBell({ userId }) {
         )}
       </button>
 
-      {/* Panneau déroulant */}
-      {open && (
-        <div style={{
+      {/* Panneau déroulant — rendu via portal pour échapper aux overflow:hidden parents */}
+      {open && createPortal(
+        <div ref={panelRef} style={{
           position: "absolute",
-          right: 0,
-          top: "calc(100% + 8px)",
+          top:   panelPos.top,
+          right: panelPos.right,
           width: "360px",
           maxHeight: "480px",
           background: "#fff",
           borderRadius: "12px",
-          boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
-          zIndex: 1000,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
+          zIndex: 99999,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -139,7 +170,7 @@ export default function NotificationBell({ userId }) {
                 Aucune notification
               </div>
             ) : (
-              notifications.map(notif => (
+              notifications.slice(0, 5).map(notif => (
                 <div
                   key={notif.id}
                   onClick={() => handleClick(notif)}
@@ -213,7 +244,17 @@ export default function NotificationBell({ userId }) {
               ))
             )}
           </div>
-        </div>
+
+          {/* Footer — voir toutes si plus de 5 */}
+          {notifications.length > 5 && (
+            <div style={{ padding:"10px 16px", borderTop:"1px solid #f1f5f9", textAlign:"center" }}>
+              <span style={{ fontSize:"12px", color:"#6366f1", fontWeight:600 }}>
+                +{notifications.length - 5} autre{notifications.length - 5 > 1 ? "s" : ""} notification{notifications.length - 5 > 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+        </div>,
+        document.body
       )}
     </div>
   );

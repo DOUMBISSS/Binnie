@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import "./navbar.css";
 import { supabase } from '../../config/supabase';
+import ParcoursModal from "../Parcours/ParcoursModal";
+import EntrepriseParcoursModal from "../Parcours/EntrepriseParcoursModal";
 
 /* ─── ICÔNES SVG INLINE (inchangées) ───────────────────────────────────────── */
 const IcoSearch  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -169,6 +171,11 @@ const Navbar = () => {
   const [searchResults, setSearchResults] = useState([]);
   const searchInputRef = useRef(null);
 
+  /* Parcours modal ── */
+  const [showParcoursModal,      setShowParcoursModal]      = useState(false);
+  const [parcoursDefaultMode,    setParcoursDefaultMode]    = useState(null);
+  const [showEntrepriseModal,    setShowEntrepriseModal]    = useState(false);
+
   /* Tunnel ── */
   const [tunnelOpen,    setTunnelOpen]    = useState(false);
   const [tunnelType,    setTunnelType]    = useState(null);
@@ -181,6 +188,9 @@ const Navbar = () => {
   const [tunnelLoading, setTunnelLoading] = useState(false);
   const [tunnelErreur,  setTunnelErreur]  = useState("");
   const [centerModal,   setCenterModal]   = useState(null); // centre sélectionné
+  const [realCentresMap,         setRealCentresMap]         = useState({}); // nom.toLowerCase() → {id, nom, ville}
+  const [modalAssistantes,       setModalAssistantes]       = useState([]);
+  const [loadingModalAssistantes,setLoadingModalAssistantes]= useState(false);
   const [enfantData,    setEnfantData]    = useState({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"", centre_key:"" });
   const [selectedCommercial, setSelectedCommercial] = useState("");
   const [betCenters, setBetCenters] = useState(loadCenters);
@@ -236,7 +246,7 @@ const Navbar = () => {
     return {
       ...supaUser,
       name: fullName,
-      avatar: meta.avatar_url || null,
+      avatar: meta.bet_avatar_url || null,
       role: "Apprenant",
     };
   };
@@ -509,6 +519,55 @@ const Navbar = () => {
     if (tunnelStep < maxStep) setTunnelStep(s => s + 1);
   };
 
+  /* ── Charger les centres réels depuis l'API (pour résolution centre_id) ── */
+  useEffect(() => {
+    const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API_URL}/api/parcours/centres`)
+      .then(r => r.json())
+      .then(d => {
+        const map = {};
+        (d.centres || []).forEach(c => {
+          // Clé normalisée sans accents + minuscules pour matching souple
+          const key = c.nom.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+          map[key] = c;
+        });
+        setRealCentresMap(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  /* ── Ouvrir le modal centre + charger les vraies assistantes depuis l'API ── */
+  const handleCentreClick = async (center) => {
+    setCenterModal(center);
+    setModalAssistantes([]);
+    setLoadingModalAssistantes(true);
+    try {
+      const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
+      // Chercher l'id réel en normalisant le nom
+      const nomNorm = center.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      let realCentreId = null;
+      for (const [key, c] of Object.entries(realCentresMap)) {
+        if (key.includes(nomNorm) || nomNorm.includes(key)) { realCentreId = c.id; break; }
+      }
+      if (realCentreId) {
+        const r = await fetch(`${API_URL}/api/parcours/assistantes-presentiel/${realCentreId}?tous=true`);
+        const d = await r.json();
+        setModalAssistantes(d.assistantes || []);
+      } else {
+        // Fallback : utiliser les données betCenters configurées par l'admin
+        setModalAssistantes((center.assistantes || []).map(a => ({
+          id: a.phone, prenom: a.nom, nom: "", telephone: a.phone,
+        })));
+      }
+    } catch {
+      setModalAssistantes((center.assistantes || []).map(a => ({
+        id: a.phone, prenom: a.nom, nom: "", telephone: a.phone,
+      })));
+    } finally {
+      setLoadingModalAssistantes(false);
+    }
+  };
+
   useEffect(() => {
     // 1. Charger depuis Supabase (source de vérité)
     supabase
@@ -548,15 +607,29 @@ const Navbar = () => {
         {/* ── Ligne 1 : parcours ── */}
         <div className="parcours-group">
           <span className="parcours-label">Commencez votre parcours :</span>
-          <button className="parcours-btn parcours-btn--b2b" onClick={() => openTunnel("entreprise")}>
+          <button className="parcours-btn parcours-btn--b2b" onClick={() => setShowEntrepriseModal(true)}>
             <IcoBuild /> Je suis une entreprise
           </button>
-          <button className="parcours-btn parcours-btn--b2c" onClick={() => openTunnel("particulier")}>
+          <button className="parcours-btn parcours-btn--b2c" onClick={() => { setParcoursDefaultMode(null); setShowParcoursModal(true); }}>
             <IcoUser /> Je suis un particulier
           </button>
           <button className="parcours-btn parcours-btn--enfant" onClick={() => openTunnel("enfant")}>
             <IcoChild /> J'inscris mon enfant
           </button>
+          {/* <button
+            className="parcours-btn"
+            onClick={() => {
+              if (user?.user_metadata?.parcours_assignation) {
+                navigate("/mon-espace");
+                return;
+              }
+              setParcoursDefaultMode(null);
+              setShowParcoursModal(true);
+            }}
+            style={{ background:"linear-gradient(135deg,#0891b2,#1e3a8a)", color:"#fff", fontWeight:800, border:"none", cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6, animation:"pulse 2s ease infinite" }}
+          >
+            {user?.user_metadata?.parcours_assignation ? "💬 Mon assistante" : "🎯 Trouver mon assistante"}
+          </button> */}
         </div>
 
         {/* ── Séparateur horizontal ── */}
@@ -571,7 +644,7 @@ const Navbar = () => {
                 key={center.key}
                 className={`bet-btn bet-btn--${center.key}`}
                 style={{ borderLeftColor: center.color }}
-                onClick={() => setCenterModal(center)}
+                onClick={() => handleCentreClick(center)}
               >
                 📍 {center.name}
               </button>
@@ -1041,6 +1114,20 @@ const Navbar = () => {
         </div>
       )}
 
+      {/* ── MODAL PARCOURS PARTICULIER ──────────────────────── */}
+      <ParcoursModal
+        isOpen={showParcoursModal}
+        onClose={() => setShowParcoursModal(false)}
+        user={user}
+        defaultMode={parcoursDefaultMode}
+      />
+
+      {/* ── MODAL PARCOURS ENTREPRISE ───────────────────────── */}
+      <EntrepriseParcoursModal
+        isOpen={showEntrepriseModal}
+        onClose={() => setShowEntrepriseModal(false)}
+      />
+
       {/* ── MODAL CENTRE BET ────────────────────────────────── */}
       {centerModal && (
         <div
@@ -1065,30 +1152,59 @@ const Navbar = () => {
               </button>
             </div>
 
-            {/* Boutons WhatsApp */}
+            {/* Boutons WhatsApp — assistantes réelles depuis la BDD */}
             <div className="center-modal__body">
-              {centerModal.assistantes.map((a, i) => (
-                <a
-                  key={i}
-                  href={`https://wa.me/${a.phone}?text=${encodeURIComponent(a.message)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="center-modal__wa-btn"
-                  onClick={() => setCenterModal(null)}
-                >
-                  <span className="center-modal__wa-icon">
-                    <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-                      <circle cx="16" cy="16" r="16" fill="#25d366"/>
-                      <path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/>
-                    </svg>
-                  </span>
-                  <div className="center-modal__wa-info">
-                    <span className="center-modal__wa-name">{a.nom}</span>
-                    <span className="center-modal__wa-phone">+{a.phone}</span>
-                  </div>
-                  <span className="center-modal__wa-cta">Écrire →</span>
-                </a>
-              ))}
+              {loadingModalAssistantes ? (
+                <div style={{ textAlign:"center", padding:"24px 0", color:"#64748b", fontSize:".84rem" }}>
+                  <div style={{ width:28, height:28, border:"3px solid #e2e8f0", borderTopColor:"#25d366", borderRadius:"50%", animation:"spin .8s linear infinite", margin:"0 auto 10px" }} />
+                  Chargement des assistantes…
+                </div>
+              ) : modalAssistantes.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"24px 0", color:"#94a3b8", fontSize:".85rem" }}>
+                  😔 Aucune assistante disponible pour ce centre.<br />
+                  <span style={{ fontSize:".78rem" }}>Contactez-nous directement au centre.</span>
+                </div>
+              ) : (
+                modalAssistantes.map((a, i) => {
+                  const phoneRaw  = (a.telephone || "").replace(/[\s+\-()]/g, "");
+                  const waMessage = encodeURIComponent(
+                    `Bonjour ${a.prenom || ""}${a.nom ? " " + a.nom : ""}, je souhaite avoir des informations sur les cours d'anglais chez BET ${centerModal.name}.`
+                  );
+                  const ini = `${a.prenom?.[0] || ""}${a.nom?.[0] || ""}`.toUpperCase() || "A";
+                  return (
+                    <a
+                      key={a.id || i}
+                      href={phoneRaw ? `https://wa.me/${phoneRaw}?text=${waMessage}` : "#"}
+                      target={phoneRaw ? "_blank" : undefined}
+                      rel="noopener noreferrer"
+                      className="center-modal__wa-btn"
+                      style={!phoneRaw ? { opacity:.5, pointerEvents:"none" } : {}}
+                      onClick={(e) => { if (!phoneRaw) e.preventDefault(); else setCenterModal(null); }}
+                    >
+                      <span className="center-modal__wa-icon">
+                        {a.photo_url ? (
+                          <img src={a.photo_url} alt={a.prenom} style={{ width:40, height:40, borderRadius:"50%", objectFit:"cover" }} />
+                        ) : (
+                          <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".88rem", flexShrink:0 }}>{ini}</div>
+                        )}
+                      </span>
+                      <div className="center-modal__wa-info">
+                        <span className="center-modal__wa-name">{a.prenom} {a.nom}</span>
+                        <span className="center-modal__wa-phone">
+                          {a.telephone || <em style={{ color:"#94a3b8" }}>Numéro non renseigné</em>}
+                        </span>
+                      </div>
+                      <span className="center-modal__wa-cta">
+                        <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
+                          <circle cx="16" cy="16" r="16" fill="#25d366"/>
+                          <path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/>
+                        </svg>
+                        <span style={{ fontSize:".72rem", display:"block", marginTop:2 }}>WhatsApp</span>
+                      </span>
+                    </a>
+                  );
+                })
+              )}
             </div>
 
             {/* Footer */}

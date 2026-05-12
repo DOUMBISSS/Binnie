@@ -342,4 +342,42 @@ router.post("/:id/renvoyer-acces", authenticateAdmin, async (req, res) => {
   }
 });
 
+// ── PATCH /api/coachs/presences/by-email ─────────────────────
+// Le coach met à jour les présences/absences d'un apprenant par email
+router.patch("/presences/by-email", authenticateCoach, async (req, res) => {
+  try {
+    const { email, seances_effectuees, presences, absences } = req.body;
+    if (!email) return res.status(400).json({ error: "email requis" });
+
+    const { data: asgn, error: findErr } = await supabase
+      .from("assignations_parcours")
+      .select("id")
+      .eq("prospect_email", email)
+      .eq("statut", "converti")
+      .maybeSingle();
+
+    if (findErr || !asgn) return res.status(404).json({ error: "Apprenant introuvable" });
+
+    const { data, error } = await supabase
+      .from("assignations_parcours")
+      .update({
+        suivi_presences: {
+          seances_effectuees: Number(seances_effectuees) || 0,
+          presences:          Number(presences)          || 0,
+          absences:           Number(absences)           || 0,
+          updated_at:         new Date().toISOString(),
+        },
+      })
+      .eq("id", asgn.id)
+      .select("id, suivi_presences")
+      .single();
+
+    if (error) throw error;
+    res.json({ message: "Présences mises à jour", data });
+  } catch (err) {
+    console.error("presences/by-email error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

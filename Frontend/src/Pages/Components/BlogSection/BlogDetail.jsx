@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useUser } from "../../../context/UserContext";
+import { supabase } from "../../../config/supabase";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
@@ -114,17 +115,39 @@ function ReadingProgress() {
 
 /* ─── Comment component ───────────────────────────────── */
 function CommentsBlock({ articleId, initialComments }) {
-  const { user } = useUser();
+  const { user: ctxUser } = useUser();
   const navigate  = useNavigate();
   const [text,     setText]     = useState("");
   const [comments, setComments] = useState(initialComments || []);
   const [loading,  setLoading]  = useState(false);
   const [sent,     setSent]     = useState(false);
+  const [sbUser,   setSbUser]   = useState(null);
 
   useEffect(() => { setComments(initialComments || []); }, [initialComments]);
 
-  const userName  = user?.name || user?.nom  || "";
-  const userEmail = user?.email || "";
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setSbUser(session.user);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSbUser(s?.user || null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Supabase user en priorité, sinon UserContext (backend)
+  const isConnected = !!(sbUser || ctxUser);
+  const userName = (() => {
+    if (sbUser) {
+      const meta = sbUser.user_metadata || {};
+      if (meta.nom && meta.prenom) return `${meta.prenom} ${meta.nom}`;
+      if (meta.full_name) return meta.full_name;
+      return sbUser.email?.split("@")[0] || "";
+    }
+    return ctxUser?.name || ctxUser?.nom || "";
+  })();
+  const userEmail  = sbUser?.email || ctxUser?.email || "";
+  const userAvatar = sbUser?.user_metadata?.bet_avatar_url || null;
 
   const submit = async () => {
     if (!text.trim()) return;
@@ -133,12 +156,15 @@ function CommentsBlock({ articleId, initialComments }) {
       const r = await fetch(`${API_BASE}/api/blog/${articleId}/commentaires`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nom: userName, email: userEmail || undefined, commentaire: text.trim() }),
+        body: JSON.stringify({ nom: userName, email: userEmail || undefined, commentaire: text.trim(), avatar_url: userAvatar || undefined }),
       });
+      const d = await r.json();
       if (r.ok) {
-        setSent(true);
+        const newComment = d.commentaire || { id: Date.now(), nom: userName, commentaire: text.trim(), avatar_url: userAvatar || null, created_at: new Date().toISOString() };
+        setComments(prev => [newComment, ...prev]);
         setText("");
-        setTimeout(() => setSent(false), 6000);
+        setSent(true);
+        setTimeout(() => setSent(false), 4000);
       }
     } catch { /* silently ignore */ }
     finally { setLoading(false); }
@@ -159,7 +185,7 @@ function CommentsBlock({ articleId, initialComments }) {
 
       {/* Form */}
       <div style={CS.form}>
-        {!user ? (
+        {!isConnected ? (
           /* ── Non connecté ── */
           <div style={{ textAlign:"center", padding:"28px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #cbd5e1" }}>
             <div style={{ fontSize:"2rem", marginBottom:12 }}>🔒</div>
@@ -176,16 +202,17 @@ function CommentsBlock({ articleId, initialComments }) {
         ) : sent ? (
           /* ── Envoyé ── */
           <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"16px 20px", color:"#166534", fontSize:".9rem", lineHeight:1.6 }}>
-            ✅ <strong>Merci pour votre commentaire !</strong><br />
-            Il sera visible après validation par notre équipe.
+            ✅ <strong>Commentaire publié !</strong> Il est désormais visible sur cet article.
           </div>
         ) : (
           /* ── Connecté ── */
           <>
             {/* Profil de l'utilisateur */}
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, padding:"10px 14px", background:"#eff6ff", borderRadius:10, border:"1px solid #bfdbfe" }}>
-              <div style={{ width:38, height:38, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:"1rem", flexShrink:0 }}>
-                {userName[0]?.toUpperCase() || "?"}
+              <div style={{ width:38, height:38, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:"1rem", flexShrink:0, overflow:"hidden" }}>
+                {userAvatar
+                  ? <img src={userAvatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                  : userName[0]?.toUpperCase() || "?"}
               </div>
               <div>
                 <div style={{ fontWeight:700, fontSize:".88rem", color:"#1e3a8a" }}>{userName}</div>
@@ -193,7 +220,6 @@ function CommentsBlock({ articleId, initialComments }) {
               </div>
               <span style={{ marginLeft:"auto", fontSize:".7rem", color:"#16a34a", fontWeight:700, background:"#f0fdf4", padding:"3px 10px", borderRadius:999, border:"1px solid #bbf7d0" }}>✓ Connecté</span>
             </div>
-            <p style={{ fontSize:".72rem", color:"#94a3b8", margin:"0 0 10px" }}>Les commentaires sont modérés avant publication.</p>
             <label style={CS.label}>Votre commentaire *</label>
             <textarea className="bet-comment-input" style={CS.textarea} value={text} onChange={e => setText(e.target.value)} placeholder="Partagez votre avis sur cet article..." />
             <button
@@ -220,7 +246,11 @@ function CommentsBlock({ articleId, initialComments }) {
           {comments.map(c => (
             <div key={c.id} style={CS.item}>
               <div style={CS.itemHeader}>
-                <div style={CS.avatar}>{(c.nom || c.name || "?")[0]?.toUpperCase()}</div>
+                <div style={{ ...CS.avatar, overflow:"hidden", padding:0 }}>
+                  {c.avatar_url
+                    ? <img src={c.avatar_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                    : (c.nom || c.name || "?")[0]?.toUpperCase()}
+                </div>
                 <div>
                   <div style={CS.commentName}>{c.nom || c.name}</div>
                   <div style={CS.commentDate}>{c.date || (c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "")}</div>

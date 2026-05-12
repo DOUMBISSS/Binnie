@@ -91,6 +91,9 @@ const uploadDocument = multer({
   limits:  { fileSize: 20 * MB },
 });
 
+// Dossiers apprenants : mémoire → upload_stream Cloudinary (évite l'incompatibilité multer v2 / multer-storage-cloudinary v4)
+const uploadDossierMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * MB } });
+
 // ─── Réponse standard ────────────────────────────────────────────────────────
 function fileResponse(file) {
   return {
@@ -147,6 +150,36 @@ router.post("/recording", (req, res) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
     res.json({ url: req.file.path, public_id: req.file.filename });
+  });
+});
+
+// POST /api/upload/dossier — documents dossier apprenant (Cloudinary via upload_stream)
+router.post("/dossier", authenticateAdmin, (req, res) => {
+  uploadDossierMem.single("file")(req, res, (multerErr) => {
+    if (multerErr) return res.status(400).json({ error: multerErr.message });
+    if (!req.file)  return res.status(400).json({ error: "Aucun fichier reçu" });
+
+    const isImage    = req.file.mimetype.startsWith("image/");
+    const resType    = isImage ? "image" : "raw";
+    const public_id  = `dossier_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "bet/dossiers", resource_type: resType, public_id },
+      (error, result) => {
+        if (error) return res.status(500).json({ error: error.message });
+        res.json({
+          message: "Fichier dossier uploadé",
+          file: {
+            url:           result.secure_url,
+            public_id:     result.public_id,
+            resource_type: result.resource_type,
+            size:          result.bytes,
+            original_name: req.file.originalname,
+          },
+        });
+      }
+    );
+    stream.end(req.file.buffer);
   });
 });
 

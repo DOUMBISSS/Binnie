@@ -24,6 +24,10 @@ if (!document.querySelector("#flt-kf")) {
     .flt-nav-dot:hover { transform:scale(1.2) !important; }
     .flt-share:hover { background:#1e3a8a !important; color:#fff !important; border-color:#1e3a8a !important; }
     .flt-profile-btn:hover { border-color:#dc2626 !important; background:#fef2f2 !important; color:#dc2626 !important; }
+    @keyframes pmFU { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+    .pm-card:hover { transform:translateY(-4px)!important;box-shadow:0 16px 40px rgba(0,0,0,.12)!important; }
+    .pm-assistant:hover { border-color:#0891b2!important;transform:translateY(-2px)!important; }
+    .pm-centre:hover { border-color:#1e3a8a!important;background:#eff6ff!important; }
   `;
   document.head.appendChild(s);
 }
@@ -74,6 +78,75 @@ const Q_TYPE_LABEL = {
   speaking:    { icon:"🎙️", label:"Speaking" },
 };
 
+/* ════════════════════════════════════════════════════════
+   FORMAT INFOS
+════════════════════════════════════════════════════════ */
+const FORMAT_INFO = {
+  mixte:    { icon:"🔀", label:"Test Mixte",  color:"#1e3a8a", bg:"#eff6ff", desc:"Grammaire · Vocabulaire · Compréhension",              scored:true  },
+  reading:  { icon:"📖", label:"Reading",     color:"#075985", bg:"#e0f2fe", desc:"Compréhension de textes écrits",                        scored:true  },
+  writing:  { icon:"✍️", label:"Writing",     color:"#6d28d9", bg:"#faf5ff", desc:"Expression écrite — résultat sous 24h après correction", scored:false },
+  speaking: { icon:"🎤", label:"Speaking",    color:"#dc2626", bg:"#fff1f2", desc:"Expression orale — résultat sous 24h après correction",  scored:false },
+  listening:{ icon:"🎧", label:"Listening",   color:"#9d174d", bg:"#fdf2f8", desc:"Compréhension orale",                                   scored:true  },
+};
+
+/* ════════════════════════════════════════════════════════
+   BANQUES DE QUESTIONS PAR FORMAT
+════════════════════════════════════════════════════════ */
+
+// ── READING ─────────────────────────────────────────────
+const READING_PASSAGE = `The rise of remote work has transformed the modern workplace. Since 2020, millions of employees across the globe have shifted from traditional office environments to home-based setups. Companies initially adopted remote work as a temporary measure, but many have since made it a permanent option.
+
+Studies show that remote workers often report higher job satisfaction due to the flexibility it offers. They save time and money on commuting, and many find they are more productive without the usual office distractions. However, remote work is not without challenges. Isolation, difficulty collaborating with colleagues, and the blurring of work-life boundaries are common concerns.
+
+Despite these drawbacks, a survey of 5,000 professionals found that 78% prefer a hybrid model — combining remote and in-office work. This preference reflects the desire for flexibility while maintaining human connection and structured collaboration.`;
+
+const READING_QUESTIONS = [
+  { id:1, type:"lecture_qcm", cefr:"A2", category:"Reading", passage:READING_PASSAGE, text:"When did remote work become widespread?", options:["Before 2010","Since 2020","In 2015","After 2025"], correct:"Since 2020", explanation:"The passage states 'Since 2020, millions of employees...shifted to home-based setups.'", points:2 },
+  { id:2, type:"lecture_qcm", cefr:"A2", category:"Reading", passage:READING_PASSAGE, text:"Why do remote workers often report higher job satisfaction?", options:["They earn more money","They work fewer hours","They have more flexibility","Their managers are kinder"], correct:"They have more flexibility", explanation:"The text says 'higher job satisfaction due to the flexibility it offers.'", points:2 },
+  { id:3, type:"lecture_qcm", cefr:"B1", category:"Reading", passage:READING_PASSAGE, text:"Which of the following is NOT mentioned as a challenge of remote work?", options:["Isolation","Poor internet connection","Work-life boundary issues","Difficulty collaborating"], correct:"Poor internet connection", explanation:"Internet issues are not mentioned in the passage. The challenges listed are isolation, collaboration difficulty, and work-life blur.", points:2 },
+  { id:4, type:"lecture_qcm", cefr:"B1", category:"Reading", passage:READING_PASSAGE, text:"What percentage of professionals prefer a hybrid model?", options:["50%","68%","78%","88%"], correct:"78%", explanation:"'A survey of 5,000 professionals found that 78% prefer a hybrid model.'", points:2 },
+  { id:5, type:"lecture_qcm", cefr:"B2", category:"Reading", passage:READING_PASSAGE, text:"What does the word 'drawbacks' mean in the last paragraph?", options:["Benefits","Disadvantages","Solutions","Improvements"], correct:"Disadvantages", explanation:"'Drawbacks' means disadvantages or negative aspects, contrasting with the benefits mentioned earlier.", points:3 },
+  { id:6, type:"lecture_qcm", cefr:"B2", category:"Reading", passage:READING_PASSAGE, text:"What can be inferred about companies' original intention regarding remote work?", options:["They planned it for years","They saw it as a long-term solution","They considered it temporary at first","They were forced by governments"], correct:"They considered it temporary at first", explanation:"'Companies initially adopted remote work as a temporary measure' — 'initially' and 'temporary' indicate it wasn't planned long-term.", points:3 },
+  { id:7, type:"lecture_qcm", cefr:"C1", category:"Reading", passage:READING_PASSAGE, text:"Which statement best summarises the overall tone of the passage?", options:["Highly critical of remote work","Purely descriptive with no opinion","Balanced — acknowledging both benefits and challenges","Enthusiastically promoting remote work"], correct:"Balanced — acknowledging both benefits and challenges", explanation:"The passage presents advantages (satisfaction, productivity) and disadvantages (isolation, collaboration) before concluding with survey data.", points:4 },
+];
+
+// ── LISTENING ────────────────────────────────────────────
+const LISTENING_SCRIPT = `You will now hear a conversation between two colleagues, Sarah and Mark, discussing their company's annual conference. Sarah is the events coordinator. Mark is a sales manager. They are meeting on Monday morning.
+
+SARAH: "Mark, I wanted to confirm the logistics for the conference next Friday. We're expecting about 200 attendees."
+MARK: "Great. Has the catering been arranged?"
+SARAH: "Yes, we've booked a local restaurant to provide lunch. The cost is 35 euros per person. I'll need your approval on the budget by Wednesday."
+MARK: "That's fine. What about the keynote speaker?"
+SARAH: "Professor Chen confirmed yesterday. She'll be speaking for 45 minutes on digital transformation."
+MARK: "Perfect. Will there be translation services? We have clients coming from Spain and Brazil."
+SARAH: "We've arranged simultaneous translation into Spanish and Portuguese. The headsets will be ready at the entrance."
+MARK: "One last thing — the parking. Last year it was a real problem."
+SARAH: "I've reserved 50 parking spaces at the building next door. Attendees can register for a spot on the website."`;
+
+const LISTENING_QUESTIONS = [
+  { id:1, type:"audio_qcm", cefr:"A2", category:"Listening", script:LISTENING_SCRIPT, text:"Who is Sarah?", options:["A sales manager","An events coordinator","A keynote speaker","A restaurant owner"], correct:"An events coordinator", explanation:"Sarah introduces herself as the events coordinator.", points:2 },
+  { id:2, type:"audio_qcm", cefr:"A2", category:"Listening", script:LISTENING_SCRIPT, text:"When is the conference?", options:["Next Monday","Next Wednesday","Next Friday","This weekend"], correct:"Next Friday", explanation:"Sarah says 'the conference next Friday.'", points:2 },
+  { id:3, type:"audio_qcm", cefr:"B1", category:"Listening", script:LISTENING_SCRIPT, text:"How much does the catering cost per person?", options:["25 euros","30 euros","35 euros","40 euros"], correct:"35 euros", explanation:"Sarah states 'The cost is 35 euros per person.'", points:2 },
+  { id:4, type:"audio_qcm", cefr:"B1", category:"Listening", script:LISTENING_SCRIPT, text:"What is Professor Chen's presentation topic?", options:["Sales strategies","Digital transformation","Event management","International business"], correct:"Digital transformation", explanation:"'She'll be speaking for 45 minutes on digital transformation.'", points:2 },
+  { id:5, type:"audio_qcm", cefr:"B2", category:"Listening", script:LISTENING_SCRIPT, text:"Which languages will translation be provided in?", options:["French and Spanish","Spanish and Portuguese","Portuguese and Italian","French and Portuguese"], correct:"Spanish and Portuguese", explanation:"'We've arranged simultaneous translation into Spanish and Portuguese.'", points:3 },
+  { id:6, type:"audio_qcm", cefr:"B2", category:"Listening", script:LISTENING_SCRIPT, text:"What was a problem at last year's conference?", options:["The catering","The speaker","The parking","The translation"], correct:"The parking", explanation:"Mark says 'Last year it was a real problem' when discussing parking.", points:3 },
+  { id:7, type:"audio_qcm", cefr:"C1", category:"Listening", script:LISTENING_SCRIPT, text:"How can attendees reserve a parking space?", options:["By calling Sarah","By emailing Mark","By registering on the website","By arriving early"], correct:"By registering on the website", explanation:"'Attendees can register for a spot on the website.'", points:3 },
+];
+
+// ── WRITING ─────────────────────────────────────────────
+const WRITING_QUESTIONS = [
+  { id:1, type:"libre", cefr:"A2", category:"Writing", text:"Introduce yourself. Write about your name, your job, where you live and one hobby. (40–60 words)", minWords:30, points:10 },
+  { id:2, type:"libre", cefr:"B1", category:"Writing", text:"Write an email to your manager explaining that you will be late to work tomorrow due to a personal appointment. Be polite and professional. (80–120 words)", minWords:60, points:15 },
+  { id:3, type:"libre", cefr:"B2", category:"Writing", text:"A local company has announced it will ban employees from using social media during working hours. Write a short opinion article agreeing or disagreeing with this policy. Give two clear reasons. (150–200 words)", minWords:120, points:20 },
+];
+
+// ── SPEAKING ─────────────────────────────────────────────
+const SPEAKING_QUESTIONS = [
+  { id:1, type:"speaking", cefr:"A2", category:"Speaking", text:"Describe your typical workday from morning to evening. Talk about your routine and any activities you enjoy. (Speak for 1–2 minutes)", prepTime:30, points:10 },
+  { id:2, type:"speaking", cefr:"B1", category:"Speaking", text:"Tell us about a challenge you faced at work or in your studies, and how you overcame it. (Speak for 1–2 minutes)", prepTime:45, points:15 },
+  { id:3, type:"speaking", cefr:"B2", category:"Speaking", text:"Some people believe that English will eventually replace all other languages in international business. Do you agree or disagree? Give reasons and examples. (Speak for 2 minutes)", prepTime:60, points:20 },
+];
+
 
 /* ── Progress bar ──────────────────────────────────────── */
 const PBar = ({ value, max, color = "#dc2626", height = 8 }) => (
@@ -86,12 +159,12 @@ const PBar = ({ value, max, color = "#dc2626", height = 8 }) => (
 const Stepper = ({ current, alreadyAssigned }) => {
   const steps = [
     {n:1, l:"Vos infos"},
-    {n:2, l:"Le test"},
-    {n:3, l: alreadyAssigned ? "Conseillère ✓" : "Conseillère"},
+    {n:2, l: alreadyAssigned ? "Projet ✓" : "Votre projet"},
+    {n:3, l:"Le test"},
     {n:4, l:"Résultats"},
   ];
-  // Si conseillère déjà assignée, traiter le step 3 comme validé même en step 4
-  const effectiveCurrent = (alreadyAssigned && current === 4) ? 5 : current;
+  // Si conseillère déjà assignée, traiter le step 2 comme validé dès le début
+  const effectiveCurrent = alreadyAssigned && current <= 2 ? 3 : current;
   return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginBottom:40 }}>
       {steps.map((s, i) => {
@@ -277,10 +350,22 @@ export default function FreeLevelTest({ questions: propQ }) {
       .finally(() => setLoadingTest(false));
   }, []);
 
-  // Questions : propQ > test actif API > mock par défaut
-  const questions = propQ
-    || (activeTest?.level_questions?.filter(q => q.actif !== false).sort((a,b) => (a.ordre||0)-(b.ordre||0)))
-    || DEFAULT_QUESTIONS;
+  // Format : dérivé du test actif (configuré par l'admin), sinon "mixte"
+  const format = activeTest?.format_test || activeTest?.format || "mixte";
+  const fmtInfo = FORMAT_INFO[format] || FORMAT_INFO.mixte;
+  // Writing et Speaking : résultat donné par l'assistante après correction
+  const needsManualCorrection = format === "writing" || format === "speaking";
+
+  // Questions : propQ > test actif de l'admin > fallback statique par format > DEFAULT
+  const FALLBACK_BY_FORMAT = {
+    mixte:    DEFAULT_QUESTIONS,
+    reading:  READING_QUESTIONS,
+    writing:  WRITING_QUESTIONS,
+    speaking: SPEAKING_QUESTIONS,
+    listening:LISTENING_QUESTIONS,
+  };
+  const activeQuestions = activeTest?.level_questions?.filter(q => q.actif !== false).sort((a,b) => (a.ordre||0)-(b.ordre||0));
+  const questions = propQ || activeQuestions || FALLBACK_BY_FORMAT[format] || DEFAULT_QUESTIONS;
 
   const testParams = activeTest?.params || {};
   const totalPts  = questions.reduce((s, q) => s + (q.points || 1), 0);
@@ -288,10 +373,21 @@ export default function FreeLevelTest({ questions: propQ }) {
   const [step,       setStep]       = useState("form");
   const [formData,   setFormData]   = useState({ fullname:"", email:"", phone:"", consent:false, profile:"particulier", centre_id:"", commercial_id:"" });
   const [formErrors, setFormErrors] = useState({});
-  const [centreChoisi,       setCentreChoisi]       = useState("");
-  const [commerciaux,        setCommerciaux]        = useState([]);
-  const [loadingCommerciaux, setLoadingCommerciaux] = useState(false);
-  // Étape assign (après le quiz)
+  // Étape "Votre projet" — wizard style ParcoursModal
+  const [pStep,         setPStep]         = useState(0);   // sub-step du wizard projet
+  const [pModeCours,    setPModeCours]    = useState(null);// "en_ligne" | "presentiel"
+  const [pTypeCoaching, setPTypeCoaching] = useState(null);// "groupe" | "prive"
+  const [pCentreChoisi, setPCentreChoisi] = useState(null);// objet centre {id,nom,ville}
+  const [pAssistante,   setPAssistante]   = useState(null);// objet assistante
+  const [pAssistantes,  setPAssistantes]  = useState([]);
+  const [pCentres,      setPCentres]      = useState([]);
+  const [pLoading,      setPLoading]      = useState(false);
+  const [pErreur,       setPErreur]       = useState("");
+  const [pPeriode,      setPPeriode]      = useState(null);// "semaine" | "weekend"
+  const [pModePaiement, setPModePaiement] = useState(null);
+  const [pMmOption,     setPMmOption]     = useState(null);
+  const [pSubmitting,   setPSubmitting]   = useState(false);
+  // Étape assign (après le quiz — fallback si l'utilisateur a un lien direct sans projet)
   const [assignCentre,       setAssignCentre]       = useState("");
   const [assignCommerciaux,  setAssignCommerciaux]  = useState([]);
   const [assignLoadingCom,   setAssignLoadingCom]   = useState(false);
@@ -338,17 +434,6 @@ export default function FreeLevelTest({ questions: propQ }) {
     { id:"bouake",     label:"Bouaké",       ville:"Bouaké",  icon:"🌍" },
   ];
 
-  /* ── Charger les conseillères quand un centre est choisi (form) ── */
-  useEffect(() => {
-    if (!centreChoisi) { setCommerciaux([]); return; }
-    setLoadingCommerciaux(true);
-    fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5001"}/api/level-test/commerciaux?centre_id=${centreChoisi}`)
-      .then(r => r.json())
-      .then(data => setCommerciaux(data.commerciaux || []))
-      .catch(() => setCommerciaux([]))
-      .finally(() => setLoadingCommerciaux(false));
-  }, [centreChoisi]);
-
   /* ── Charger les conseillères dans le step assign ── */
   useEffect(() => {
     if (!assignCentre) { setAssignCommerciaux([]); return; }
@@ -361,6 +446,29 @@ export default function FreeLevelTest({ questions: propQ }) {
   }, [assignCentre]);
 
   const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
+
+  /* ── Charger les centres BET quand on entre dans le step projet ── */
+  useEffect(() => {
+    if (step !== "projet") return;
+    // Reset wizard
+    setPStep(0); setPModeCours(null); setPTypeCoaching(null);
+    setPCentreChoisi(null); setPAssistante(null); setPAssistantes([]);
+    setPPeriode(null); setPModePaiement(null); setPMmOption(null);
+    setPErreur("");
+    fetch(`${API_BASE}/api/parcours/centres`)
+      .then(r => r.json())
+      .then(d => setPCentres(d.centres || []))
+      .catch(() => {});
+  }, [step]);
+
+  /* ── Lire ?ref= dans l'URL pour pré-attribuer l'assistante ── */
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) {
+      setFormData(fd => ({ ...fd, commercial_id: ref }));
+      setSessionCommercialId(ref);
+    }
+  }, []);
 
   /* ── Session Supabase : pré-remplissage + vérification test ── */
   useEffect(() => {
@@ -462,7 +570,100 @@ export default function FreeLevelTest({ questions: propQ }) {
     const errs = validateForm();
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     setSubmitting(true);
-    setTimeout(() => { setSubmitting(false); setStep("quiz"); }, 800);
+    setTimeout(() => {
+      setSubmitting(false);
+      // Si une assistante est déjà assignée (lien ?ref= ou session), aller directement au quiz
+      if (sessionCommercialId || formData.commercial_id) {
+        setStep("quiz");
+      } else {
+        setStep("projet");
+      }
+    }, 800);
+  };
+
+  /* ── Wizard projet : handlers ── */
+  const pChoisirMode = (mode) => {
+    setPModeCours(mode);
+    setPTypeCoaching(null);
+    setPCentreChoisi(null);
+    setPAssistante(null);
+    setPAssistantes([]);
+    setPPeriode(null);
+    setPModePaiement(null);
+    setPMmOption(null);
+    setPErreur("");
+    setPStep(1);
+  };
+
+  const pChoisirCoaching = async (type) => {
+    setPTypeCoaching(type);
+    setPCentreChoisi(null);
+    setPAssistante(null);
+    setPAssistantes([]);
+    setPPeriode(null);
+    setPModePaiement(null);
+    setPMmOption(null);
+    setPErreur("");
+    if (pModeCours === "presentiel") { setPStep(1.5); return; }
+    setPLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/parcours/assistantes-ligne?type_coaching=${type}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      setPAssistantes(d.assistantes || []);
+      setPStep(2);
+    } catch (e) { setPErreur(e.message); }
+    finally { setPLoading(false); }
+  };
+
+  const pChoisirCentre = async (centre) => {
+    setPCentreChoisi(centre); setPLoading(true); setPErreur("");
+    try {
+      const r = await fetch(`${API_BASE}/api/parcours/assistantes-presentiel/${centre.id}?liste=true`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      setPAssistantes(d.assistantes || []);
+      setPPeriode(d.periode || null);
+      setPStep(2);
+    } catch (e) { setPErreur(e.message); }
+    finally { setPLoading(false); }
+  };
+
+  const pChoisirAssistante = (a) => {
+    setPAssistante(a);
+    // Groupe → payment step, sinon → soumettre directement
+    if (pTypeCoaching === "groupe") { setPStep(3.5); } else { pDoSubmit(a); }
+  };
+
+  const pDoSubmit = async (assistante) => {
+    const ast = assistante || pAssistante;
+    if (!ast) return;
+    setPSubmitting(true); setPErreur("");
+    try {
+      const r = await fetch(`${API_BASE}/api/parcours/assignation`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assistante_id:      ast.id,
+          prospect_nom:       formData.fullname,
+          prospect_email:     formData.email || undefined,
+          prospect_telephone: formData.phone || "",
+          type_cours:         pModeCours,
+          type_coaching:      pTypeCoaching || undefined,
+          centre_id:          pCentreChoisi?.id || undefined,
+          mode_paiement:      pModePaiement === "mobile_money"
+                                ? `mobile_money_${pMmOption || "autre"}`
+                                : pModePaiement || undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      await supabase.auth.updateUser({ data: { commercial_id: ast.id, centre_id: pCentreChoisi?.id || null } }).catch(() => {});
+      setFormData(fd => ({ ...fd, commercial_id: ast.id, centre_id: pCentreChoisi?.id || null }));
+      setSessionCommercialId(ast.id);
+      setPAssistante(ast);
+      setPStep(4);
+    } catch (e) { setPErreur(e.message); }
+    finally { setPSubmitting(false); }
   };
 
   const handleAnswer = (qId, val) => {
@@ -507,6 +708,8 @@ export default function FreeLevelTest({ questions: propQ }) {
       const url = answers[q.id];
       if (url && url.startsWith("http")) audioAnswers[q.id] = url;
     });
+    // Pour Writing/Speaking : pas de score auto — en attente de correction
+    const isManual = format === "writing" || format === "speaking";
     return insertTestNiveau({
       user: {
         fullname:  formData.fullname,
@@ -514,28 +717,33 @@ export default function FreeLevelTest({ questions: propQ }) {
         phone:     formData.phone || null,
         profile:   formData.profile || "particulier",
         consent:   formData.consent,
-        centre_id:    formData.centre_id    || null,
+        centre_id:     formData.centre_id     || null,
         commercial_id: formData.commercial_id || null,
       },
       test: {
-        level:              resultData.cefr,
-        score:              resultData.pct,
-        points_earned:      resultData.earned,
+        level:              isManual ? "En attente" : resultData.cefr,
+        score:              isManual ? 0 : resultData.pct,
+        points_earned:      isManual ? 0 : resultData.earned,
         points_total:       totalPts,
-        correct_answers:    resultData.correct,
+        correct_answers:    isManual ? 0 : resultData.correct,
         total_questions:    questions.length,
-        time_taken_seconds: resultData.timeTaken,
+        time_taken_seconds: resultData?.timeTaken || 0,
         answers_details:    questions.map(q => ({
           question_id:    q.id,
+          question_text:  q.text,
           category:       q.category,
           cefr:           q.cefr,
+          text:           q.text,
           user_answer:    q.type === "speaking" ? (answers[q.id] ? "[audio]" : null) : (answers[q.id] || null),
-          correct_answer: q.correct,
-          is_correct:     isCorrect(q),
+          correct_answer: q.correct || null,
+          is_correct:     isManual ? null : isCorrect(q),
         })),
-        audio_answers: audioAnswers,
-        by_category: resultData.byCat,
-        by_cefr:     resultData.byCefr,
+        audio_answers:     audioAnswers,
+        by_category:       isManual ? {} : resultData.byCat,
+        by_cefr:           isManual ? {} : resultData.byCefr,
+        format_test:       format,
+        correction_statut: isManual ? "en_attente" : "auto",
+        source:            "online",
       },
       submitted_at: new Date().toISOString(),
     });
@@ -543,7 +751,8 @@ export default function FreeLevelTest({ questions: propQ }) {
 
   const doSubmit = async () => {
     clearInterval(timerRef.current);
-    const r = computeResult();
+    // Writing/Speaking : pas de calcul de score auto
+    const r = needsManualCorrection ? { cefr:"En attente", pct:0, earned:0, byCat:{}, byCefr:{}, timeTaken:elapsed, correct:0 } : computeResult();
     setResult(r);
     setSavingResult(true);
     setSaveError("");
@@ -557,7 +766,6 @@ export default function FreeLevelTest({ questions: propQ }) {
 
     try {
       await saveTestResultToBackend(r);
-      // Si une conseillère est déjà assignée, l'associer au résultat et passer directement au résultat
       if (currentCommercialId) {
         const centreFromMeta = (await supabase.auth.getSession())?.data?.session?.user?.user_metadata?.centre_id || null;
         await fetch(`${API_BASE}/api/level-test/assign-commercial`, {
@@ -570,7 +778,10 @@ export default function FreeLevelTest({ questions: propQ }) {
       console.error("Erreur sauvegarde résultat :", err);
     } finally {
       setSavingResult(false);
-      if (currentCommercialId) {
+      if (needsManualCorrection) {
+        // Writing/Speaking → écran "en attente de correction"
+        setStep("pending");
+      } else if (currentCommercialId) {
         setStep("result");
         setTimeout(() => setEmailSent(true), 1800);
       } else {
@@ -642,7 +853,22 @@ export default function FreeLevelTest({ questions: propQ }) {
 
         {/* ── PAGE BODY ─────────────────────────────── */}
         <div style={S.body}>
-          <Stepper current={step === "form" ? 1 : step === "quiz" ? 2 : step === "assign" ? 3 : 4} alreadyAssigned={!!sessionCommercialId} />
+          {/* Badge format de test */}
+          {format !== "mixte" && (
+            <div style={{ display:"flex", alignItems:"center", gap:10, justifyContent:"center", marginBottom:20, padding:"10px 20px", borderRadius:12, background:fmtInfo.bg, border:`1.5px solid ${fmtInfo.color}30`, maxWidth:520, margin:"0 auto 24px" }}>
+              <span style={{ fontSize:"1.4rem" }}>{fmtInfo.icon}</span>
+              <div>
+                <div style={{ fontWeight:800, fontSize:".95rem", color:fmtInfo.color }}>{fmtInfo.label}</div>
+                <div style={{ fontSize:".78rem", color:"#64748b" }}>{fmtInfo.desc}</div>
+              </div>
+              {needsManualCorrection && (
+                <span style={{ marginLeft:"auto", background:"#fffbeb", color:"#92400e", border:"1px solid #fde68a", borderRadius:999, padding:"2px 10px", fontSize:".72rem", fontWeight:700, whiteSpace:"nowrap" }}>
+                  ⏳ Résultat sous 24h
+                </span>
+              )}
+            </div>
+          )}
+          <Stepper current={step === "form" ? 1 : step === "projet" ? 2 : step === "quiz" ? 3 : (step === "assign" || step === "pending") ? 3 : 4} alreadyAssigned={!!sessionCommercialId} />
 
           {/* MUR AUTH : non connecté */}
           {step === "form" && (checkingSession ? (
@@ -853,7 +1079,329 @@ export default function FreeLevelTest({ questions: propQ }) {
             </div>
           )}
 
-          {/* ÉTAPE 2 — QUIZ */}
+          {/* ÉTAPE 2 — VOTRE PROJET (wizard style ParcoursModal) */}
+          {step === "projet" && (() => {
+            const PM_BLUE = "#0891b2";
+            const PM_DARK = "#0f172a";
+            const PM_NAVY = "#1e3a8a";
+            const PM_F    = "'Montserrat','Segoe UI',sans-serif";
+
+            const pmPrimaryBtn = { width:"100%", background:`linear-gradient(135deg,${PM_BLUE},${PM_NAVY})`, color:"#fff", border:"none", borderRadius:999, padding:"12px", fontWeight:800, fontSize:".9rem", cursor:"pointer", fontFamily:PM_F, transition:"opacity .2s" };
+            const pmBackBtn    = { background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:".82rem", marginBottom:16, display:"flex", alignItems:"center", gap:4, padding:0 };
+
+            const pHeaderTitle = {
+              0: "Comment souhaitez-vous apprendre ?",
+              1: "Quel type de coaching ?",
+              1.5: "Choisissez votre cabinet",
+              2: "Choisissez votre assistante",
+              3.5: "Mode de paiement",
+              4: "Conseillère assignée !",
+            }[pStep] || "Votre projet de formation";
+
+            const PMAv = ({ a, size = 48 }) => {
+              const ini = `${a.prenom?.[0]||""}${a.nom?.[0]||""}`.toUpperCase();
+              return a.photo_url
+                ? <img src={a.photo_url} alt={a.prenom} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+                : <div style={{ width:size, height:size, borderRadius:"50%", background:`linear-gradient(135deg,${PM_NAVY},${PM_BLUE})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:size*.3, flexShrink:0, fontFamily:PM_F }}>{ini||"?"}</div>;
+            };
+
+            const totalDots = 4;
+            const dotStep   = pStep === 3.5 ? 3 : pStep === 1.5 ? 1 : Math.floor(pStep);
+
+            return (
+              <div style={{ ...S.card, maxWidth:560, animation:"fltSI .45s ease", overflow:"hidden" }}>
+                {/* Header */}
+                <div style={{ background:`linear-gradient(135deg,${PM_DARK},${PM_NAVY})`, padding:"20px 24px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div>
+                    <div style={{ color:"rgba(255,255,255,.6)", fontSize:".68rem", fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", marginBottom:4 }}>Parcours BET Languages</div>
+                    <div style={{ color:"#fff", fontWeight:800, fontSize:"1rem", fontFamily:PM_F }}>{pHeaderTitle}</div>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding:"24px 24px 28px" }}>
+
+                  {/* Step dots */}
+                  {pStep < 4 && (
+                    <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:24 }}>
+                      {Array.from({ length: totalDots }).map((_, i) => (
+                        <div key={i} style={{ width: i === dotStep ? 22 : 8, height:8, borderRadius:999, background: i < dotStep ? "#22c55e" : i === dotStep ? PM_BLUE : "#e2e8f0", transition:"all .3s" }} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Erreur */}
+                  {pErreur && (
+                    <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, padding:"10px 14px", color:"#dc2626", fontSize:".84rem", marginBottom:16 }}>
+                      ⚠️ {pErreur}
+                    </div>
+                  )}
+
+                  {/* Spinner */}
+                  {pLoading && (
+                    <div style={{ textAlign:"center", padding:40 }}>
+                      <div style={{ width:32, height:32, border:"3px solid #e2e8f0", borderTopColor:PM_BLUE, borderRadius:"50%", animation:"fltSpin .8s linear infinite", margin:"0 auto 12px" }} />
+                      <p style={{ color:"#64748b", fontSize:".88rem", margin:0 }}>Recherche en cours…</p>
+                    </div>
+                  )}
+
+                  {/* ─── pStep 0 : Mode ─── */}
+                  {pStep === 0 && !pLoading && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+                        {[
+                          { mode:"en_ligne",   icon:"💻", title:"Cours en ligne",   desc:"Coaching groupe ou privé, depuis chez vous.", tags:["Groupe","Privé"],                  color:PM_BLUE },
+                          { mode:"presentiel", icon:"🏫", title:"En présentiel",    desc:"Dans l'un de nos cabinets en Côte d'Ivoire.", tags:["6 centres","Abidjan & Bouaké"], color:PM_NAVY },
+                        ].map(o => (
+                          <div key={o.mode} className="pm-card" onClick={() => pChoisirMode(o.mode)}
+                            style={{ border:"2px solid #e2e8f0", borderRadius:16, padding:"22px 18px", cursor:"pointer", transition:"all .22s", textAlign:"center", background:"#fafafa" }}>
+                            <div style={{ fontSize:"2.4rem", marginBottom:10 }}>{o.icon}</div>
+                            <div style={{ fontWeight:800, color:PM_DARK, fontSize:".96rem", marginBottom:6, fontFamily:PM_F }}>{o.title}</div>
+                            <div style={{ fontSize:".77rem", color:"#475569", lineHeight:1.6, marginBottom:12 }}>{o.desc}</div>
+                            <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", marginBottom:14 }}>
+                              {o.tags.map(t => <span key={t} style={{ background:o.color+"15", color:o.color, borderRadius:999, padding:"2px 10px", fontSize:".68rem", fontWeight:700 }}>{t}</span>)}
+                            </div>
+                            <div style={{ background:`linear-gradient(135deg,${o.color},${o.mode==="en_ligne"?PM_NAVY:PM_BLUE})`, color:"#fff", borderRadius:999, padding:"9px 0", fontWeight:800, fontSize:".82rem", fontFamily:PM_F }}>Choisir →</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ─── pStep 1 : type de coaching (en_ligne ET présentiel) ─── */}
+                  {pStep === 1 && !pLoading && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <button onClick={() => setPStep(0)} style={pmBackBtn}>← Retour</button>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+                        {[
+                          { type:"groupe", icon:"👥", title:"Coaching de groupe", desc:"Sessions avec d'autres apprenants. Dynamique et économique.", prix:"Dès 35 000 FCFA/mois" },
+                          { type:"prive",  icon:"👤", title:"Coaching privé",     desc:"Suivi individuel avec votre coach attitré.", prix:"Dès 65 000 FCFA/mois" },
+                        ].map(o => (
+                          <div key={o.type} className="pm-card" onClick={() => pChoisirCoaching(o.type)}
+                            style={{ border:"2px solid #e2e8f0", borderRadius:16, padding:"20px 16px", cursor:"pointer", transition:"all .22s", textAlign:"center", background:"#fafafa" }}>
+                            <div style={{ fontSize:"2.2rem", marginBottom:10 }}>{o.icon}</div>
+                            <div style={{ fontWeight:800, color:PM_DARK, fontSize:".92rem", marginBottom:6, fontFamily:PM_F }}>{o.title}</div>
+                            <div style={{ fontSize:".76rem", color:"#475569", lineHeight:1.6, marginBottom:10 }}>{o.desc}</div>
+                            <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700 }}>{o.prix}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ─── pStep 1.5 présentiel : cabinets ─── */}
+                  {pStep === 1.5 && !pLoading && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <button onClick={() => setPStep(1)} style={pmBackBtn}>← Retour</button>
+                      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                        {pCentres.length === 0
+                          ? <p style={{ color:"#94a3b8", textAlign:"center", padding:20 }}>Chargement des centres…</p>
+                          : pCentres.map(c => (
+                            <div key={c.id} className="pm-centre" onClick={() => pChoisirCentre(c)}
+                              style={{ display:"flex", alignItems:"center", gap:12, border:"2px solid #e2e8f0", borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all .18s", background:"#fff" }}>
+                              <div style={{ width:40, height:40, borderRadius:10, background:`${PM_NAVY}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", flexShrink:0 }}>🏢</div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontWeight:700, fontSize:".88rem", color:PM_DARK }}>{c.nom}</div>
+                                {c.ville && <div style={{ fontSize:".73rem", color:"#64748b", marginTop:1 }}>{c.ville}</div>}
+                              </div>
+                              <span style={{ color:PM_NAVY, fontWeight:800 }}>→</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ─── pStep 2 en_ligne : liste assistantes ─── */}
+                  {pStep === 2 && pModeCours === "en_ligne" && !pLoading && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <button onClick={() => setPStep(1)} style={pmBackBtn}>← Retour</button>
+                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:14 }}>
+                        {pAssistantes.length} assistante{pAssistantes.length>1?"s":""} disponible{pAssistantes.length>1?"s":""} · Coaching {pTypeCoaching==="groupe"?"de groupe":"privé"}
+                      </p>
+                      {pAssistantes.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"32px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0" }}>
+                          <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
+                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>
+                            Toutes nos assistantes ont atteint leur quota aujourd'hui.<br />
+                            <strong>Contactez-nous directement</strong> pour être pris(e) en charge.
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          {pAssistantes.map(a => (
+                            <div key={a.id} className="pm-assistant" onClick={() => pChoisirAssistante(a)}
+                              style={{ display:"flex", alignItems:"center", gap:14, border:"2px solid #e2e8f0", borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .2s", background:"#fff" }}>
+                              <PMAv a={a} size={46} />
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:800, fontSize:".9rem", color:PM_DARK }}>{a.prenom} {a.nom}</div>
+                                <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>Assistante BET Languages</div>
+                                <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
+                                  <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>✓ Disponible</span>
+                                  {a.quota_jour > 0 && (
+                                    <span style={{ background:`${PM_BLUE}12`, color:PM_BLUE, borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>
+                                      {a.quota_jour - (a.prises_aujourd_hui||0)} place{(a.quota_jour-(a.prises_aujourd_hui||0))>1?"s":""} restante{(a.quota_jour-(a.prises_aujourd_hui||0))>1?"s":""}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {pSubmitting
+                                ? <div style={{ width:16, height:16, border:"2px solid #e2e8f0", borderTopColor:PM_BLUE, borderRadius:"50%", animation:"fltSpin .7s linear infinite", flexShrink:0 }} />
+                                : <span style={{ color:PM_BLUE, fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>→</span>
+                              }
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ─── pStep 2 présentiel : liste des assistantes disponibles ─── */}
+                  {pStep === 2 && pModeCours === "presentiel" && !pLoading && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <button onClick={() => setPStep(1.5)} style={pmBackBtn}>← Retour</button>
+
+                      {/* Bandeau période */}
+                      <div style={{ display:"flex", alignItems:"center", gap:8, background: pPeriode==="weekend" ? "#fef9ec" : "#eff6ff", border:`1.5px solid ${pPeriode==="weekend"?"#fde68a":"#bae6fd"}`, borderRadius:10, padding:"10px 14px", marginBottom:14 }}>
+                        <span style={{ fontSize:"1.1rem" }}>{pPeriode==="weekend" ? "📅" : "📆"}</span>
+                        <div style={{ fontSize:".78rem", color: pPeriode==="weekend" ? "#92400e" : "#1e40af", lineHeight:1.5 }}>
+                          Assistante{pAssistantes.length > 1 ? "s" : ""} <strong>{pPeriode==="weekend" ? "week-end" : "semaine"}</strong> — {pCentreChoisi?.nom}
+                          {pAssistantes.length > 1 && <span style={{ marginLeft:6, opacity:.8 }}>· Choisissez la vôtre</span>}
+                        </div>
+                      </div>
+
+                      {pAssistantes.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"32px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0" }}>
+                          <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
+                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>Aucune assistante disponible pour ce centre aujourd'hui.</p>
+                        </div>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          {pAssistantes.map(a => (
+                            <div key={a.id} className="pm-assistant" onClick={() => pChoisirAssistante(a)}
+                              style={{ display:"flex", alignItems:"center", gap:14, border:"2px solid #e2e8f0", borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .2s", background:"#fff" }}>
+                              <PMAv a={a} size={46} />
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:800, fontSize:".9rem", color:PM_DARK }}>{a.prenom} {a.nom}</div>
+                                <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>Assistante présentiel — {pCentreChoisi?.nom}</div>
+                                <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
+                                  <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>✓ Disponible</span>
+                                  <span style={{ background: pPeriode==="weekend" ? "#fef9ec" : "#eff6ff", color: pPeriode==="weekend" ? "#92400e" : "#1e40af", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>
+                                    {pPeriode==="weekend" ? "Sam – Dim" : "Lun – Ven"}
+                                  </span>
+                                </div>
+                              </div>
+                              {pSubmitting
+                                ? <div style={{ width:16, height:16, border:"2px solid #e2e8f0", borderTopColor:PM_BLUE, borderRadius:"50%", animation:"fltSpin .7s linear infinite", flexShrink:0 }} />
+                                : <span style={{ color:PM_BLUE, fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>→</span>
+                              }
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ─── pStep 3.5 : Paiement — Coaching de groupe ─── */}
+                  {pStep === 3.5 && (
+                    <div style={{ animation:"pmFU .3s ease" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:12, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"12px 14px", marginBottom:20 }}>
+                        <PMAv a={pAssistante} size={40} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight:800, fontSize:".85rem", color:PM_DARK }}>{pAssistante?.prenom} {pAssistante?.nom}</div>
+                          <div style={{ fontSize:".72rem", color:"#64748b" }}>
+                            {pModeCours === "en_ligne" ? "En ligne" : `Présentiel · ${pCentreChoisi?.nom || ""}`} · Coaching de groupe
+                          </div>
+                        </div>
+                        <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700, flexShrink:0 }}>✓ Sélectionnée</span>
+                      </div>
+                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:14, lineHeight:1.6 }}>
+                        Choisissez votre mode de paiement pour finaliser votre inscription au coaching de groupe.
+                      </p>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+                        {[
+                          { mode:"en_ligne",     icon:"💻", label:"En ligne",     sub:"Plateforme sécurisée" },
+                          { mode:"especes",      icon:"💵", label:"Espèces",      sub:"Au cabinet BET" },
+                          { mode:"mobile_money", icon:"📱", label:"Mobile Money", sub:"Ria, MoneyGram…" },
+                        ].map(opt => (
+                          <div key={opt.mode} onClick={() => { setPModePaiement(opt.mode); if (opt.mode !== "mobile_money") setPMmOption(null); }}
+                            style={{ border:`2px solid ${pModePaiement===opt.mode ? PM_BLUE : "#e2e8f0"}`, borderRadius:14, padding:"14px 10px", cursor:"pointer", textAlign:"center", background: pModePaiement===opt.mode ? `${PM_BLUE}08` : "#fafafa", transition:"all .18s" }}>
+                            <div style={{ fontSize:"1.5rem", marginBottom:6 }}>{opt.icon}</div>
+                            <div style={{ fontWeight:800, fontSize:".78rem", color:PM_DARK, marginBottom:2 }}>{opt.label}</div>
+                            <div style={{ fontSize:".68rem", color:"#94a3b8", lineHeight:1.4 }}>{opt.sub}</div>
+                            {pModePaiement===opt.mode && <div style={{ width:8, height:8, borderRadius:"50%", background:PM_BLUE, margin:"8px auto 0" }} />}
+                          </div>
+                        ))}
+                      </div>
+                      {pModePaiement === "mobile_money" && (
+                        <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"12px 14px", marginBottom:16, animation:"pmFU .2s ease" }}>
+                          <div style={{ fontSize:".75rem", fontWeight:700, color:"#475569", marginBottom:10 }}>Choisissez l'opérateur :</div>
+                          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                            {[{ val:"ria",label:"Ria" },{ val:"moneygram",label:"MoneyGram" },{ val:"autres",label:"Autres" }].map(op => (
+                              <button key={op.val} onClick={() => setPMmOption(op.val)}
+                                style={{ padding:"8px 16px", borderRadius:999, border:`2px solid ${pMmOption===op.val ? PM_BLUE : "#e2e8f0"}`, background: pMmOption===op.val ? `${PM_BLUE}10` : "#fff", color: pMmOption===op.val ? PM_BLUE : "#475569", fontWeight:700, fontSize:".82rem", cursor:"pointer", transition:"all .15s" }}>
+                                {op.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => pDoSubmit(pAssistante)}
+                        disabled={!pModePaiement || (pModePaiement==="mobile_money" && !pMmOption) || pSubmitting}
+                        style={{ ...pmPrimaryBtn, opacity:(!pModePaiement||(pModePaiement==="mobile_money"&&!pMmOption)||pSubmitting)?.5:1, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                      >
+                        {pSubmitting
+                          ? <><div style={{ width:14,height:14,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"fltSpin .7s linear infinite" }} />Assignation…</>
+                          : "Confirmer mon inscription →"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ─── pStep 4 : Succès → passer le test ─── */}
+                  {pStep === 4 && (
+                    <div style={{ animation:"pmFU .4s ease" }}>
+                      <div style={{ textAlign:"center", marginBottom:22 }}>
+                        <div style={{ width:70,height:70,borderRadius:"50%",background:"linear-gradient(135deg,#22c55e,#16a34a)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"2rem",margin:"0 auto 14px",boxShadow:"0 8px 24px rgba(34,197,94,.3)" }}>✓</div>
+                        <h3 style={{ fontFamily:PM_F, color:PM_DARK, fontWeight:800, fontSize:"1.2rem", margin:"0 0 6px" }}>Assistante assignée !</h3>
+                        <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6, margin:0 }}>
+                          <strong>{pAssistante?.prenom} {pAssistante?.nom}</strong> a été notifiée et vous contactera après votre test.
+                        </p>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:14, background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:14, padding:"14px 16px", marginBottom:20 }}>
+                        <PMAv a={pAssistante} size={50} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight:800, color:PM_DARK, fontSize:".95rem" }}>{pAssistante?.prenom} {pAssistante?.nom}</div>
+                          <div style={{ fontSize:".74rem", color:"#64748b", marginTop:2 }}>
+                            {pModeCours==="en_ligne" ? `En ligne · ${pTypeCoaching==="groupe"?"Groupe":"Privé"}` : `Présentiel · ${pCentreChoisi?.nom||""}`}
+                          </div>
+                          {pAssistante?.telephone && <div style={{ fontSize:".74rem", color:PM_BLUE, marginTop:3 }}>📞 {pAssistante.telephone}</div>}
+                        </div>
+                        <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:999, padding:"4px 10px", fontSize:".7rem", fontWeight:800, flexShrink:0 }}>✓ Assignée</span>
+                      </div>
+                      {pAssistante?.telephone && (
+                        <a
+                          href={`https://wa.me/${(pAssistante.telephone||"").replace(/[\s+\-()]/g,"")}`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ display:"flex", alignItems:"center", gap:12, background:"#22c55e", color:"#fff", borderRadius:12, padding:"12px 18px", textDecoration:"none", fontWeight:800, fontSize:".9rem", fontFamily:PM_F, marginBottom:10 }}
+                        >
+                          <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="16" fill="#fff" fillOpacity=".2"/><path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/></svg>
+                          Écrire sur WhatsApp
+                        </a>
+                      )}
+                      <button onClick={() => setStep("quiz")}
+                        style={{ ...pmPrimaryBtn, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+                        <span style={{ fontSize:"1.1rem" }}>🎯</span>
+                        Passer le test maintenant →
+                      </button>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ÉTAPE 3 — QUIZ */}
           {step === "quiz" && q && (() => {
             const qTypeMeta = Q_TYPE_LABEL[q.type] || Q_TYPE_LABEL.qcm;
             const isQcmLike = ["qcm","audio_qcm","lecture_qcm"].includes(q.type);
@@ -915,24 +1463,22 @@ export default function FreeLevelTest({ questions: propQ }) {
                     </div>
                   )}
 
-                  {/* ── LISTENING : lecteur audio ── */}
-                  {q.type === "audio_qcm" && q.audio_url && (
-                    <div style={S.audioBox}>
-                      <div style={S.audioLabel}>
-                        🎧 <strong>Écoutez attentivement</strong>, puis répondez à la question ci-dessous
+                  {/* ── LISTENING : lecteur audio ou script texte ── */}
+                  {q.type === "audio_qcm" && (
+                    q.audio_url ? (
+                      <div style={S.audioBox}>
+                        <div style={S.audioLabel}>🎧 <strong>Écoutez attentivement</strong>, puis répondez à la question ci-dessous</div>
+                        <audio key={q.audio_url} controls controlsList="nodownload" crossOrigin="anonymous" src={q.audio_url} style={{ width:"100%", borderRadius:12, marginTop:10 }} />
+                        <p style={{ fontSize:".78rem", color:"#9d174d", margin:"8px 0 0", fontWeight:600 }}>💡 Vous pouvez écouter plusieurs fois avant de répondre</p>
                       </div>
-                      <audio
-                        key={q.audio_url}
-                        controls
-                        controlsList="nodownload"
-                        crossOrigin="anonymous"
-                        src={q.audio_url}
-                        style={{ width:"100%", borderRadius:12, marginTop:10 }}
-                      />
-                      <p style={{ fontSize:".78rem", color:"#9d174d", margin:"8px 0 0", fontWeight:600 }}>
-                        💡 Vous pouvez écouter plusieurs fois avant de répondre
-                      </p>
-                    </div>
+                    ) : q.script ? (
+                      <div style={{ background:"#fdf2f8", border:"1.5px solid #f0abfc", borderRadius:14, padding:"16px 18px", marginBottom:16 }}>
+                        <div style={{ fontSize:".82rem", fontWeight:700, color:"#9d174d", marginBottom:10 }}>🎧 Transcript de l'audio — lisez attentivement</div>
+                        <div style={{ fontSize:".84rem", color:"#374151", lineHeight:1.75, whiteSpace:"pre-wrap", background:"#fff", borderRadius:8, padding:"12px 14px", border:"1px solid #f0abfc40" }}>
+                          {q.script}
+                        </div>
+                      </div>
+                    ) : null
                   )}
 
                   {/* ── READING : passage texte ── */}
@@ -1015,27 +1561,34 @@ export default function FreeLevelTest({ questions: propQ }) {
                     </div>
                   )}
 
-                  {/* ── QUESTION LIBRE (Speaking / Writing) ── */}
+                  {/* ── QUESTION LIBRE (Writing) ── */}
                   {q.type === "libre" && (
                     <div style={{ margin:"4px 0 20px" }}>
-                      <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 16px", marginBottom:14 }}>
-                        <p style={{ margin:0, fontSize:".84rem", color:"#9a3412", fontWeight:600 }}>
-                          💬 <strong>Expression libre</strong> — Répondez en anglais dans le champ ci-dessous.
-                          <span style={{ fontWeight:400, display:"block", marginTop:4 }}>Cette réponse sera corrigée manuellement par un formateur BET.</span>
+                      <div style={{ background:"#faf5ff", border:"1px solid #ddd6fe", borderRadius:12, padding:"12px 16px", marginBottom:14 }}>
+                        <p style={{ margin:0, fontSize:".84rem", color:"#6d28d9", fontWeight:600 }}>
+                          ✍️ <strong>Expression écrite</strong> — Répondez en anglais dans le champ ci-dessous.
+                          <span style={{ fontWeight:400, display:"block", marginTop:4, color:"#7c3aed" }}>
+                            Votre réponse sera corrigée par votre conseillère BET sous 24h.
+                            {q.minWords && ` Minimum : ~${q.minWords} mots.`}
+                          </span>
                         </p>
                       </div>
                       <textarea
                         placeholder="Write your answer in English here…"
                         value={answers[q.id] || ""}
                         onChange={e => setAnswers(p => ({ ...p, [q.id]: e.target.value }))}
-                        rows={6}
-                        onFocus={e => { e.currentTarget.style.borderColor="#dc2626"; e.currentTarget.style.boxShadow="0 0 0 3px rgba(220,38,38,.1)"; }}
+                        rows={7}
+                        onFocus={e => { e.currentTarget.style.borderColor="#7c3aed"; e.currentTarget.style.boxShadow="0 0 0 3px rgba(124,58,237,.1)"; }}
                         onBlur={e  => { e.currentTarget.style.borderColor="#e2e8f0"; e.currentTarget.style.boxShadow="none"; }}
                         style={{ ...S.input, resize:"vertical", fontSize:".95rem", lineHeight:1.7 }}
                       />
-                      <p style={{ fontSize:".76rem", color:"#94a3b8", textAlign:"right", marginTop:4 }}>
-                        {(answers[q.id]||"").length} caractères
-                      </p>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                        <span style={{ fontSize:".76rem", color:"#94a3b8" }}>
+                          {(answers[q.id]||"").trim().split(/\s+/).filter(Boolean).length} mots
+                          {q.minWords ? ` / min. ${q.minWords}` : ""}
+                        </span>
+                        <span style={{ fontSize:".76rem", color:"#94a3b8" }}>{(answers[q.id]||"").length} caractères</span>
+                      </div>
                     </div>
                   )}
 
@@ -1161,6 +1714,46 @@ export default function FreeLevelTest({ questions: propQ }) {
                   ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}><span style={S.spinner} />Enregistrement…</span>
                   : "Confirmer et voir mon résultat complet →"}
               </button>
+            </div>
+          )}
+
+          {/* ÉTAPE PENDING — Writing/Speaking : en attente de correction */}
+          {step === "pending" && (
+            <div style={{ maxWidth:560, width:"100%", margin:"0 auto", animation:"fltFU .5s ease" }}>
+              <div style={{ background:`linear-gradient(135deg,${fmtInfo.bg},#fff)`, border:`1.5px solid ${fmtInfo.color}30`, borderRadius:20, padding:"36px 32px", textAlign:"center" }}>
+                <div style={{ fontSize:"3.5rem", marginBottom:16 }}>{fmtInfo.icon}</div>
+                <h2 style={{ fontFamily:"Montserrat,sans-serif", fontWeight:900, fontSize:"1.4rem", color:"#0f172a", margin:"0 0 12px" }}>
+                  Test {fmtInfo.label} envoyé !
+                </h2>
+                <p style={{ fontSize:".9rem", color:"#475569", lineHeight:1.6, margin:"0 0 24px" }}>
+                  Vos réponses ont bien été reçues par votre conseillère BET.
+                  <br />Elle analysera votre {format === "speaking" ? "expression orale" : "expression écrite"} et vous communiquera votre niveau CECRL <strong>sous 24h</strong>.
+                </p>
+                <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:28 }}>
+                  {[
+                    { icon:"✅", text:"Vos réponses ont été sauvegardées" },
+                    { icon:"👩‍💼", text:"Votre conseillère a été notifiée" },
+                    { icon:"📬", text:`Résultat envoyé à ${formData.email || "votre email"}` },
+                  ].map(({ icon, text }) => (
+                    <div key={text} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 16px", background:"rgba(255,255,255,.8)", borderRadius:10, border:"1px solid #e5e7eb", textAlign:"left" }}>
+                      <span style={{ fontSize:"1.1rem" }}>{icon}</span>
+                      <span style={{ fontSize:".85rem", color:"#374151", fontWeight:500 }}>{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding:"16px 20px", background:"#fffbeb", borderRadius:12, border:"1px solid #fde68a", marginBottom:24 }}>
+                  <div style={{ fontSize:".82rem", color:"#92400e", fontWeight:600, marginBottom:4 }}>⏳ Résultat sous 24h ouvrées</div>
+                  <div style={{ fontSize:".78rem", color:"#b45309" }}>
+                    En attendant, vous pouvez contacter votre conseillère via votre espace personnel.
+                  </div>
+                </div>
+                <button
+                  onClick={() => window.location.href = "/mon-espace"}
+                  style={{ padding:"12px 28px", background:"linear-gradient(135deg,#dc2626,#1e3a8a)", color:"#fff", border:"none", borderRadius:12, fontWeight:700, fontSize:".9rem", cursor:"pointer", fontFamily:"Montserrat,sans-serif" }}
+                >
+                  Accéder à mon espace →
+                </button>
+              </div>
             </div>
           )}
 

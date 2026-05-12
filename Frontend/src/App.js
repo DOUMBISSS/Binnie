@@ -45,6 +45,7 @@ import WhatsAppButton from './Pages/Components/WhatsAppButton/WhatsAppButton.jsx
 import AuditGratuit from './Pages/Components/Audit/AuditGratuit.jsx';
 import ParcoursEntreprise from './Pages/Parcours/ParcoursEntreprise.jsx';
 import ParcoursParticulier from './Pages/Parcours/ParcoursParticulier.jsx';
+import ParcoursTunnel from './Pages/Parcours/ParcoursTunnel.jsx';
 import BookingCalendar from './Pages/Components/BookingCalendar/BookingCalendar.jsx';
 import SimulateurButton from './Pages/Outils/SimulateurButton.jsx';
 // import ParentDashboard from './Pages/ParentDashboard/ParentDashboard.jsx';
@@ -127,6 +128,7 @@ const App = () => {
                   <Route path="/mon-espace" element={<MonEspace />} />
                   <Route path="/parcours/particulier" element={<ParcoursParticulier />} />
                   <Route path="/parcours/entreprise" element={<ParcoursEntreprise />} />
+                  <Route path="/parcours/inscription" element={<ParcoursTunnel />} />
                   <Route path="/lead-magnet/audit-gratuit" element={<LeadMagnetAudit />} />
                   <Route path="/lead-magnet/merci" element={<LeadThankYou />} />
                   <Route path="/update-password" element={<UpdatePassword />} />

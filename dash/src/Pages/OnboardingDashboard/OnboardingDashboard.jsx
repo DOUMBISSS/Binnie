@@ -54,13 +54,27 @@ const Checkbox = ({ checked, onChange, label }) => (
 ═══════════════════════════════════════════════════════ */
 const NIVEAUX = { A1:"Débutant",A2:"Élémentaire",B1:"Intermédiaire",B2:"Interm. Sup.",C1:"Avancé",C2:"Maîtrise" };
 
+const PAIEMENT_ST = {
+  en_attente:  { label:"En attente",  color:"#d97706", bg:"#fef3c7" },
+  confirme:    { label:"Confirmé",    color:"#16a34a", bg:"#dcfce7" },
+  rejete:      { label:"Rejeté",      color:"#dc2626", bg:"#fee2e2" },
+};
+
+const MODE_PAI_LABELS = {
+  en_ligne:              "💻 En ligne",
+  especes:               "💵 Espèces",
+  mobile_money_ria:      "📱 Mobile Money — Ria",
+  mobile_money_moneygram:"📱 Mobile Money — MoneyGram",
+  mobile_money_autres:   "📱 Mobile Money — Autres",
+};
+
 const INIT_APPRENANTS = [
-  { id:1, nom:"Adjoua Koné",    email:"adjoua.k@gmail.com",    telephone:"+225 07 11 22 33", offre:"Anglais Pro B2",     niveau:"B1", coach:"Prof. Martin",  dateConversion:"2025-12-15", statut:"en_attente",  profil:"Particulier",  entreprise:"",           objectif:"Améliorer la communication professionnelle pour des réunions internationales" },
-  { id:2, nom:"Ibrahim Traoré", email:"itraoré@totalci.com",   telephone:"+225 05 44 55 66", offre:"Certification TOEIC",niveau:"A2", coach:"Prof. Smith",   dateConversion:"2025-12-14", statut:"en_cours",    profil:"Entreprise",   entreprise:"Total CI",   objectif:"Préparer et réussir la certification TOEIC avec un score ≥ 785" },
-  { id:3, nom:"Marie Dupont",   email:"marie.d@cci.ci",        telephone:"+225 01 23 45 67", offre:"Business English",   niveau:"B2", coach:"Prof. Dubois",  dateConversion:"2025-12-13", statut:"terminé",     profil:"Entreprise",   entreprise:"CCI CI",     objectif:"Maîtriser l'anglais des affaires : présentations, négociations, emails" },
-  { id:4, nom:"Seydou Bamba",   email:"s.bamba@orange.ci",     telephone:"+225 07 88 99 00", offre:"Anglais Professionnel",niveau:"A1",coach:"Prof. Koné",   dateConversion:"2025-12-12", statut:"en_attente",  profil:"Entreprise",   entreprise:"Orange CI",  objectif:"Acquérir les bases de l'anglais pour les échanges internationaux" },
-  { id:5, nom:"Fatoumata Diallo",email:"f.diallo@bnp.ci",      telephone:"+225 07 55 66 77", offre:"Anglais Pro B2",     niveau:"B1", coach:"Prof. Martin",  dateConversion:"2025-12-10", statut:"terminé",     profil:"Entreprise",   entreprise:"BNP Paribas",objectif:"Développer l'aisance à l'oral en contexte professionnel" },
-  { id:6, nom:"Kofi Mensah",    email:"k.mensah@ecobank.com",  telephone:"+225 05 33 44 55", offre:"Certification TOEIC",niveau:"A2", coach:"Prof. Smith",   dateConversion:"2025-12-09", statut:"en_cours",    profil:"Entreprise",   entreprise:"Ecobank CI", objectif:"Score TOEIC ≥ 700 pour exigence interne RH" },
+  { id:1, nom:"Adjoua Koné",    email:"adjoua.k@gmail.com",    telephone:"+225 07 11 22 33", offre:"Anglais Pro B2",     niveau:"B1", coach:"Prof. Martin",  dateConversion:"2025-12-15", statut:"en_attente",  profil:"Particulier",  entreprise:"",           objectif:"Améliorer la communication professionnelle pour des réunions internationales", statut_paiement:"en_attente", mode_paiement:"en_ligne" },
+  { id:2, nom:"Ibrahim Traoré", email:"itraoré@totalci.com",   telephone:"+225 05 44 55 66", offre:"Certification TOEIC",niveau:"A2", coach:"Prof. Smith",   dateConversion:"2025-12-14", statut:"en_cours",    profil:"Entreprise",   entreprise:"Total CI",   objectif:"Préparer et réussir la certification TOEIC avec un score ≥ 785", statut_paiement:"confirme", mode_paiement:"mobile_money_ria" },
+  { id:3, nom:"Marie Dupont",   email:"marie.d@cci.ci",        telephone:"+225 01 23 45 67", offre:"Business English",   niveau:"B2", coach:"Prof. Dubois",  dateConversion:"2025-12-13", statut:"terminé",     profil:"Entreprise",   entreprise:"CCI CI",     objectif:"Maîtriser l'anglais des affaires : présentations, négociations, emails", statut_paiement:"confirme", mode_paiement:"especes" },
+  { id:4, nom:"Seydou Bamba",   email:"s.bamba@orange.ci",     telephone:"+225 07 88 99 00", offre:"Anglais Professionnel",niveau:"A1",coach:"Prof. Koné",   dateConversion:"2025-12-12", statut:"en_attente",  profil:"Entreprise",   entreprise:"Orange CI",  objectif:"Acquérir les bases de l'anglais pour les échanges internationaux", statut_paiement:"en_attente", mode_paiement:null },
+  { id:5, nom:"Fatoumata Diallo",email:"f.diallo@bnp.ci",      telephone:"+225 07 55 66 77", offre:"Anglais Pro B2",     niveau:"B1", coach:"Prof. Martin",  dateConversion:"2025-12-10", statut:"terminé",     profil:"Entreprise",   entreprise:"BNP Paribas",objectif:"Développer l'aisance à l'oral en contexte professionnel", statut_paiement:"confirme", mode_paiement:"mobile_money_moneygram" },
+  { id:6, nom:"Kofi Mensah",    email:"k.mensah@ecobank.com",  telephone:"+225 05 33 44 55", offre:"Certification TOEIC",niveau:"A2", coach:"Prof. Smith",   dateConversion:"2025-12-09", statut:"en_cours",    profil:"Entreprise",   entreprise:"Ecobank CI", objectif:"Score TOEIC ≥ 700 pour exigence interne RH", statut_paiement:"en_attente", mode_paiement:"en_ligne" },
 ];
 
 const INIT_PLANNINGS = [

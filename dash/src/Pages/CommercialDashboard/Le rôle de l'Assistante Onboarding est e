@@ -40,3 +40,200 @@ Dossiers	: Fiches apprenants à préparer pour les coachs
 Suivi démarrage	: Checklist par apprenant (accès créés ? 1ère séance faite ? kit envoyé ?)
 Bilans & Renouvellements	Apprenants en fin de cycle → alerte commerciale
 Messages	Communication avec coachs, apprenants, commercial, resp. Pédagogique
+
+
+
+Parcours en ligne
+
+Point 1 : Prise de contact & entrée sur la plateforme
+Le prospect entre en contact avec nos services par appel ou WhatsApp ou se rend directement sur la plateforme.
+Sur la plateforme,
+•	Il choisit l’option cours en ligne 
+•	Il sélectionne : 
+o	Coaching de groupe 
+o	Coaching privé 
+•	Une liste d’assistants/assistantes disponibles s’affiche 
+•	Il choisit un assistant
+L’assistant sélectionné reçoit automatiquement une notification pour la prise en charge 
+	Gestion de l’affichage des assistantes
+L’ordre d’affichage des assistantes doit être dynamique et tourner automatiquement afin d’assurer une répartition équitable. Une assistante affichée en première position pourra apparaître à d’autres positions (milieu, fin) lors des prochaines visites, et inversement.
+Attribution des prospects
+Un prospect ne peut être pris en charge que par une seule assistante à la fois. Dès qu’une assistante est assignée à un prospect, celui-ci devient indisponible pour les autres assistantes.
+Quota de prise de contact
+Un nombre maximum de prises de contact par jour doit être défini pour chaque assistante (par exemple : 7 à 10 prospects). Une fois ce quota atteint, l’assistante n’est plus proposée aux nouveaux prospects pour la journée
+
+Prise en compte des disponibilités 
+Le système doit intégrer le planning de travail de chaque assistante. Une assistante ne doit être visible et assignable que durant ses jours de service, afin d’assurer une gestion optimale des affectations (se référer au service RH pour le planning).
+
+
+Parcours en PRESENTIEL
+
+Point 1 : Prise de contact & entrée sur la plateforme
+Le prospect entre en contact avec nos services par appel ou WhatsApp ou se rend directement au cabinet ou sur la plateforme.
+Sur la plateforme,
+•	Il choisit l’option cours en présentiel
+Après avoir choisi l’option « cours en présentiel », le système affiche la liste des cabinets disponibles :
+    Cabinet 2 Plateaux Mobiles
+    Cabinet Angré Sicomex
+    Cabinet Abatta 
+    Cabinet Koumassi
+    Cabinet Yopougon
+    Cabinet Bouake
+•	Après la sélection du cabinet par le prospect, le système affiche une assistante responsable du suivi.
+    Règle d’affectation
+Chaque centre dispose de 2 assistantes :
+•	1 assistante en charge des jours ouvrables (lundi – vendredi)
+•	1 assistante en charge du week-end (samedi – dimanche)
+    Logique système
+Le système détecte automatiquement le jour de contact du prospect :
+•	Si le prospect contacte en semaine (lundi à vendredi)
+→ affichage de l’assistante semaine du centre sélectionné
+•	Si le prospect contacte le week-end (samedi ou dimanche)
+→ affichage de l’assistante week-end du centre sélectionné
+
+L’assistant sélectionné reçoit automatiquement une notification pour la prise en charge 
+Prise en compte des disponibilités 
+Le système doit intégrer le planning de travail de chaque assistante. Une assistante ne doit être visible et assignable que durant ses jours de service, afin d’assurer une gestion optimale des affectations (se référer au service RH pour le planning).
+
+parcours en ligne a compléter
+Orientation selon le type de coaching
+Coaching de groupe
+•	Passage direct à l’étape de paiement 
+
+Le client effectue le paiement :
+•	En ligne (plateforme) 
+•	Ou en espèces
+•	Ou par Mobile Money 
+L’assistante peut :
+•	Renseigner manuellement le statut du paiement si non enregistré sur le site 
+Le client effectue le paiement :
+•	En ligne (plateforme) 
+•	Ou en espèces
+•	Ou par Mobile Money 
+o	Ria 
+o	MoneyGram 
+o	Autres moyens équivalents 
+
+L’assistante peut :
+•	Renseigner manuellement le statut du paiement si non enregistré sur le site 
+
+
+Le système doit intégrer le planning de travail de chaque assistante. Une assistante ne doit être visible et assignable que durant ses jours de service, afin d’assurer une gestion optimale des affectations (se référer au service RH pour le planning).
+
+
+- retire moi tous les mock des assistantes car on va les crée nous meme manuellement pour faire fonctionner le systeme
+
+tu as oublié quelques choses , sur le cours prenstiel lorsque le prospect fait son choix de centre on doit lui proposer les assistantes de semaine et weekend comme on l'a dit pour le parcours en ligne 
+
+dans l'onglet " gestions des droits" Utilisateurs lorsque jeveux modifier le profil 
+
+Sur la plateforme,
+•	Il choisit l’option cours en présentiel
+Après avoir choisi l’option « cours en présentiel », le système affiche la liste des cabinets disponibles :
+    Cabinet 2 Plateaux Mobiles
+    Cabinet Angré Sicomex
+    Cabinet Abatta 
+    Cabinet Koumassi
+    Cabinet Yopougon
+    Cabinet Bouake
+•	Après la sélection du cabinet par le prospect, le système affiche une assistante responsable du suivi.
+    Règle d’affectation
+Chaque centre dispose de 2 assistantes :
+•	1 assistante en charge des jours ouvrables (lundi – vendredi)
+•	1 assistante en charge du week-end (samedi – dimanche)
+    Logique système
+Le système détecte automatiquement le jour de contact du prospect :
+•	Si le prospect contacte en semaine (lundi à vendredi)
+→ affichage de l’assistante semaine du centre sélectionné
+•	Si le prospect contacte le week-end (samedi ou dimanche)
+→ affichage de l’assistante week-end du centre sélectionné
+
+L’assistant sélectionné reçoit automatiquement une notification pour la prise en charge 
+
+
+je veux que lorsqu'il choisi une assistante avec qui il echange , elle lui ai deja attribué donc lorsqu'elle va lui envoyé un lien pour le test de niveau il faut les resultats lui soit raméné (test recus sur son dashboard du prospect) directement a l'assistanter concernée pour ne pas creer de confusion apres ...
+
+
+maintenant que se passera t-il si l'assistante lui fait passer le test oralement ???
+
+
+j'ai constaté que l'onglet "conseiller/contact" on peut changer d'assistante alors que ce n'est pas possible une fois assigné a moins qu'on se rende au centre BET .
+
+
+
+
+
+on a omis quelques de tres important des le début , c'est a dire les test de niveaux sont de formats differents
+
+
+
+
+on a omis quelques de tres important des le début , c'est a dire les test de niveaux sont de 5 formats differents ( Writing , reading , speaking, text mixte et listening ...) donc chaque test de niveau programmer a son affichage qui est different . et pour d'autres formats comme speaking ou listening, les resultats sont données apres la reception du test par la commerciale qui donnera le score donc je ne sais pas comment les materialiser sur le frontend (site) ??
+
+prends connaissance de l'onglet "test de niveau" et le modal "Nouveau test de niveau" tu auras deja les contenus pour l'adapter sur la page test de niveau (frontend)
+
+
+maintennt on suppose que le test n'est pas oral comment peut-on s'y prendre ??
+
+
+
+On a omis un petit detail dans le parcours presentiel juste apres le choix du type de cours "Présentiel" il faut le choix du coaching(groupe ou privé ) avant de faire le choix de l'assistante jusqu'au paiement a la fin du parcours comme on l'afait avec le type de cours "En ligne " 
+Orientation selon le type de coaching
+Coaching de groupe
+•	Passage direct à l’étape de paiement 
+Coaching privé
+•	Le client propose ses disponibilités 
+•	Validation par l’équipe pédagogique (dont le superviseur) 
+•	Validation du programme 
+•	Passage au paiement 
+
+
+L’assistante :
+•	Analyse les motivations et objectifs du prospect 
+•	Exploite les résultats du test de niveau 
+Ils ont la possibilité d’avoir un échange approfondit via le chat de la plateforme ou sur place au cabinet.
+
+
+je voulais que l'assistante ajoute quelques choses comme une note ou remarque (Analyse les motivations et objectifs du prospect ) et Exploite les résultats du test de niveau . Quelle serait la suite si jamais le prospect valide apres les echanges avec son assistante , elle va devoir lui ajouter ces infos de formations pour finaliser son inscription. regarde le modal d'inscription qui se trouve sur l'onglet "inscription" bouton "nouvelle inscription " tu auras une idée deja. 
+
+-mais avant tout verifier si au moins le paiement a été deja effectué ou pas sur l'onglet "prospect parcours".
+
+-lorsque c'est validé le porspect ne doit plus apparaitre dans l'onglet "Prospect parcours" mais sur l'onglet " Mes apprenants". Mais garder toujours les traces de ce qui a été fait avant qu'il soit apprenant officiel de BET car on peut avoir besoins des infos anciennes avant son parcours.
+
+
+
+
+ou s'il refuse par exemple on mettra refusé dans l'onglet "Prospects parcours" ?? et tout cela disparaitra de l'onglet 
+
+mais dans le cadre ou le prospect pâie directement c'est qu'il est daccord donc validation 
+
+
+est-ce supabase pourra supporter tout ces fichiers alors qu'on a cloudinary pour stocker tout nos fichiers ???
+
+parce que BET compte actuellement +3000 apprenants dont 1000 actuement en cours ??
+
+
+dashboard assistante Comerciale corporate est un peu differents apres sa création:
+
+ - Gestion des comptes entreprises	: Créer/modifier une fiche entreprise (RCCM, secteur, nb d'employés, référent RH, budget formation)
+- Suivi des prospects B2B	: Pipeline de vente B2B (statut : prospection → négociation → proposition → conclu/perdu), notes, historique
+- Documents commerciaux	: Générer une Facture Proforma, uploader un Bon de Commande, accéder aux contrats
+- Gestion des tests de niveau entreprise :	Envoyer les liens de test aux employés, voir les résultats consolidés, préparer la proposition pédagogique
+- Suivi des formations en cours	: Tableau de bord par entreprise : classes actives, assiduité, progression globale
+- Facturation B2B : Émettre des factures, suivre les règlements, relancer les impayés.
+
+
+🎓 Nouveau · Cours intensifs TOEIC — Session de Juin ouverte !
+·
+🌍 Séjours linguistiques UK, USA, Canada — Places limitées !
+
+📢 Test de niveau 100% gratuit — Connaissez votre niveau en 20 min !
+·
+🏆 Nos apprenants obtiennent en moyenne 750+ au TOEIC dès le 1er passage !
+
+
+·
+💼 Formations entreprises : tarifs dégressifs à partir de 5 employés !
+·
+🎁 Offre spéciale · -15% sur l'inscription en ligne jusqu'au 30 juin !
+·

@@ -91,9 +91,10 @@ export function useNotifPoller({ userId, sources = [], interval = 30_000 }) {
 async function fetchSource(userId, source) {
   try {
     switch (source) {
-      case "tests":      return await pollTests(userId);
-      case "contacts":   return await pollContacts(userId);
+      case "tests":        return await pollTests(userId);
+      case "contacts":     return await pollContacts(userId);
       case "inscriptions": return await pollInscriptions(userId);
+      case "assignations": return await pollAssignations(userId);
       default: break;
     }
   } catch {}
@@ -154,6 +155,36 @@ async function pollContacts(userId) {
     await writeNotif(userId, `contact_${id}`, payload);
     playNotifSound();
     showBrowserNotif("✉️ Nouveau message", `${c.nom} : ${c.sujet || c.message?.slice(0, 60) || ""}`);
+  }
+}
+
+// Assignations parcours (commercial)
+async function pollAssignations(userId) {
+  const res = await fetch(`${API_URL}/api/parcours/assignations/recentes`, { headers: authHdrs() });
+  if (!res.ok) return;
+  const { assignations } = await res.json();
+  if (!Array.isArray(assignations)) return;
+
+  const seen = getSeenIds(userId, "assignations");
+  for (const a of assignations) {
+    const id = String(a.id);
+    if (seen.has(id)) continue;
+    addSeenId(userId, "assignations", id);
+    if (seen.size === 0) continue;
+
+    const typeCours = a.type_cours === "en_ligne" ? "En ligne" : "Présentiel";
+    const coaching  = a.type_coaching ? ` · ${a.type_coaching}` : "";
+    const payload = {
+      type:  "assignation",
+      icon:  "🎯",
+      titre: "Nouveau prospect assigné",
+      corps: `${a.prospect_nom} → ${a.assistante_nom} · ${typeCours}${coaching}`,
+      link:  "/commercial-dashboard",
+      meta:  { prospect: a.prospect_nom, assistante: a.assistante_nom, type_cours: a.type_cours },
+    };
+    await writeNotif(userId, `assignation_${id}`, payload);
+    playNotifSound();
+    showBrowserNotif("🎯 Nouveau prospect", `${a.prospect_nom} a choisi ${a.assistante_nom}`);
   }
 }
 

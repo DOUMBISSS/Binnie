@@ -33,6 +33,9 @@ CREATE INDEX IF NOT EXISTS idx_articles_blog_categorie ON public.articles_blog(c
 CREATE INDEX IF NOT EXISTS idx_commentaires_article    ON public.commentaires_blog(article_id);
 CREATE INDEX IF NOT EXISTS idx_commentaires_approuve   ON public.commentaires_blog(approuve);
 
+-- Colonne avatar_url pour les commentaires
+ALTER TABLE public.commentaires_blog ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
 -- Trigger pour updated_at
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
