@@ -1,38 +1,78 @@
 import express from "express";
 import supabase from "../config/supabase.js";
-import { authenticateAdmin } from "../middlewares/requireAdmin.js";
+import { authenticateAdmin, requireSuperAdmin } from "../middlewares/requireAdmin.js";
 
 const router = express.Router();
 console.log("✅ Route centres chargée");
 
-// Liste publique des centres actifs (pour les formulaires frontend)
+// GET / — liste publique
 router.get("/", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("centres")
-      .select("id, nom, ville, adresse, telephone, email")
+      .select("id, nom, ville, adresse, telephone, email, actif, couleur, key_local")
       .eq("actif", true)
       .order("ville");
     if (error) return res.status(500).json({ error: error.message });
     res.json({ centres: data || [] });
-  } catch (err) {
-    res.status(500).json({ error: "Erreur interne" });
-  }
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
 });
 
-// Détail d'un centre (dashboard)
-router.get("/:id", authenticateAdmin, async (req, res) => {
+// GET /admin/all — liste complète admin (actifs + inactifs)
+router.get("/admin/all", authenticateAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("centres")
-      .select("*")
-      .eq("id", req.params.id)
-      .single();
+      .select("*, assistantes(id,nom,prenom,actif,type_cours)")
+      .order("ville");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ centres: data || [] });
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
+});
+
+// GET /:id — détail
+router.get("/:id", authenticateAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("centres").select("*").eq("id", req.params.id).single();
     if (error || !data) return res.status(404).json({ error: "Centre introuvable" });
     res.json({ centre: data });
-  } catch (err) {
-    res.status(500).json({ error: "Erreur interne" });
-  }
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
+});
+
+// POST / — créer un centre
+router.post("/", authenticateAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const { nom, ville, adresse, telephone, email, couleur, key_local, actif } = req.body;
+    if (!nom || !ville) return res.status(400).json({ error: "nom et ville sont requis" });
+    const { data, error } = await supabase
+      .from("centres")
+      .insert({ nom, ville, adresse, telephone, email, couleur: couleur||"#0891b2", key_local: key_local||nom.toLowerCase().replace(/\s+/g,"_"), actif: actif??true })
+      .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ centre: data });
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
+});
+
+// PATCH /:id — modifier
+router.patch("/:id", authenticateAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const allowed = ["nom","ville","adresse","telephone","email","actif","couleur","key_local"];
+    const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+    const { data, error } = await supabase
+      .from("centres").update(updates).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ centre: data });
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
+});
+
+// DELETE /:id
+router.delete("/:id", authenticateAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const { error } = await supabase.from("centres").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: "Centre supprimé" });
+  } catch { res.status(500).json({ error: "Erreur interne" }); }
 });
 
 export default router;

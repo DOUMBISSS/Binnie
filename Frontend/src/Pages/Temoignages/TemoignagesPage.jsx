@@ -333,7 +333,7 @@ const TemoignagesPage = () => {
               Prêt à écrire votre propre succès ?
             </h2>
             <p style={{ color: "rgba(255,255,255,.65)", fontSize: ".95rem", maxWidth: 480, margin: "0 auto 28px", lineHeight: 1.7 }}>
-              Rejoignez +5 000 apprenants qui ont transformé leur carrière avec BET English Training.
+              Rejoignez +3 000 apprenants qui ont transformé leur carrière avec BET English Training.
             </p>
             <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
               <Link to="/#programmes">

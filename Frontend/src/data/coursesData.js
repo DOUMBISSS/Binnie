@@ -10,11 +10,6 @@ export const coursesData = {
       "Exercices interactifs et corrections automatiques",
       "Certification de fin de formation incluse",
     ],
-    formats: [
-      { name: "Formation intensive", price: "450€", duration: "8 semaines", details: "4 séances/semaine" },
-      { name: "Formation standard", price: "320€", duration: "12 semaines", details: "2 séances/semaine" },
-      { name: "Forfait mensuel", price: "99€/mois", duration: "Sans engagement", details: "Accès illimité" },
-    ],
     testimonials: [
       { name: "Aissata D.", text: "Grâce aux cours en ligne, j'ai pu passer le TOEIC tout en travaillant. Résultat : +150 points !", avatar: "👩‍💻" },
       { name: "Marc K.", text: "La plateforme est super intuitive et les profs très disponibles.", avatar: "👨‍💼" },
@@ -59,11 +54,6 @@ export const coursesData = {
       "Programme personnalisé selon vos objectifs",
       "Suivi hebdomadaire des progrès",
       "Tarifs dégressifs selon la formule choisie",
-    ],
-    formats: [
-      { name: "Forfait 10h", price: "350€", duration: "10 heures", details: "À utiliser en 2 mois" },
-      { name: "Forfait 20h", price: "650€", duration: "20 heures", details: "À utiliser en 3 mois" },
-      { name: "Abonnement mensuel", price: "280€/mois", duration: "4 séances/mois", details: "1h30 par séance" },
     ],
     testimonials: [
       { name: "Mariam B.", text: "Mon fils a fait d'énormes progrès en anglais grâce au prof à domicile.", avatar: "👩‍👦" },

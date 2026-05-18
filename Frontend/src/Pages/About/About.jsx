@@ -102,7 +102,7 @@ function useInView(threshold = 0.2) {
 const TABS = [
   { id: "histoire",     label: "Notre histoire" },
   { id: "approche",     label: "Approche pédagogique" },
-  { id: "equipe",       label: "Notre équipe" },
+  // { id: "equipe",       label: "Notre équipe" },
   { id: "partenaires",  label: "Partenaires & Agréments" },
 ];
 
@@ -112,7 +112,7 @@ const TIMELINE = [
   { year:"2020", title:"Partenariat ETS Global",    desc:"Signature du partenariat avec ETS Global, faisant de BET un centre officiel pour les examens TOEIC en Côte d'Ivoire." },
   { year:"2021", title:"3 nouveaux centres",        desc:"Ouverture des centres de Yopougon, Koumassi et Bouaké, pour couvrir l'ensemble du territoire ivoirien." },
   { year:"2022", title:"Lancement des cours en ligne",desc:"Déploiement de la plateforme e-learning permettant à nos apprenants de se former depuis n'importe où en Côte d'Ivoire et en Afrique." },
-  { year:"2024", title:"5 000+ apprenants formés",  desc:"BET franchit le cap des 5 000 apprenants formés et des 750 certifications internationales décrochées. Un résultat dont toute l'équipe est fière." },
+  { year:"2024", title:"3 000+ apprenants formés",  desc:"BET franchit le cap des 5 000 apprenants formés et des 750 certifications internationales décrochées. Un résultat dont toute l'équipe est fière." },
 ];
 
 const PHILOSOPHY = [
@@ -133,12 +133,12 @@ const PARTNERS = [
   { name:"FDFP", fullName:"Fonds de Développement de la Formation Professionnelle", desc:"Partenaire officiel pour le financement des formations professionnelles en Côte d'Ivoire.", logo: null, badge:"AGRÉMENT OFFICIEL" },
 ];
 
-const SKILLS = [
-  { label:"Taux de satisfaction apprenants", value:98, color:"#dc2626" },
-  { label:"Taux de réussite aux certifications",value:96, color:"#1e3a8a" },
-  { label:"Apprenants recommandant BET",     value:94, color:"#059669" },
-  { label:"Score TOEIC moyen de nos certifiés",value:78, color:"#d97706", suffix:"/100" },
-];
+// const SKILLS = [
+//   { label:"Taux de satisfaction apprenants", value:98, color:"#dc2626" },
+//   { label:"Taux de réussite aux certifications",value:96, color:"#1e3a8a" },
+//   { label:"Apprenants recommandant BET",     value:94, color:"#059669" },
+//   { label:"Score TOEIC moyen de nos certifiés",value:78, color:"#d97706", suffix:"/100" },
+// ];
 
 /* ════════════════════════════════════════════════════════
    MAIN
@@ -204,9 +204,9 @@ const About = () => {
 
               <div className="abt-hero-quick-stats" style={S.heroQuickStats}>
                 {[
-                  { num:"5 000+", lbl:"Apprenants formés", color:"#fca5a5" },
+                  { num:"3 000+", lbl:"Apprenants formés", color:"#fca5a5" },
                   { num:"6",      lbl:"Centres CI",         color:"#93c5fd" },
-                  { num:"98%",    lbl:"Satisfaction",       color:"#6ee7b7" },
+                  { num:"100%",    lbl:"Satisfaction",       color:"#6ee7b7" },
                   { num:"750+",   lbl:"Certifications",     color:"#fde68a" },
                 ].map((s, i) => (
                   <div key={i} style={S.heroQuickStat}>
@@ -304,7 +304,7 @@ const About = () => {
                 </div>
               </section>
 
-              <section style={S.section}>
+              {/* <section style={S.section}>
                 <h2 style={S.sH2}>Notre expertise en chiffres</h2>
                 <div style={{ display:"flex", flexDirection:"column", gap:22 }}>
                   {SKILLS.map((sk, i) => (
@@ -319,9 +319,9 @@ const About = () => {
                     </div>
                   ))}
                 </div>
-              </section>
+              </section> */}
 
-              <section style={S.section}>
+              {/* <section style={S.section}>
                 <h2 style={S.sH2}>Notre méthode en 4 étapes</h2>
                 <div className="abt-method-grid" style={S.methodGrid}>
                   {[
@@ -337,7 +337,7 @@ const About = () => {
                     </div>
                   ))}
                 </div>
-              </section>
+              </section> */}
             </div>
           )}
 
@@ -445,7 +445,7 @@ const About = () => {
             <div style={S.sideCardTop}>
               <div style={{ fontSize:"1.8rem", marginBottom:10 }}>💬</div>
               <p style={{ color:"rgba(255,255,255,.75)", fontSize:".82rem", margin:"0 0 4px" }}>Vous avez une question ?</p>
-              <p style={{ color:"#fff", fontFamily:"'DM Serif Display',serif", fontSize:"1.1rem", margin:0, lineHeight:1.3 }}>Notre équipe est disponible 7j/7</p>
+              <p style={{ color:"#fff", fontFamily:"'DM Sans','Segoe UI',sans-serif", fontSize:"1.1rem", margin:0, lineHeight:1.3 }}>Notre équipe est disponible 7j/7</p>
             </div>
             <div style={{ padding:"16px 18px", display:"flex", flexDirection:"column", gap:10 }}>
               <button style={S.sideBtn1}
@@ -474,7 +474,7 @@ const About = () => {
    STYLES (inchangés)
 ════════════════════════════════════════════════════════ */
 const FF = "'DM Sans','Segoe UI',sans-serif";
-const FD = "'DM Serif Display',Georgia,serif";
+const FD = "''DM Sans','Segoe UI',sans-serif";
 
 const S = {
   page:        { fontFamily:FF, color:"#0f172a", background:"#fff", minHeight:"100vh", overflowX:"hidden" },

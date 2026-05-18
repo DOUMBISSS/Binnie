@@ -1047,3 +1047,236 @@
   color: #334155;
   margin-bottom: 18px;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   BOUTON "NOS CENTRES" DANS LA NAVBAR
+══════════════════════════════════════════════════════════════════ */
+.nav-centres-btn {
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 5px 13px;
+  font-size: .86rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  cursor: pointer;
+  transition: all .2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.nav-centres-btn:hover {
+  background: #1e3a8a;
+  color: #fff;
+  border-color: #1e3a8a;
+  transform: translateY(-1px);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MODAL "NOS CENTRES"
+══════════════════════════════════════════════════════════════════ */
+.centres-overlay {
+  position: fixed; inset: 0;
+  background: rgba(10,20,50,.6);
+  backdrop-filter: blur(5px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9998; padding: 16px;
+  animation: fadeIn .2s ease;
+}
+
+.centres-modal {
+  background: #fff;
+  border-radius: 22px;
+  width: 100%; max-width: 880px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 32px 80px rgba(0,0,0,.24);
+  animation: slideUp .25s ease;
+  display: flex; flex-direction: column;
+}
+
+/* Header */
+.centres-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 22px 26px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
+  border-radius: 22px 22px 0 0;
+  color: #fff;
+}
+.centres-hdr__title { font-size: 1.15rem; font-weight: 800; }
+.centres-hdr__sub   { font-size: .78rem; color: rgba(255,255,255,.6); margin-top: 3px; }
+.centres-hdr__close {
+  background: rgba(255,255,255,.15); border: none; border-radius: 8px;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #fff; transition: background .2s; flex-shrink: 0;
+}
+.centres-hdr__close:hover { background: rgba(255,255,255,.28); }
+
+/* Tabs */
+.centres-tabs {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+  padding: 0 20px;
+}
+.ctab {
+  background: none; border: none; border-bottom: 3px solid transparent;
+  padding: 13px 20px; font-size: .86rem; font-weight: 700;
+  color: var(--muted); cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; gap: 7px;
+}
+.ctab:hover { color: var(--blue); }
+.ctab--on   { color: var(--blue); border-bottom-color: var(--blue); }
+.ctab-badge {
+  background: #1e3a8a; color: #fff;
+  font-size: .65rem; font-weight: 800;
+  border-radius: 999px; padding: 1px 7px;
+}
+.ctab--on .ctab-badge { background: var(--blue); }
+
+/* Body */
+.centres-body { padding: 20px 24px; flex: 1; }
+
+/* Carte OSM */
+.centres-map-wrap {
+  position: relative;
+  height: 200px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1.5px solid var(--border);
+  margin-bottom: 14px;
+  background: #e2e8f0;
+}
+.centres-map-pins {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.map-pin {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .9rem; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  border: 2px solid #fff;
+}
+.centres-map-link {
+  position: absolute; bottom: 8px; right: 10px;
+  background: rgba(255,255,255,.9); color: #1e3a8a;
+  font-size: .72rem; font-weight: 700; padding: 4px 10px;
+  border-radius: 999px; text-decoration: none;
+  border: 1px solid rgba(30,58,138,.2);
+  transition: all .2s;
+}
+.centres-map-link:hover { background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+
+/* Bouton géoloc */
+.geo-btn {
+  width: 100%; padding: 11px 16px; margin-bottom: 16px;
+  border: 1.5px dashed #cbd5e1; border-radius: 12px;
+  background: #f8fafc; color: #475569;
+  font-size: .86rem; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: all .2s;
+}
+.geo-btn:hover:not(:disabled) { border-color: #1e3a8a; color: #1e3a8a; background: #eff6ff; }
+.geo-btn--done  { border-style: solid; border-color: #22c55e; color: #15803d; background: #f0fdf4; }
+.geo-btn--loading { opacity: .7; cursor: default; }
+.geo-spin {
+  width: 14px; height: 14px;
+  border: 2px solid #cbd5e1; border-top-color: #1e3a8a;
+  border-radius: 50%; animation: spin .7s linear infinite;
+}
+
+/* Grille centres physiques */
+.centres-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.ccard {
+  border: 1.5px solid var(--border);
+  border-top: 3px solid #ccc;
+  border-radius: 14px;
+  padding: 16px;
+  position: relative;
+  transition: box-shadow .2s, transform .2s;
+  background: #fff;
+}
+.ccard:hover { box-shadow: 0 8px 24px rgba(0,0,0,.1); transform: translateY(-2px); }
+.ccard--nearest { box-shadow: 0 0 0 2px #fbbf24; }
+
+.ccard-nearest-badge {
+  position: absolute; top: -10px; left: 12px;
+  background: #fbbf24; color: #78350f;
+  font-size: .65rem; font-weight: 800;
+  padding: 2px 10px; border-radius: 999px;
+}
+.ccard__icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem; margin-bottom: 10px;
+}
+.ccard__name { font-weight: 800; font-size: .92rem; color: #0f172a; margin-bottom: 3px; }
+.ccard__addr { font-size: .75rem; color: #64748b; margin-bottom: 4px; line-height: 1.4; }
+.ccard__dist { font-size: .72rem; font-weight: 700; margin-bottom: 10px; }
+.ccard__actions { display: flex; gap: 7px; margin-top: 10px; }
+.ccard__btn {
+  flex: 1; padding: 8px 4px; border-radius: 8px;
+  font-size: .75rem; font-weight: 700; cursor: pointer;
+  text-align: center; border: none; transition: all .18s;
+  text-decoration: none; display: flex; align-items: center; justify-content: center;
+}
+.ccard__btn--contact { color: #fff; }
+.ccard__btn--contact:hover { opacity: .88; }
+.ccard__btn--maps {
+  background: #f1f5f9; color: #374151; border: 1.5px solid #e2e8f0;
+}
+.ccard__btn--maps:hover { background: #e2e8f0; }
+
+/* Centres virtuels */
+.centres-vir-intro {
+  font-size: .85rem; color: #475569; margin-bottom: 16px; line-height: 1.6;
+}
+.centres-vir-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.vcard {
+  border: 1.5px solid var(--border);
+  border-top: 3px solid #ccc;
+  border-radius: 14px;
+  padding: 18px 16px;
+  background: #fff;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: box-shadow .2s, transform .2s;
+}
+.vcard:hover { box-shadow: 0 8px 24px rgba(0,0,0,.1); transform: translateY(-2px); }
+.vcard__icon {
+  width: 42px; height: 42px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+}
+.vcard__badge {
+  display: inline-flex; align-self: flex-start;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+}
+.vcard__name { font-weight: 800; font-size: .9rem; color: #0f172a; }
+.vcard__desc { font-size: .76rem; color: #64748b; line-height: 1.5; flex: 1; }
+.vcard__btn {
+  margin-top: 6px; padding: 9px; border: none; border-radius: 9px;
+  color: #fff; font-size: .8rem; font-weight: 700; cursor: pointer;
+  transition: opacity .18s;
+}
+.vcard__btn:hover { opacity: .88; }
+
+@media (max-width: 640px) {
+  .centres-modal { border-radius: 16px; }
+  .centres-body  { padding: 16px; }
+  .centres-grid, .centres-vir-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 420px) {
+  .centres-grid, .centres-vir-grid { grid-template-columns: 1fr; }
+  .ctab { padding: 11px 12px; font-size: .78rem; }
+}

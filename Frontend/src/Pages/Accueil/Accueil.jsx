@@ -55,6 +55,20 @@ if (!document.querySelector("#bet-kf")) {
       .bet-proof-strip{grid-template-columns:repeat(2,1fr)!important;gap:12px!important;}
       .bet-payment-grid{grid-template-columns:1fr!important;}
       .bet-testi-row{grid-template-columns:1fr!important;}
+
+      /* ── Sticky bar mobile ── */
+      .bet-sticky { padding:10px 14px!important; flex-wrap:nowrap!important; gap:10px!important; }
+      .bet-sticky-form { display:none!important; }
+      .bet-sticky-sub  { display:none!important; }
+      .bet-sticky-icon { display:none!important; }
+      .bet-sticky-ctas { gap:6px!important; }
+      .bet-sticky-ctas a, .bet-sticky-ctas button {
+        padding:8px 12px!important; font-size:.75rem!important;
+      }
+      .bet-sticky-text { font-size:.8rem!important; }
+    }
+    @media (max-width:400px){
+      .bet-sticky-ctas-secondary { display:none!important; }
     }
   `;
   document.head.appendChild(s);
@@ -156,20 +170,48 @@ const PaymentModal = ({ program, onClose }) => {
   const [step, setStep] = useState(1); // 1=infos, 2=paiement, 3=succès
   const [method, setMethod] = useState("mobile");
   const [data, setData] = useState({ nom: "", email: "", tel: "", numero: "", carte: "", expiry: "", cvv: "", consent: false });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [erreur, setErreur] = useState("");
 
-  const upd = (k, v) => setData(p => ({ ...p, [k]: v }));
+  // Pré-remplir depuis la session connectée
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return;
+      const u    = session.user;
+      const meta = u.user_metadata || {};
+      const nom  = (meta.prenom && meta.nom)
+        ? `${meta.prenom} ${meta.nom}`
+        : meta.full_name || u.email?.split("@")[0] || "";
+      setData(p => ({
+        ...p,
+        nom:   p.nom   || nom,
+        email: p.email || u.email || "",
+        tel:   p.tel   || meta.telephone || "",
+      }));
+    });
+  }, []);
+
+  const upd = (k, v) => {
+    setData(p => ({ ...p, [k]: v }));
+    setFieldErrors(e => ({ ...e, [k]: "" }));
+  };
 
   const goStep2 = () => {
-    if (!data.nom || !data.email || !data.tel) return alert("Remplissez tous les champs");
+    const errors = {};
+    if (!data.nom.trim())   errors.nom   = "Requis";
+    if (!data.email.trim()) errors.email = "Requis";
+    if (!data.tel.trim())   errors.tel   = "Requis";
+    if (Object.keys(errors).length) { setFieldErrors(errors); return; }
+    setFieldErrors({});
     setStep(2);
   };
 
   const confirm = async () => {
-    if (method === "mobile" && !data.numero) return alert("Entrez votre numéro Mobile Money");
-    if (method === "card" && (!data.carte || !data.expiry || !data.cvv)) return alert("Complétez les infos carte");
-    if (!data.consent) return alert("Acceptez les conditions pour continuer");
+    if (method === "mobile" && !data.numero) { setErreur("Entrez votre numéro Mobile Money."); return; }
+    if (method === "card" && (!data.carte || !data.expiry || !data.cvv)) { setErreur("Complétez les informations de carte."); return; }
+    if (!data.consent) { setErreur("Acceptez les conditions pour continuer."); return; }
+    setErreur("");
     setLoading(true);
     setErreur("");
     try {
@@ -226,20 +268,28 @@ const PaymentModal = ({ program, onClose }) => {
         {step === 1 && (
           <div style={PS.body}>
             <p style={PS.bodyTitle}>Vos informations</p>
+            {(data.nom || data.email || data.tel) && (
+              <div style={{ display:"flex", alignItems:"center", gap:8, background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:8, padding:"8px 12px", marginBottom:14, fontSize:".78rem", color:"#166534", fontWeight:600 }}>
+                <span>✓</span> Pré-rempli depuis votre compte — vérifiez et modifiez si besoin.
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div className="bet-payment-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={PS.label}>Nom complet *</label>
-                  <input style={PS.input} value={data.nom} onChange={e => upd("nom", e.target.value)} placeholder="Jean Kouamé" />
+                  <input style={{ ...PS.input, borderColor: fieldErrors.nom ? "#dc2626" : "#e2e8f0" }} value={data.nom} onChange={e => upd("nom", e.target.value)} placeholder="Jean Kouamé" />
+                  {fieldErrors.nom && <p style={PS.ferr}>{fieldErrors.nom}</p>}
                 </div>
                 <div>
                   <label style={PS.label}>Email *</label>
-                  <input style={PS.input} type="email" value={data.email} onChange={e => upd("email", e.target.value)} placeholder="jean@exemple.com" />
+                  <input style={{ ...PS.input, borderColor: fieldErrors.email ? "#dc2626" : "#e2e8f0" }} type="email" value={data.email} onChange={e => upd("email", e.target.value)} placeholder="jean@exemple.com" />
+                  {fieldErrors.email && <p style={PS.ferr}>{fieldErrors.email}</p>}
                 </div>
               </div>
               <div>
                 <label style={PS.label}>Téléphone *</label>
-                <input style={PS.input} type="tel" value={data.tel} onChange={e => upd("tel", e.target.value)} placeholder="+225 07 00 00 00 00" />
+                <input style={{ ...PS.input, borderColor: fieldErrors.tel ? "#dc2626" : "#e2e8f0" }} type="tel" value={data.tel} onChange={e => upd("tel", e.target.value)} placeholder="+225 07 00 00 00 00" />
+                {fieldErrors.tel && <p style={PS.ferr}>{fieldErrors.tel}</p>}
               </div>
               {/* Features incluses */}
               <div style={PS.featBox}>
@@ -368,6 +418,7 @@ const PS = {
   methodBtn: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "14px", border: "2px solid #e2e8f0", borderRadius: 12, background: "#fff", cursor: "pointer", transition: "all .2s" },
   methodBtnActive: { border: "2px solid #1e3a8a", background: "#eff6ff" },
   spinner: { width: 16, height: 16, border: "2.5px solid rgba(255,255,255,.35)", borderTopColor: "#fff", borderRadius: "50%", animation: "spinSlow .8s linear infinite", display: "inline-block" },
+  ferr: { color: "#dc2626", fontSize: ".72rem", margin: "4px 0 0" },
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -439,7 +490,7 @@ const HeroSection = ({ activeProfile, setActiveProfile, onTest }) => {
               <div key={i} style={{ ...HS.avatar, marginLeft: i === 0 ? 0 : -12, zIndex: 5 - i }}>{e}</div>
             ))}
           </div>
-          <span style={HS.proofText}><strong style={{ color: "#fbbf24" }}>+5 000</strong> apprenants certifiés · <strong style={{ color: "#34d399" }}>98%</strong> de réussite</span>
+          <span style={HS.proofText}><strong style={{ color: "#fbbf24" }}>+3 000</strong> apprenants certifiés · <strong style={{ color: "#34d399" }}>100%</strong> de réussite</span>
         </div>
       </div>
 
@@ -480,8 +531,8 @@ const HS = {
    2. PROOF STRIP (Stats)
 ───────────────────────────────────────────────────────── */
 const STATS = [
-  { n: 5000, suf: "+", label: "Apprenants certifiés", icon: "🎓" },
-  { n: 98, suf: "%", label: "Taux de réussite", icon: "🏆" },
+  { n: 3000, suf: "+", label: "Apprenants certifiés", icon: "🎓" },
+  { n:100, suf: "%", label: "Taux de réussite", icon: "🏆" },
   { n: 6, suf: "", label: "Centres en Côte d'Ivoire", icon: "📍" },
   { n: 15, suf: " ans", label: "D'expertise pédagogique", icon: "⭐" },
 ];
@@ -853,7 +904,7 @@ const TestimonialsSection = () => {
 
         {/* CTA sous temoignages */}
         <div style={{ textAlign: "center", marginTop: 48 }}>
-          <p style={{ color: "#64748b", fontSize: ".92rem", marginBottom: 20 }}>Rejoignez +5 000 apprenants qui ont transformé leur carrière avec BET</p>
+          <p style={{ color: "#64748b", fontSize: ".92rem", marginBottom: 20 }}>Rejoignez +3 000 apprenants qui ont transformé leur carrière avec BET</p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <a href="#programmes">
               <button style={{ background: "linear-gradient(135deg,#e93747,#1e4080)", color: "#fff", border: "none", borderRadius: 999, padding: "14px 36px", fontWeight: 800, fontSize: "1rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", boxShadow: "0 6px 24px rgba(233,55,71,.3)", transition: "transform .2s" }}
@@ -904,7 +955,7 @@ const AgreeeBanner = () => {
             </Link>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, position: "relative", zIndex: 1 }}>
-            {["🎓 Agréé État", "📜 Certifié", "🌍 International", "⭐ 15 ans", "🏆 98% réussite", "✅ FDFP"].map((item, i) => (
+            {["🎓 Agréé État", "📜 Certifié", "🌍 International", "⭐ 15 ans", "🏆 100% réussite", "✅ FDFP"].map((item, i) => (
               <div key={i} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12, padding: "12px", textAlign: "center", fontSize: ".78rem", color: "rgba(255,255,255,.8)", fontWeight: 600, lineHeight: 1.4 }}>{item}</div>
             ))}
           </div>
@@ -1108,7 +1159,7 @@ const StickyBar = ({ onEnroll, visible }) => {
   };
 
   return (
-    <div style={{
+    <div className="bet-sticky" style={{
       position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 8000,
       background: "linear-gradient(90deg,#0f172a,#1e3a8a)", borderTop: "2px solid rgba(255,255,255,.1)",
       padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -1116,10 +1167,10 @@ const StickyBar = ({ onEnroll, visible }) => {
     }}>
       {/* Texte */}
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>🎓</div>
+        <div className="bet-sticky-icon" style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>🎓</div>
         <div>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: ".92rem" }}>Prêt à commencer votre formation ?</div>
-          <div style={{ color: "rgba(255,255,255,.55)", fontSize: ".76rem" }}>Places limitées · Remboursement 30 jours garanti</div>
+          <div className="bet-sticky-text" style={{ color: "#fff", fontWeight: 800, fontSize: ".92rem" }}>Prêt à commencer votre formation ?</div>
+          <div className="bet-sticky-sub" style={{ color: "rgba(255,255,255,.55)", fontSize: ".76rem" }}>Places limitées · Remboursement 30 jours garanti</div>
         </div>
       </div>
 
@@ -1129,7 +1180,7 @@ const StickyBar = ({ onEnroll, visible }) => {
           ✓ Reçu ! Un conseiller vous contacte sous 24h.
         </div>
       ) : (
-        <form onSubmit={handleLead} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <form className="bet-sticky-form" onSubmit={handleLead} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input
             style={inp} placeholder="Votre nom"
             value={nom} onChange={e => setNom(e.target.value)}
@@ -1155,17 +1206,18 @@ const StickyBar = ({ onEnroll, visible }) => {
         </form>
       )}
 
-      {/* Bouton inscription complète */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      {/* Boutons CTA */}
+      <div className="bet-sticky-ctas" style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <Link to="/test-niveau">
-          <button style={{ background: "transparent", border: "1.5px solid rgba(255,255,255,.3)", color: "rgba(255,255,255,.8)", borderRadius: 999, padding: "9px 20px", fontWeight: 700, fontSize: ".84rem", cursor: "pointer", fontFamily: FF }}>
+          <button style={{ background: "transparent", border: "1.5px solid rgba(255,255,255,.3)", color: "rgba(255,255,255,.8)", borderRadius: 999, padding: "9px 20px", fontWeight: 700, fontSize: ".84rem", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
             Test gratuit
           </button>
         </Link>
         <button
-          style={{ background: "rgba(255,255,255,.12)", color: "#fff", border: "1.5px solid rgba(255,255,255,.2)", borderRadius: 999, padding: "9px 20px", fontWeight: 800, fontSize: ".84rem", cursor: "pointer", fontFamily: FF }}
+          className="bet-sticky-ctas-secondary"
+          style={{ background: "rgba(255,255,255,.12)", color: "#fff", border: "1.5px solid rgba(255,255,255,.2)", borderRadius: 999, padding: "9px 20px", fontWeight: 800, fontSize: ".84rem", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}
           onClick={() => document.getElementById("programmes")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-          Choisir une formation →
+          Choisir →
         </button>
       </div>
     </div>
@@ -1196,7 +1248,7 @@ export default function Accueil() {
     <>
       <SEO
         title="Binnie's English Training – Formation anglais certifiante en Côte d'Ivoire"
-        description="Certifications TOEIC, TOEFL, IELTS et cours d'anglais personnalisés pour particuliers et professionnels. Cabinet agréé État. +5 000 apprenants certifiés."
+        description="Certifications TOEIC, TOEFL, IELTS et cours d'anglais personnalisés pour particuliers et professionnels. Cabinet agréé État. +3 000 apprenants certifiés."
         canonicalUrl="/"
         image="/assets/images/og-home.jpg"
       />

@@ -5,33 +5,47 @@ import { useNavigate } from "react-router-dom";
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
 const ROUTE_PAR_TYPE = {
-  super_admin:        "/dashboard/superAdmin",
-  admin:              "/AdminDashboard",
-  manager:            "/AdminDashboard",
-  responsable:        "/responsable-dashboard",
-  commercial:         "/commercial-dashboard",
-  gestionnaire:       "/gestionnaire-dashboard",
-  coach:              "/espace-professeur",
-  data_collector:     "/datacollector-dashboard",
+  super_admin:         "/dashboard/superAdmin",
+  admin:               "/AdminDashboard",
+  manager:             "/AdminDashboard",
+  superviseur:         "/superviseur-dashboard",
+  responsable:         "/responsable-dashboard",
+  pedagogical_advisor: "/pedagogical-advisor-dashboard",
+  commercial:          "/commercial-dashboard",
+  onboarding:          "/onboarding-dashboard",
+  gestionnaire:        "/gestionnaire-dashboard",
+  rh:                  "/rh-paie-dashboard",
+  comptable:           "/comptable-dashboard",
+  placement_test:      "/placement-test-dashboard",
+  coach:               "/espace-professeur",
+  customer_care:       "/gestionnaire-dashboard",
+  data_collector:      "/datacollector-dashboard",
   // rétro-compat profils_admin
-  admin_pedagogique:  "/AdminDashboard",
-  admin_financier:    "/AdminDashboard",
-  admin_rh:           "/AdminDashboard",
-  admin_commercial:   "/AdminDashboard",
-  responsable_centre: "/AdminDashboard",
-  observateur:        "/AdminDashboard",
+  admin_pedagogique:   "/AdminDashboard",
+  admin_financier:     "/AdminDashboard",
+  admin_rh:            "/AdminDashboard",
+  admin_commercial:    "/AdminDashboard",
+  responsable_centre:  "/AdminDashboard",
+  observateur:         "/AdminDashboard",
 };
 
 // Labels affichés selon le rôle connecté
 const PROFILS_BET = [
-  { id:"super_admin",    label:"Super Admin",    emoji:"👑", color:"#dc2626", bg:"#fee2e2", desc:"Accès total à la plateforme" },
-  { id:"admin",          label:"Administrateur", emoji:"🔧", color:"#0891b2", bg:"#e0f2fe", desc:"Gestion complète" },
-  { id:"manager",        label:"Manager",        emoji:"👥", color:"#10b981", bg:"#dcfce7", desc:"Supervision & reporting" },
-  { id:"responsable",    label:"Responsable",    emoji:"📋", color:"#8b5cf6", bg:"#ede9fe", desc:"Équipes & pédagogie" },
-  { id:"commercial",     label:"Commercial",     emoji:"📈", color:"#f59e0b", bg:"#fef3c7", desc:"CRM & inscriptions" },
-  { id:"gestionnaire",   label:"Gestionnaire",   emoji:"🗂️", color:"#059669", bg:"#dcfce7", desc:"Administratif & finances" },
-  { id:"coach",          label:"Coach",          emoji:"🎓", color:"#6366f1", bg:"#ede9fe", desc:"Cours & étudiants" },
-  { id:"data_collector", label:"Data Collector", emoji:"📊", color:"#64748b", bg:"#f1f5f9", desc:"Saisie de données" },
+  { id:"super_admin",         label:"Super Admin",           emoji:"👑", color:"#dc2626", bg:"#fee2e2", desc:"Accès total à la plateforme" },
+  { id:"admin",               label:"Administrateur",        emoji:"🔧", color:"#0891b2", bg:"#e0f2fe", desc:"Gestion complète" },
+  { id:"manager",             label:"Manager",               emoji:"👥", color:"#10b981", bg:"#dcfce7", desc:"Supervision & reporting" },
+  { id:"superviseur",         label:"Superviseur",           emoji:"🔍", color:"#b45309", bg:"#fef3c7", desc:"Contrôle & supervision" },
+  { id:"responsable",         label:"Responsable",           emoji:"📋", color:"#8b5cf6", bg:"#ede9fe", desc:"Équipes & pédagogie" },
+  { id:"pedagogical_advisor", label:"Conseiller Pédagogique",emoji:"📚", color:"#7c3aed", bg:"#f5f3ff", desc:"Classes privées & honoraires" },
+  { id:"commercial",          label:"Commercial",            emoji:"📈", color:"#f59e0b", bg:"#fef3c7", desc:"CRM & inscriptions" },
+  { id:"onboarding",          label:"Onboarding",            emoji:"🎯", color:"#0891b2", bg:"#e0f2fe", desc:"Accueil & intégration" },
+  { id:"gestionnaire",        label:"Gestionnaire",          emoji:"🗂️", color:"#059669", bg:"#dcfce7", desc:"Administratif & finances" },
+  { id:"rh",                  label:"RH",                    emoji:"🤝", color:"#0d9488", bg:"#ccfbf1", desc:"Ressources humaines & paie" },
+  { id:"comptable",           label:"Comptable",             emoji:"💰", color:"#d97706", bg:"#fffbeb", desc:"Comptabilité & trésorerie" },
+  { id:"coach",               label:"Coach",                 emoji:"🎓", color:"#6366f1", bg:"#eef2ff", desc:"Cours & étudiants" },
+  { id:"customer_care",       label:"Customer Care",         emoji:"💬", color:"#0284c7", bg:"#e0f2fe", desc:"Support & fidélisation client" },
+  { id:"data_collector",      label:"Data Collector",        emoji:"📊", color:"#64748b", bg:"#f1f5f9", desc:"Saisie de données" },
+  { id:"placement_test",      label:"Agent Placement Test",  emoji:"🧪", color:"#0891b2", bg:"#e0f2fe", desc:"Validation tests de niveau" },
 ];
 
 export default function LoginAdmin() {
@@ -266,7 +280,7 @@ export default function LoginAdmin() {
                 <div className="adm-welcome">Qui êtes-vous ? 👋</div>
                 <h2 className="adm-title">Sélectionnez<br />votre profil</h2>
                 <p className="adm-desc">Choisissez votre rôle pour accéder à votre espace.</p>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:20 }}>
                   {PROFILS_BET.map(p => (
                     <button key={p.id} type="button" onClick={()=>{setSelectedRole(p.id);setStep(1);setError("");}}
                       style={{ padding:"12px 10px", borderRadius:12, border:`2px solid ${selectedRole===p.id?p.color:"#e2e8f0"}`,

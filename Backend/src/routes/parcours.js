@@ -34,6 +34,20 @@ function jourAujourdhui() {
   return jours[new Date().getDay()];
 }
 
+// Enrichit photo_url avec avatar_url de la table utilisateurs si absent
+async function mergeAvatarUrls(list) {
+  const sans = list.filter(a => !a.photo_url && a.email);
+  if (!sans.length) return list;
+  const emails = sans.map(a => a.email);
+  const { data: users } = await supabase
+    .from("utilisateurs")
+    .select("email, avatar_url")
+    .in("email", emails);
+  const map = {};
+  (users || []).forEach(u => { if (u.avatar_url) map[u.email] = u.avatar_url; });
+  return list.map(a => (!a.photo_url && map[a.email]) ? { ...a, photo_url: map[a.email] } : a);
+}
+
 // ── GET /api/parcours/assistantes-ligne ──────────────────────
 // Retourne les assistantes disponibles pour le cours en ligne
 // Query: ?type_coaching=groupe|prive
@@ -71,8 +85,9 @@ router.get("/assistantes-ligne", async (req, res) => {
     const offset = disponibles.length > 0 ? totalAujourdHui % disponibles.length : 0;
     const rotated = [...disponibles.slice(offset), ...disponibles.slice(0, offset)];
 
+    const enriched = await mergeAvatarUrls(rotated);
     res.json({
-      assistantes: rotated.map(a => ({
+      assistantes: enriched.map(a => ({
         ...a,
         prises_aujourd_hui: quotas[a.id] || 0,
       })),
@@ -88,7 +103,7 @@ router.get("/assistantes-ligne", async (req, res) => {
 router.get("/assistantes-presentiel/:centreId", async (req, res) => {
   try {
     const { centreId } = req.params;
-    const { liste } = req.query;
+    const { liste, tous } = req.query;
     const aujourd = jourAujourdhui();
     const joursWeekend = ["samedi", "dimanche"];
     const estWeekend = joursWeekend.includes(aujourd);
@@ -106,6 +121,16 @@ router.get("/assistantes-presentiel/:centreId", async (req, res) => {
 
     const quotas = await getQuotasAujourdHui();
 
+    // Mode "tous" : TOUTES les assistantes actives du centre, sans filtre jour/quota
+    // ⚠️ Ce check doit être AVANT le filtre disponibles pour ne pas être bloqué par le quota
+    if (tous === "true") {
+      const enriched = await mergeAvatarUrls(assistantes || []);
+      return res.json({
+        assistantes: enriched.map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
+        periode: periodeJour,
+      });
+    }
+
     // Filtrer les assistantes qui travaillent aujourd'hui ET dont le quota n'est pas atteint
     const disponibles = (assistantes || []).filter(a => {
       const travailleAujourdHui = !a.jours_travail || a.jours_travail.includes(aujourd);
@@ -121,19 +146,11 @@ router.get("/assistantes-presentiel/:centreId", async (req, res) => {
       });
     }
 
-    // Mode "tous" : toutes les assistantes du centre, sans filtre jour/quota (pour WhatsApp navbar)
-    const { tous } = req.query;
-    if (tous === "true") {
-      return res.json({
-        assistantes: (assistantes || []).map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
-        periode: periodeJour,
-      });
-    }
-
     // Mode liste : retourner toutes les assistantes disponibles (filtrées par jour)
     if (liste === "true") {
+      const enriched = await mergeAvatarUrls(disponibles);
       return res.json({
-        assistantes: disponibles.map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
+        assistantes: enriched.map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
         periode: periodeJour,
       });
     }
@@ -142,10 +159,12 @@ router.get("/assistantes-presentiel/:centreId", async (req, res) => {
     const totalAujourdHui = Object.values(quotas).reduce((s, v) => s + v, 0);
     const offset = totalAujourdHui % disponibles.length;
     const assistante = disponibles[offset];
+    const enrichedAll = await mergeAvatarUrls(disponibles);
+    const enrichedOne = enrichedAll.find(a => a.id === assistante.id) || assistante;
 
     res.json({
-      assistante: { ...assistante, prises_aujourd_hui: quotas[assistante.id] || 0 },
-      assistantes: disponibles.map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
+      assistante: { ...enrichedOne, prises_aujourd_hui: quotas[assistante.id] || 0 },
+      assistantes: enrichedAll.map(a => ({ ...a, prises_aujourd_hui: quotas[a.id] || 0 })),
       periode: periodeJour,
     });
   } catch (err) {

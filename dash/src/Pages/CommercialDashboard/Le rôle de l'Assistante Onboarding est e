@@ -223,17 +223,69 @@ dashboard assistante Comerciale corporate est un peu differents apres sa créati
 - Facturation B2B : Émettre des factures, suivre les règlements, relancer les impayés.
 
 
-🎓 Nouveau · Cours intensifs TOEIC — Session de Juin ouverte !
-·
-🌍 Séjours linguistiques UK, USA, Canada — Places limitées !
 
-📢 Test de niveau 100% gratuit — Connaissez votre niveau en 20 min !
-·
-🏆 Nos apprenants obtiennent en moyenne 750+ au TOEIC dès le 1er passage !
+met l'onglet " Chiffres d'affares " a jour en amont avec l'onglet "paiement" pour afficher les CA actuellement 
 
 
-·
-💼 Formations entreprises : tarifs dégressifs à partir de 5 employés !
-·
-🎁 Offre spéciale · -15% sur l'inscription en ligne jusqu'au 30 juin !
-·
+est qu'on peut ajouté le tri des centres par distance dans les parcours modal lors des choix des centres
+
+
+cree moi la dashboard Pedagogical Advisor (PA) avec ses	Fonctionnalités
+Rôle : Classes privées + Validation honoraires 
+
+Gestion classes privées	: Créer des cours particuliers (1 apprenant / 1 coach), planifier les séances, affecter les coaches
+Attribution coach privé	: Sélectionner un coach selon le niveau requis, la disponibilité et le profil de l'apprenant
+Calcul des honoraires : Voir la grille tarifaire par coach (contrats), calculer le montant dû selon le nb de séances validées
+Validation des honoraires :	Valider le récapitulatif mensuel des séances par enseignant avant transmission RH
+Suivi pédagogique :	Tableaux de bord de progression des apprenants en cours privé.
+
+
+
+Pour les 6 Centres virtuels en ligne il faut que j'ai un apercu des 6 centres  avec les assistantes qu'on va choisir comme on l'a fait pour le parcoursModal 
+
+
+pour tout ce qui est coaching privé 
+
+pour les messageries internes , il faut les communications se fassent uniquement les memebres des centres similaires et non de tous les centres sauf ceux qui sont de type national qui ont accès a tout qui peuvent ecrire a tout le monde 
+
+
+il y'a un changement dans les parcours , changer les regles d'affichages (afficher toutes les assistantes et pour le moment change moi la regele de quota par assistantes/jour ):
+
+-Présentiel : etape 1 : Presentiel 
+etape 2 : choix du centres avec ses details (offres , cout de formation , brochure (uploader pour chaque centre depuis le crm), ...) 
+etape 3 : choix assiatantes avec leurs (detail : disponibilités , photos de profil , afficher assistante semaine et weekend dans les infos ) mais plutot fais en carte design 
+etape 4 : Style de coaching (privé ou groupe)
+etape 5 : Paiement ( mobile money , Carte bancaire , Espèces)
+
+
+changement pour assistantes en ligne , elle n'ont pas de centre attribué donc on peut les mettre non assigné 
+
+
+ajouter des photos aux differents profils des users qui seront afficher sur les dashboards et le site web (differents parcours ou l'ont affichera les assistantes) 
+
+
+voir si dans coursedetail on peut ajouter assistante semaine et weekend ?
+
+
+dans "Mon espace " l'onglet Conseille et contact : lorsqu'il choisi son assistante elle doit etre notifié pour une prise en charge meme si le prospect ne termine pas son parcours dans "Mon espace"
+
+
+lorsqu'on choisi le centre + offre + assistante , l'assistante choisi dans ce parcours est definitif dans l'espace du prospect "Mon espace" 
+
+
+
+a revoir plus tard :
+
+Everything is now wired up. Here's what was done:
+
+SuperAdmin dashboard — two new "📄 Contenu de l'onglet Aperçu" cards appear in the offres_en_ligne and offres_domicile sub-tabs. Clicking "✏️ Modifier" opens a shared modal with 6 tabs:
+
+Général — description principale + public cible
+Avantages — liste des points forts
+Programme — "Ce que vous apprendrez"
+Inclus — icône + label par item
+Prérequis — liste de prérequis
+FAQ — paires question/réponse
+Saving writes to localStorage["bet_course_apercu_config"] and syncs to Supabase (course_apercu_config).
+
+CourseDetail.jsx — reads bet_course_apercu_config on 

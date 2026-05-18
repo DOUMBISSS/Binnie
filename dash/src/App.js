@@ -49,18 +49,30 @@ import ResponsableDashboard from './Pages/ResponsableDashboard/ResponsableDashbo
 import DataCollectorDashboard from './Pages/DataCollectorDashboard/DataCollectorDashboard';
 import OnboardingDashboard from './Pages/OnboardingDashboard/OnboardingDashboard';
 import CorporateDashboard from './Pages/CorporateDashboard/CorporateDashboard';
+import PedagogicalAdvisorDashboard from './Pages/PedagogicalAdvisorDashboard/PedagogicalAdvisorDashboard';
+import ComptableDashboard from './Pages/ComptableDashboard/ComptableDashboard';
+import PlacementTestDashboard from './Pages/PlacementTestDashboard/PlacementTestDashboard';
+import RHPaieDashboard from './Pages/RHPaieDashboard/RHPaieDashboard';
+import SuperviseurDashboard from './Pages/SuperviseurDashboard/SuperviseurDashboard';
 
 
 
 const DASHBOARD_PAR_ROLE = {
-  super_admin:    "/dashboard/superAdmin",
-  admin:          "/AdminDashboard",
-  manager:        "/AdminDashboard",
-  responsable:    "/responsable-dashboard",
-  commercial:     "/commercial-dashboard",
-  gestionnaire:   "/gestionnaire-dashboard",
-  coach:          "/espace-professeur",
-  data_collector: "/datacollector-dashboard",
+  super_admin:         "/dashboard/superAdmin",
+  admin:               "/AdminDashboard",
+  manager:             "/AdminDashboard",
+  superviseur:         "/superviseur-dashboard",
+  responsable:         "/responsable-dashboard",
+  pedagogical_advisor: "/pedagogical-advisor-dashboard",
+  commercial:          "/commercial-dashboard",
+  onboarding:          "/onboarding-dashboard",
+  gestionnaire:        "/gestionnaire-dashboard",
+  rh:                  "/rh-paie-dashboard",
+  comptable:           "/comptable-dashboard",
+  placement_test:      "/placement-test-dashboard",
+  coach:               "/espace-professeur",
+  customer_care:       "/gestionnaire-dashboard",
+  data_collector:      "/datacollector-dashboard",
 };
 
 // Redirige vers LE BON dashboard si déjà connecté (vérifie uniquement le token)
@@ -127,7 +139,12 @@ export default function App() {
     <Route path="/responsable-dashboard"    element={<PrivateStaffRoute><ResponsableDashboard /></PrivateStaffRoute>} />
     <Route path="/datacollector-dashboard"  element={<PrivateStaffRoute><DataCollectorDashboard /></PrivateStaffRoute>} />
     <Route path="/onboarding-dashboard"     element={<PrivateStaffRoute><OnboardingDashboard /></PrivateStaffRoute>} />
-    <Route path="/corporate-dashboard"     element={<PrivateStaffRoute><CorporateDashboard /></PrivateStaffRoute>} />
+    <Route path="/corporate-dashboard"           element={<PrivateStaffRoute><CorporateDashboard /></PrivateStaffRoute>} />
+    <Route path="/pedagogical-advisor-dashboard" element={<PrivateStaffRoute><PedagogicalAdvisorDashboard /></PrivateStaffRoute>} />
+    <Route path="/comptable-dashboard"           element={<PrivateStaffRoute><ComptableDashboard /></PrivateStaffRoute>} />
+    <Route path="/placement-test-dashboard"      element={<PrivateStaffRoute><PlacementTestDashboard /></PrivateStaffRoute>} />
+    <Route path="/rh-paie-dashboard"             element={<PrivateStaffRoute><RHPaieDashboard /></PrivateStaffRoute>} />
+    <Route path="/superviseur-dashboard"         element={<PrivateStaffRoute><SuperviseurDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/superAdmin"     element={<PrivateStaffRoute><SuperAdminDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/parent"         element={<ParentDashboard />} />
 <Route path="/espace-apprenant" element={<EspaceApprenant />} />

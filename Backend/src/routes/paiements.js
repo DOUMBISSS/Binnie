@@ -117,4 +117,43 @@ router.get("/mes-paiements", authenticateAdmin, async (req, res) => {
   }
 });
 
+// ── GET /all ──────────────────────────────────────────────────
+// Super admin / admin / manager → tous les paiements
+// Autres rôles → uniquement leurs propres paiements
+router.get("/all", authenticateAdmin, async (req, res) => {
+  try {
+    const ROLES_GLOBAUX = ["super_admin", "admin", "manager", "responsable", "gestionnaire", "comptable", "superviseur"];
+    const isGlobal = ROLES_GLOBAUX.includes(req.role);
+
+    let q = supabase.from(TABLE).select(FIELDS).order("date_paiement", { ascending: false });
+    if (!isGlobal) q = q.eq("commercial_id", req.user.id);
+
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Résoudre les noms des commerciaux via la table utilisateurs
+    const commercialIds = [...new Set((data || []).map(p => p.commercial_id).filter(Boolean))];
+    let commercialMap = {};
+    if (commercialIds.length > 0) {
+      const { data: users } = await supabase
+        .from("utilisateurs")
+        .select("id, prenom, nom")
+        .in("id", commercialIds);
+      (users || []).forEach(u => {
+        commercialMap[u.id] = `${u.prenom || ""} ${u.nom || ""}`.trim();
+      });
+    }
+
+    const paiements = (data || []).map(p => ({
+      ...p,
+      commercial_nom: commercialMap[p.commercial_id] || "—",
+    }));
+
+    res.json({ paiements });
+  } catch (err) {
+    console.error("Erreur /paiements/all:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
 export default router;

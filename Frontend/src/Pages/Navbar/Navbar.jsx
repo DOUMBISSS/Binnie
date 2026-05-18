@@ -4,6 +4,8 @@ import "./navbar.css";
 import { supabase } from '../../config/supabase';
 import ParcoursModal from "../Parcours/ParcoursModal";
 import EntrepriseParcoursModal from "../Parcours/EntrepriseParcoursModal";
+import EnfantParcoursModal from "../Parcours/EnfantParcoursModal";
+import CentresEnLigneModal from "../Parcours/CentresEnLigneModal";
 
 /* ─── ICÔNES SVG INLINE (inchangées) ───────────────────────────────────────── */
 const IcoSearch  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -56,7 +58,7 @@ const searchableItems = [
 
 const popularTopics = ["TOEIC","Cours en ligne","Anglais des affaires","Préparation IELTS","Cours à domicile","Séjour linguistique"];
 
-const MARQUEE_MESSAGES = [
+const MARQUEE_FALLBACK = [
   "🎓 Nouveau · Cours intensifs TOEIC — Session de Juin ouverte !",
   "🌍 Séjours linguistiques UK, USA, Canada — Places limitées !",
   "📢 Test de niveau 100% gratuit — Connaissez votre niveau en 20 min !",
@@ -82,12 +84,39 @@ const plansEnfant = [
 ];
 
 const NAV_DROPDOWNS = [
+  { key:"offres",         label:"Nos offres",     links:[{to:"/parcours/particulier",l:"Particuliers"},{to:"/parcours/entreprise",l:"Entreprises"},{to:"/parcours/enfant",l:"Enfants"}] },
   { key:"cours",          label:"Nos cours",      links:[{to:"/cours/en-ligne",l:"Cours en ligne"},{to:"/cours/cabinet",l:"Cours aux cabinets"},{to:"/cours/domicile",l:"Cours à domicile"}] },
   { key:"certifications", label:"Certifications", links:[{to:"/certification/toeic",l:"TOEIC"},{to:"/certification/toefl",l:"TOEFL"},{to:"/certification/ielts",l:"IELTS"}] },
-  { key:"centres",        label:"Centres",        links:[{to:"/centre/bouake",l:"Bouaké"},{to:"/centre/angre",l:"Angré"},{to:"/centre/abatta",l:"Abatta"},{to:"/centre/yopougon",l:"Yopougon"},{to:"/centre/koumassi",l:"Koumassi"},{to:"/centre/2plateaux",l:"II Plateaux"}] },
-  // { key:"services",       label:"Services",       links:[{to:"/service/sejour",l:"Séjour linguistique"},{to:"/service/interview",l:"Préparation interviews"},{to:"/service/natifs",l:"Plateforme natifs"},{to:"/service/interpretariat",l:"Interprétariat"}] },
-  { key:"parcours",       label:"Parcours",       links:[{to:"/parcours/particulier",l:"Particuliers"},{to:"/parcours/entreprise",l:"Entreprises"}] },
 ];
+
+/* ══════════════════════════════════════════════════════════════════
+   DONNÉES CENTRES MODAL — synchronisées avec bet_centres_master
+══════════════════════════════════════════════════════════════════ */
+const CENTRES_MASTER_KEY = "bet_centres_master";
+const CENTRES_PHY_FALLBACK = [
+  { key:"angre",    name:"BET Angré",       addr:"Angré 7ème Tranche, Abidjan",    lat:5.3699, lng:-3.9674, color:"#25d366" },
+  { key:"bouake",   name:"BET Bouaké",      addr:"Centre-Ville, Bouaké",            lat:7.6936, lng:-5.0232, color:"#facc15" },
+  { key:"plateaux", name:"BET II Plateaux", addr:"Riviera II Plateaux, Abidjan",   lat:5.3611, lng:-4.0103, color:"#0891b2" },
+  { key:"yopougon", name:"BET Yopougon",    addr:"Yopougon Sicogi, Abidjan",       lat:5.3264, lng:-4.0709, color:"#a855f7" },
+  { key:"koumassi", name:"BET Koumassi",    addr:"Koumassi Remblai, Abidjan",      lat:5.3001, lng:-3.9500, color:"#f97316" },
+  { key:"abatta",   name:"BET Abatta",      addr:"Abatta, Grand-Bassam",            lat:5.2667, lng:-3.8333, color:"#ef4444" },
+  { key:"cocody",   name:"BET Cocody",      addr:"Cocody Danga, Abidjan",           lat:5.3742, lng:-3.9832, color:"#8b5cf6" },
+];
+function loadCentresMaster() {
+  try {
+    const s = localStorage.getItem(CENTRES_MASTER_KEY);
+    if (!s) return CENTRES_PHY_FALLBACK;
+    const parsed = JSON.parse(s);
+    return parsed.filter(c => c.actif !== false).map(c => ({ key:c.key, name:c.name, addr:c.addr||"", lat:c.lat||0, lng:c.lng||0, color:c.color||"#0891b2", description:c.description, horaires:c.horaires, telephone:c.telephone, email:c.email, photos:c.photos||[], brochure_url:c.brochure_url||"", brochure_nom:c.brochure_nom||"", offres:c.offres||[], cta:c.cta||{}, maps_url:c.maps_url||"", maps_embed:c.maps_embed||"" }));
+  } catch { return CENTRES_PHY_FALLBACK; }
+}
+
+
+const hdist = (la1, lo1, la2, lo2) => {
+  const R = 6371, d = Math.PI / 180;
+  const a = Math.sin((la2-la1)*d/2)**2 + Math.cos(la1*d)*Math.cos(la2*d)*Math.sin((lo2-lo1)*d/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+};
 
 /* ════════════════════════════════════════════════════════════════════════════
    CONFIG CENTRES BET — partagée avec le SuperAdmin via localStorage
@@ -124,7 +153,17 @@ export const DEFAULT_BET_CENTERS = [
 function loadCenters() {
   try {
     const saved = localStorage.getItem(BET_CENTERS_LS_KEY);
-    return saved ? JSON.parse(saved) : DEFAULT_BET_CENTERS;
+    const list = saved ? JSON.parse(saved) : DEFAULT_BET_CENTERS;
+    // Croiser avec le master pour exclure les centres inactifs
+    try {
+      const master = localStorage.getItem(CENTRES_MASTER_KEY);
+      if (master) {
+        const masterMap = {};
+        JSON.parse(master).forEach(c => { masterMap[c.key] = c.actif; });
+        return list.filter(c => masterMap[c.key] !== false);
+      }
+    } catch {}
+    return list;
   } catch { return DEFAULT_BET_CENTERS; }
 }
 
@@ -143,6 +182,17 @@ const Navbar = () => {
   const [user,            setUser]            = useState(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileRef = useRef(null);
+
+  /* Marquee dynamique ── */
+  // Chaque item : { texte, code_promo, lien_url, lien_label } ou string (fallback)
+  const [marqueeItems, setMarqueeItems] = useState(MARQUEE_FALLBACK);
+  useEffect(() => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/marquee/publics`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.messages?.length) setMarqueeItems(d.messages); })
+      .catch(() => {});
+  }, []);
 
   /* Modal connexion ── */
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -175,6 +225,15 @@ const Navbar = () => {
   const [showParcoursModal,      setShowParcoursModal]      = useState(false);
   const [parcoursDefaultMode,    setParcoursDefaultMode]    = useState(null);
   const [showEntrepriseModal,    setShowEntrepriseModal]    = useState(false);
+  const [showEnfantModal,        setShowEnfantModal]        = useState(false);
+  const [showCentresLigneModal,  setShowCentresLigneModal]  = useState(false);
+
+  /* Centres modal ── */
+  const [showCentresModal, setShowCentresModal] = useState(false);
+  const [centresTab,       setCentresTab]       = useState("physique");
+  const [userCoords,       setUserCoords]       = useState(null);
+  const [geoLoading,       setGeoLoading]       = useState(false);
+  const [centresSorted,    setCentresSorted]    = useState(loadCentresMaster);
 
   /* Tunnel ── */
   const [tunnelOpen,    setTunnelOpen]    = useState(false);
@@ -398,13 +457,12 @@ const Navbar = () => {
     return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
 
-  /* ── Tunnel ── */
+  /* ── Tunnel (particulier / entreprise uniquement) ── */
   const openTunnel = (type) => {
     setTunnelType(type); setTunnelStep(1); setSelectedPlan(null);
     setPayMethod(null); setMobileOp(null);
     setFormData({ nom:"", email:"", tel:"", societe:"", effectif:"", besoin:"" });
     setPayData({ numero:"", cardNum:"", expiry:"", cvv:"", holder:"" });
-    setEnfantData({ prenom_enfant:"", nom_enfant:"", tranche_age:"", nom_parent:"", email_parent:"", tel_parent:"", centre_key:"" });
     setSelectedCommercial("");
     setTunnelErreur("");
     setTunnelOpen(true);
@@ -536,6 +594,24 @@ const Navbar = () => {
       .catch(() => {});
   }, []);
 
+  /* ── Géolocalisation → trier les centres physiques par distance ── */
+  const handleGeolocate = () => {
+    if (!navigator.geolocation) return;
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const { latitude: lat, longitude: lng } = coords;
+        setUserCoords({ lat, lng });
+        const sorted = [...centresSorted].sort((a, b) =>
+          hdist(lat, lng, a.lat, a.lng) - hdist(lat, lng, b.lat, b.lng)
+        );
+        setCentresSorted(sorted);
+        setGeoLoading(false);
+      },
+      () => setGeoLoading(false)
+    );
+  };
+
   /* ── Ouvrir le modal centre + charger les vraies assistantes depuis l'API ── */
   const handleCentreClick = async (center) => {
     setCenterModal(center);
@@ -569,7 +645,7 @@ const Navbar = () => {
   };
 
   useEffect(() => {
-    // 1. Charger depuis Supabase (source de vérité)
+    // 1. Charger depuis Supabase (source de vérité partagée avec le dashboard)
     supabase
       .from("plateforme_config")
       .select("valeur")
@@ -582,9 +658,23 @@ const Navbar = () => {
         }
       });
 
+    // 1b. Centres maître (actif/inactif + données riches)
+    supabase
+      .from("plateforme_config")
+      .select("valeur")
+      .eq("key", "centres_master")
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data?.valeur?.length) {
+          localStorage.setItem(CENTRES_MASTER_KEY, JSON.stringify(data.valeur));
+          setCentresSorted(loadCentresMaster());
+        }
+      });
+
     // 2. Écouter les mises à jour depuis le dashboard (même navigateur)
     const onStorage = (e) => {
       if (e.key === BET_CENTERS_LS_KEY) setBetCenters(loadCenters());
+      if (e.key === CENTRES_MASTER_KEY) setCentresSorted(loadCentresMaster());
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -597,9 +687,30 @@ const Navbar = () => {
     <div className={`navbar-container ${scrolled ? "scrolled" : ""}`}>
       <div className="marquee-bar">
         <div className="marquee-track">
-          {[...MARQUEE_MESSAGES, ...MARQUEE_MESSAGES].map((msg, i) => (
-            <span key={i} className="marquee-item">{msg}<span className="marquee-dot">·</span></span>
-          ))}
+          {[...marqueeItems, ...marqueeItems].map((item, i) => {
+            const texte      = typeof item === "string" ? item : item.texte;
+            const codePromo  = typeof item === "string" ? null : item.code_promo;
+            const lienUrl    = typeof item === "string" ? null : item.lien_url;
+            const lienLabel  = typeof item === "string" ? null : (item.lien_label || lienUrl);
+            return (
+              <span key={i} className="marquee-item">
+                {texte}
+                {codePromo && (
+                  <span style={{ marginLeft:6, background:"#fbbf24", color:"#78350f", padding:"1px 7px", borderRadius:4, fontWeight:700, fontSize:11 }}>
+                    {codePromo}
+                  </span>
+                )}
+                {lienUrl && (
+                  <a href={lienUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ marginLeft:8, color:"#7dd3fc", fontWeight:700, textDecoration:"underline", fontSize:12 }}
+                    onClick={e => e.stopPropagation()}>
+                    {lienLabel} →
+                  </a>
+                )}
+                <span className="marquee-dot">·</span>
+              </span>
+            );
+          })}
         </div>
       </div>
 
@@ -613,7 +724,7 @@ const Navbar = () => {
           <button className="parcours-btn parcours-btn--b2c" onClick={() => { setParcoursDefaultMode(null); setShowParcoursModal(true); }}>
             <IcoUser /> Je suis un particulier
           </button>
-          <button className="parcours-btn parcours-btn--enfant" onClick={() => openTunnel("enfant")}>
+          <button className="parcours-btn parcours-btn--enfant" onClick={() => setShowEnfantModal(true)}>
             <IcoChild /> J'inscris mon enfant
           </button>
           {/* <button
@@ -662,6 +773,7 @@ const Navbar = () => {
 
         <ul className={`nav-links ${menuOpen ? "active" : ""}`}>
           <li><NavLink to="/" onClick={handleNavClick}>Accueil</NavLink></li>
+          <li><NavLink to="/test-niveau" onClick={handleNavClick}>Test de niveau</NavLink></li>
           {NAV_DROPDOWNS.map(({ key, label, links }) => (
             <li key={key} className="dropdown">
               <div className="dropdown-trigger" onClick={() => toggleDropdown(key)}>
@@ -676,7 +788,12 @@ const Navbar = () => {
               </ul>
             </li>
           ))}
-          <li><NavLink to="/test-niveau" onClick={handleNavClick}>Test de niveau</NavLink></li>
+          <li>
+            <button className="nav-centres-btn" onClick={() => { setShowCentresModal(true); handleNavClick(); }}>
+              📍 Nos centres
+            </button>
+          </li>
+          <li><NavLink to="/bet-for-business" onClick={handleNavClick}>BET for Business</NavLink></li>
           <li><NavLink to="/about" onClick={handleNavClick}>À propos</NavLink></li>
           <li><NavLink to="/contact" onClick={handleNavClick}>Contact</NavLink></li>
         </ul>
@@ -1032,11 +1149,11 @@ const Navbar = () => {
             <div className="modal-left">
               <div className="ml-brand">B<em>ET</em></div>
               <h2 className="ml-title">Apprenez l'anglais<br /><span>comme jamais</span></h2>
-              <p className="ml-desc">Rejoignez +5 000 apprenants qui progressent chaque jour avec Binnie's English Training.</p>
+              <p className="ml-desc">Rejoignez +3 000 apprenants qui progressent chaque jour avec Binnie's English Training.</p>
               <div className="ml-stats">
-                <div><strong>5 000+</strong><span>Apprenants</span></div>
-                <div><strong>98%</strong><span>Satisfaction</span></div>
-                <div><strong>6</strong><span>Centres</span></div>
+                <div><strong>3 000+</strong><span>Apprenants</span></div>
+                <div><strong>100%</strong><span>Satisfaction</span></div>
+                <div><strong>6</strong><span>Centres physiques</span></div>
               </div>
               <div className="ml-testi">
                 <p>"J'ai obtenu 850 au TOEIC après seulement 3 mois !"</p>
@@ -1114,6 +1231,116 @@ const Navbar = () => {
         </div>
       )}
 
+      {/* ══ MODAL NOS CENTRES ══════════════════════════════════ */}
+      {showCentresModal && (
+        <div className="centres-overlay" onClick={() => setShowCentresModal(false)}>
+          <div className="centres-modal" onClick={e => e.stopPropagation()}>
+
+            {/* En-tête */}
+            <div className="centres-hdr">
+              <div>
+                <div className="centres-hdr__title">📍 Nos Centres BET</div>
+                <div className="centres-hdr__sub">{centresSorted.length} centre{centresSorted.length > 1 ? "s" : ""} physique{centresSorted.length > 1 ? "s" : ""} · cours en ligne disponibles</div>
+              </div>
+              <button className="centres-hdr__close" onClick={() => setShowCentresModal(false)}><IcoClose /></button>
+            </div>
+
+            {/* Tabs */}
+            <div className="centres-tabs">
+              <button className={`ctab ${centresTab === "physique" ? "ctab--on" : ""}`} onClick={() => setCentresTab("physique")}>
+                🏢 Centres physiques <span className="ctab-badge">{centresSorted.length}</span>
+              </button>
+              <button className={`ctab`} onClick={() => { setShowCentresModal(false); setShowCentresLigneModal(true); }}>
+                💻 Centres virtuels
+              </button>
+            </div>
+
+            <div className="centres-body">
+              {/* ── Tab : centres physiques ── */}
+              {centresTab === "physique" && (
+                <>
+                  {/* Carte OSM */}
+                  <div className="centres-map-wrap">
+                    <iframe
+                      title="Carte Centres BET"
+                      src="https://www.openstreetmap.org/export/embed.html?bbox=-4.25%2C5.18%2C-3.72%2C5.5&layer=mapnik"
+                      style={{ width:"100%", height:"100%", border:0 }}
+                      loading="lazy"
+                    />
+                    <div className="centres-map-pins">
+                      {centresSorted.filter(c => c.key !== "bouake").map(c => (
+                        <div key={c.key} className="map-pin" style={{ background: c.color }} title={c.name}>
+                          📍
+                        </div>
+                      ))}
+                    </div>
+                    <a
+                      href="https://www.google.com/maps/search/BET+Binnie+English+Training+Abidjan"
+                      target="_blank" rel="noopener noreferrer"
+                      className="centres-map-link"
+                    >
+                      Ouvrir dans Google Maps →
+                    </a>
+                  </div>
+
+                  {/* Bouton géoloc */}
+                  <button
+                    className={`geo-btn ${geoLoading ? "geo-btn--loading" : ""} ${userCoords ? "geo-btn--done" : ""}`}
+                    onClick={handleGeolocate}
+                    disabled={geoLoading}
+                  >
+                    {geoLoading
+                      ? <><span className="geo-spin" />Localisation…</>
+                      : userCoords
+                        ? <>✓ Centres triés par distance</>
+                        : <>📍 Trouver le centre le plus proche</>}
+                  </button>
+
+                  {/* Grille centres */}
+                  <div className="centres-grid">
+                    {centresSorted.map((c, i) => {
+                      const betC = betCenters.find(b => b.key === c.key);
+                      const dist = userCoords ? hdist(userCoords.lat, userCoords.lng, c.lat, c.lng) : null;
+                      const isNearest = userCoords && i === 0;
+                      return (
+                        <div key={c.key} className={`ccard ${isNearest ? "ccard--nearest" : ""}`} style={{ borderTopColor: c.color }}>
+                          {isNearest && <div className="ccard-nearest-badge">⭐ Le plus proche</div>}
+                          <div className="ccard__icon" style={{ background: c.color + "22", color: c.color }}>📍</div>
+                          <div className="ccard__name">{c.name}</div>
+                          <div className="ccard__addr">{c.addr}</div>
+                          {dist !== null && (
+                            <div className="ccard__dist" style={{ color: c.color }}>
+                              ~{dist < 1 ? `${Math.round(dist*1000)} m` : `${dist.toFixed(1)} km`}
+                            </div>
+                          )}
+                          <div className="ccard__actions">
+                            <button
+                              className="ccard__btn ccard__btn--contact"
+                              style={{ background: c.color }}
+                              onClick={() => { setShowCentresModal(false); if (betC) handleCentreClick(betC); }}
+                            >
+                              💬 Contacter
+                            </button>
+                            <a
+                              className="ccard__btn ccard__btn--maps"
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}&travelmode=driving`}
+                              target="_blank" rel="noopener noreferrer"
+                            >
+                              🗺 Itinéraire
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL PARCOURS PARTICULIER ──────────────────────── */}
       <ParcoursModal
         isOpen={showParcoursModal}
@@ -1126,6 +1353,23 @@ const Navbar = () => {
       <EntrepriseParcoursModal
         isOpen={showEntrepriseModal}
         onClose={() => setShowEntrepriseModal(false)}
+      />
+
+      {/* ── MODAL PARCOURS ENFANT ───────────────────────────── */}
+      <EnfantParcoursModal
+        isOpen={showEnfantModal}
+        onClose={() => setShowEnfantModal(false)}
+      />
+
+      {/* ── MODAL CENTRES EN LIGNE ──────────────────────────── */}
+      <CentresEnLigneModal
+        isOpen={showCentresLigneModal}
+        onClose={() => setShowCentresLigneModal(false)}
+        onSelectAssistante={(assistante, centre) => {
+          setShowCentresLigneModal(false);
+          setParcoursDefaultMode("en_ligne");
+          setShowParcoursModal(true);
+        }}
       />
 
       {/* ── MODAL CENTRE BET ────────────────────────────────── */}

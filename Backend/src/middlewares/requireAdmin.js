@@ -24,6 +24,8 @@ export const authenticateAdmin = async (req, res, next) => {
     // Nouveaux rôles (table utilisateurs)
     "super_admin", "admin", "manager", "responsable",
     "commercial", "gestionnaire", "coach", "data_collector",
+    "superviseur", "pedagogical_advisor", "onboarding",
+    "rh", "comptable", "customer_care",
     // Anciens rôles (table profils_admin)
     "admin_pedagogique", "admin_financier", "admin_rh",
     "admin_commercial", "responsable_centre", "observateur",
@@ -61,8 +63,36 @@ export const authenticateAdmin = async (req, res, next) => {
     }
   }
 
+  // ── Auto-réparation : profil absent mais rôle valide dans app_metadata
   if (!profil) {
-    return res.status(403).json({ error: "Profil introuvable — contactez le Super Admin" });
+    const DEPT_PAR_ROLE = {
+      super_admin:"Direction Générale", admin:"Administration",
+      manager:"Management", superviseur:"Supervision",
+      responsable:"Responsable de Centre", pedagogical_advisor:"Conseil Pédagogique",
+      commercial:"Commercial / Assistante", onboarding:"Onboarding & Classes",
+      gestionnaire:"Gestion Administrative", rh:"Ressources Humaines / Paie",
+      comptable:"Comptabilité / Trésorerie", coach:"Pédagogie",
+      customer_care:"Customer Care", data_collector:"Collecte de Données",
+    };
+    const nomMeta    = user.user_metadata?.nom    || user.email.split("@")[0];
+    const prenomMeta = user.user_metadata?.prenom || "Admin";
+    const { data: created } = await supabase
+      .from("utilisateurs")
+      .upsert({
+        id: user.id, email: user.email,
+        nom: nomMeta, prenom: prenomMeta,
+        role, scope: ["national"],
+        departement: DEPT_PAR_ROLE[role] || null,
+        actif: true, mdp_temporaire: false,
+      }, { onConflict: "id" })
+      .select()
+      .single();
+    if (!created) {
+      return res.status(403).json({ error: "Profil introuvable — contactez le Super Admin" });
+    }
+    profil = created;
+    roleEffectif = created.role;
+    console.log(`[MIDDLEWARE AUTO-REPAIR] Profil recréé pour ${user.email} (rôle: ${role})`);
   }
 
   if (!profil.actif) {

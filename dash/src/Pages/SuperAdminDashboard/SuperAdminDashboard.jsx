@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import toast, { Toaster } from "react-hot-toast";
-import { AvatarUpload } from "../../Components/CloudinaryUpload";
+import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
 import MessagerieTab from "../../Components/MessagerieTab";
 import NotificationBell from "../../Components/NotificationBell";
 import { supabase } from "../../config/supabase";
@@ -317,7 +317,7 @@ const CENTRES_BET = [
 ];
 
 // Rôles qui nécessitent un centre (sauf super_admin et data_collector)
-const ROLES_AVEC_CENTRE = ["admin","manager","responsable","commercial","gestionnaire","coach"];
+const ROLES_AVEC_CENTRE = ["admin","manager","responsable","commercial","gestionnaire","coach","onboarding","pedagogical_advisor","superviseur"];
 
 // Liste de tous les utilisateurs/profils
 // Utilisateurs chargés depuis l'API (plus de mock)
@@ -333,14 +333,20 @@ const GLOBAL_AUDIT = [
 
 // Rôles disponibles (étendus)
 const ROLES_DEF = {
-  super_admin:    { id:"super_admin",    label:"Super Admin",    emoji:"👑", color:BET_RED,   border:"#fecaca", niveau:7, description:"Accès total, toutes permissions, non modifiable" },
-  admin:          { id:"admin",          label:"Administrateur", emoji:"🔧", color:BET_COLOR, border:"#bae6fd", niveau:6, description:"Gestion complète sauf paramètres critiques" },
-  manager:        { id:"manager",        label:"Manager",        emoji:"👥", color:"#10b981", border:"#a7f3d0", niveau:5, description:"Supervision et reporting" },
-  responsable:    { id:"responsable",    label:"Responsable",    emoji:"📋", color:"#8b5cf6", border:"#c4b5fd", niveau:4, description:"Gestion des équipes et suivi pédagogique" },
-  commercial:     { id:"commercial",     label:"Commercial",     emoji:"📈", color:"#f59e0b", border:"#fcd34d", niveau:3, description:"CRM, inscriptions et ventes" },
-  gestionnaire:   { id:"gestionnaire",   label:"Gestionnaire",   emoji:"🗂️", color:"#059669", border:"#6ee7b7", niveau:3, description:"Administratif, finances, planning" },
-  coach:          { id:"coach",          label:"Coach",          emoji:"🎓", color:"#6366f1", border:"#a5b4fc", niveau:2, description:"Pédagogie, cours et examens" },
-  data_collector: { id:"data_collector", label:"Data Collector", emoji:"📊", color:"#64748b", border:"#e2e8f0", niveau:1, description:"Saisie de données uniquement" },
+  super_admin:          { id:"super_admin",          label:"Super Admin",           emoji:"👑", color:BET_RED,   border:"#fecaca", niveau:7, description:"Accès total, toutes permissions, non modifiable" },
+  admin:                { id:"admin",                label:"Administrateur",        emoji:"🔧", color:BET_COLOR, border:"#bae6fd", niveau:6, description:"Gestion complète sauf paramètres critiques" },
+  manager:              { id:"manager",              label:"Manager",               emoji:"👥", color:"#10b981", border:"#a7f3d0", niveau:5, description:"Supervision et reporting" },
+  superviseur:          { id:"superviseur",          label:"Superviseur",           emoji:"🔭", color:"#0284c7", border:"#bae6fd", niveau:5, description:"Superviseur / Deputy Superviseur — contrôle opérationnel" },
+  responsable:          { id:"responsable",          label:"Responsable",           emoji:"📋", color:"#8b5cf6", border:"#c4b5fd", niveau:4, description:"Gestion des équipes et suivi pédagogique" },
+  pedagogical_advisor:  { id:"pedagogical_advisor",  label:"Pedagogical Advisor",   emoji:"🧑‍🏫", color:"#7c3aed", border:"#ede9fe", niveau:4, description:"Classes privées + Validation des honoraires enseignants" },
+  commercial:           { id:"commercial",           label:"Commercial",            emoji:"📈", color:"#f59e0b", border:"#fcd34d", niveau:3, description:"CRM, inscriptions et ventes" },
+  onboarding:           { id:"onboarding",           label:"Assistant Onboarding",  emoji:"🚀", color:"#0891b2", border:"#a5f3fc", niveau:3, description:"Création de classes (cours en groupe) et attribution d'enseignants" },
+  gestionnaire:         { id:"gestionnaire",         label:"Gestionnaire",          emoji:"🗂️", color:"#059669", border:"#6ee7b7", niveau:3, description:"Administratif, finances, planning" },
+  rh:                   { id:"rh",                   label:"Espace RH / Paie",      emoji:"👔", color:"#db2777", border:"#fbcfe8", niveau:3, description:"Gestion RH, contrats, fiches de paie et congés" },
+  comptable:            { id:"comptable",            label:"Comptable / Trésorier", emoji:"🧾", color:"#d97706", border:"#fde68a", niveau:3, description:"Comptabilité, trésorerie et rapports financiers" },
+  coach:                { id:"coach",                label:"Coach",                 emoji:"🎓", color:"#6366f1", border:"#a5b4fc", niveau:2, description:"Pédagogie, cours et examens" },
+  customer_care:        { id:"customer_care",        label:"Customer Care",         emoji:"🎧", color:"#0e7490", border:"#a5f3fc", niveau:2, description:"Prise en charge, suivi et résolution des plaintes clients" },
+  data_collector:       { id:"data_collector",       label:"Data Collector",        emoji:"📊", color:"#64748b", border:"#e2e8f0", niveau:1, description:"Saisie de données uniquement" },
 };
 
 // Modules (idem AdminDashboard)
@@ -430,22 +436,6 @@ const COACHS_MOCK = [
   },
 ];
 
-/* ── Données mock Apprenants ── */
-const APPRENANTS_MOCK = [
-  { id:1,  nom:"Awa Traoré",         initiales:"AT", niveau:"B1", coach:"James Adou",   centre:"Angré",     progression:68, presence:92, dernierExam:"720/990 TOEIC", paiement:"À jour",   statut:"Actif",    dateInscr:"2025-01-15", email:"awa.traore@gmail.com",    tel:"+225 07 10 20 30", typeFormation:"TOEIC B1→B2" },
-  { id:2,  nom:"Kouamé Brou",        initiales:"KB", niveau:"B1", coach:"James Adou",   centre:"Angré",     progression:54, presence:78, dernierExam:"640/990 TOEIC", paiement:"Retard",   statut:"⚠ Risque", dateInscr:"2025-02-01", email:"kouame.brou@gmail.com",   tel:"+225 07 20 30 40", typeFormation:"TOEIC B1→B2" },
-  { id:3,  nom:"Fatoumata Diallo",   initiales:"FD", niveau:"B2", coach:"James Adou",   centre:"Angré",     progression:82, presence:96, dernierExam:"780/990 TOEIC", paiement:"À jour",   statut:"Actif",    dateInscr:"2025-01-10", email:"fatoumata.d@gmail.com",   tel:"+225 07 30 40 50", typeFormation:"TOEIC B1→B2" },
-  { id:4,  nom:"Serge Assoua",       initiales:"SA", niveau:"C1", coach:"James Adou",   centre:"Angré",     progression:71, presence:88, dernierExam:"820/990 TOEIC", paiement:"À jour",   statut:"Actif",    dateInscr:"2024-09-01", email:"serge.assoua@gmail.com",  tel:"+225 07 40 50 60", typeFormation:"TOEIC B2→C1" },
-  { id:5,  nom:"Marie Kouamé",       initiales:"MK", niveau:"B1", coach:"James Adou",   centre:"Angré",     progression:45, presence:65, dernierExam:"580/990 TOEIC", paiement:"Impayé",   statut:"⚠ Risque", dateInscr:"2025-03-01", email:"marie.kouame@gmail.com",  tel:"+225 07 50 60 70", typeFormation:"TOEIC B1→B2" },
-  { id:6,  nom:"Amidou Coulibaly",   initiales:"AC", niveau:"A2", coach:"Aminata Koné", centre:"II Plateaux",progression:61, presence:85, dernierExam:"68/100",        paiement:"À jour",   statut:"Actif",    dateInscr:"2025-02-15", email:"amidou.c@gmail.com",      tel:"+225 07 60 70 80", typeFormation:"Adultes A2→B1" },
-  { id:7,  nom:"Nadège Bamba",       initiales:"NB", niveau:"B2", coach:"Aminata Koné", centre:"II Plateaux",progression:79, presence:93, dernierExam:"76/100",        paiement:"À jour",   statut:"Actif",    dateInscr:"2024-11-01", email:"nadege.b@gmail.com",      tel:"+225 07 70 80 90", typeFormation:"Conversation B2" },
-  { id:8,  nom:"Omar Sangaré",       initiales:"OS", niveau:"A1", coach:"Moussa Bamba", centre:"Bouaké",    progression:38, presence:88, dernierExam:"42/100",        paiement:"À jour",   statut:"Actif",    dateInscr:"2025-03-10", email:"omar.s@gmail.com",        tel:"+225 07 80 90 01", typeFormation:"Junior A1" },
-  { id:9,  nom:"Chloé Diaby",        initiales:"CD", niveau:"A2", coach:"Moussa Bamba", centre:"Bouaké",    progression:55, presence:76, dernierExam:"58/100",        paiement:"Retard",   statut:"Actif",    dateInscr:"2025-01-20", email:"chloe.d@gmail.com",       tel:"+225 07 90 01 12", typeFormation:"Junior A2" },
-  { id:10, nom:"Paul Yao",           initiales:"PY", niveau:"C1", coach:"Isabelle Yao", centre:"Angré",     progression:88, presence:97, dernierExam:"7.2/9 IELTS",  paiement:"À jour",   statut:"Certifié", dateInscr:"2024-06-01", email:"paul.yao@gmail.com",      tel:"+225 07 01 12 23", typeFormation:"IELTS Prep C1" },
-  { id:11, nom:"Safi Touré",         initiales:"ST", niveau:"B2", coach:"Isabelle Yao", centre:"Angré",     progression:74, presence:90, dernierExam:"6.5/9 IELTS",  paiement:"À jour",   statut:"Actif",    dateInscr:"2025-01-05", email:"safi.toure@gmail.com",    tel:"+225 07 12 23 34", typeFormation:"IELTS Prep B2" },
-  { id:12, nom:"Eric Konan",         initiales:"EK", niveau:"B1", coach:"Rosine Ouattara", centre:"II Plateaux",progression:52, presence:82, dernierExam:"64/100",    paiement:"Impayé",   statut:"⚠ Risque", dateInscr:"2025-03-15", email:"eric.konan@orange.ci",   tel:"+225 07 23 34 45", typeFormation:"Entreprise Orange CI" },
-];
-
 // Profil du Super Admin
 const SUPER_ADMIN_PROFIL = {
   id:1, nom:"Kouamé", prenom:"Aya", email:"aya@bet.com", role:"super_admin", avatar:"AK", tel:"+225 01 00 00 01", dateEmbauche:"2020-01-01", dernierAcces:"2025-12-14 08:30", permissions:"totales"
@@ -475,14 +465,6 @@ const SA_CA = {
   paiementsRecus:16890000, paiementsAttente:1860000,
   moyenPaiement:{ "Mobile Money":62,"Carte bancaire":28,"Virement":10 },
 };
-const SA_TRANSACTIONS = [
-  { id:1, client:"Orange CI",   montant:450000, date:"2025-12-10", statut:"validé",     moyen:"Mobile Money" },
-  { id:2, client:"MTN CI",      montant:620000, date:"2025-12-09", statut:"validé",     moyen:"Virement" },
-  { id:3, client:"BNP Paribas", montant:380000, date:"2025-12-09", statut:"validé",     moyen:"Carte" },
-  { id:4, client:"Nestlé CI",   montant:125000, date:"2025-12-08", statut:"en_attente", moyen:"Mobile Money" },
-  { id:5, client:"SIFCA",       montant:290000, date:"2025-12-07", statut:"validé",     moyen:"Carte" },
-  { id:6, client:"Total CI",    montant:840000, date:"2025-12-06", statut:"echoué",     moyen:"Virement" },
-];
 const SA_PROGRESSION = { moyenneProgression:69, resultatsParNiveau:{ A1:54, A2:63, B1:72, B2:80, C1:87, C2:94 }, assiduiteMoyenne:85, bulletinsGeneres:1870, certificatsDelivres:312 };
 const SA_REQUETES = [
   { id:1, client:"Orange CI",   sujet:"Accès plateforme",   statut:"ouvert",   date:"2025-12-10", tempsTraitement:0,   categorie:"Technique" },
@@ -492,6 +474,125 @@ const SA_REQUETES = [
   { id:5, client:"SIFCA",       sujet:"Accès formateur",    statut:"en_cours", date:"2025-12-08", tempsTraitement:6,   categorie:"Technique" },
 ];
 const SA_TEMPS_MOYEN = 7.4;
+
+// ── Helpers stables pour le modal Certifications ──────────────────────────
+// Définis au niveau module (pas dans le rendu) pour éviter le re-montage à chaque frappe
+// ── Helpers stables pour le modal Aperçu Cours ───────────────────────────
+const ApercuStringList = ({ modal, setModal, field, placeholder }) => {
+  const list = modal?.data?.[field] || [];
+  const setD = updater => setModal(m => ({ ...m, data: updater(m.data) }));
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      {list.map((item, i) => (
+        <div key={i} style={{ display:"flex", gap:6, alignItems:"center" }}>
+          <input value={item} onChange={e => { const u=[...list]; u[i]=e.target.value; setD(prev => ({...prev,[field]:u})); }}
+            placeholder={placeholder} style={{ flex:1, padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+          <button onClick={() => setD(prev => ({...prev,[field]:list.filter((_,j)=>j!==i)}))}
+            style={{ width:28, height:28, border:"none", borderRadius:7, background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+        </div>
+      ))}
+      <button onClick={() => setD(prev => ({...prev,[field]:[...list,""]}))}
+        style={{ alignSelf:"flex-start", padding:"6px 12px", background:"#f1f5f9", border:"1px dashed #94a3b8", borderRadius:7, fontSize:11, color:"#475569", cursor:"pointer", fontWeight:600 }}>➕ Ajouter</button>
+    </div>
+  );
+};
+const ApercuObjList = ({ modal, setModal, field, keys, placeholders }) => {
+  const list = modal?.data?.[field] || [];
+  const setD = updater => setModal(m => ({ ...m, data: updater(m.data) }));
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      {list.map((item, i) => (
+        <div key={i} style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:8, padding:"10px 12px" }}>
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:6 }}>
+            <button onClick={() => setD(prev => ({...prev,[field]:list.filter((_,j)=>j!==i)}))}
+              style={{ width:24, height:24, border:"none", borderRadius:6, background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:12 }}>✕</button>
+          </div>
+          {keys.map((k, ki) => (
+            <div key={k} style={{ marginBottom:ki < keys.length-1 ? 8 : 0 }}>
+              <label style={{ fontSize:11, fontWeight:600, color:"#374151", display:"block", marginBottom:3 }}>{k}</label>
+              <input value={item[k]||""} onChange={e => { const u=list.map((x,j)=>j===i?{...x,[k]:e.target.value}:x); setD(prev => ({...prev,[field]:u})); }}
+                placeholder={placeholders?.[ki]||""} style={{ width:"100%", padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+            </div>
+          ))}
+        </div>
+      ))}
+      <button onClick={() => { const empty={}; keys.forEach(k=>empty[k]=""); setD(prev => ({...prev,[field]:[...list,empty]})); }}
+        style={{ alignSelf:"flex-start", padding:"6px 12px", background:"#f1f5f9", border:"1px dashed #94a3b8", borderRadius:7, fontSize:11, color:"#475569", cursor:"pointer", fontWeight:600 }}>➕ Ajouter</button>
+    </div>
+  );
+};
+
+// ── Helpers stables pour le modal Certifications ──────────────────────────
+const CertifFieldInput = ({ modal, setModal, label, field, path, placeholder, multiline, type="text" }) => {
+  const val = path ? (modal?.data?.[path]?.[field] ?? "") : (modal?.data?.[field] ?? "");
+  const onChange = e => {
+    const v = type === "number" ? Number(e.target.value) : e.target.value;
+    if (path) { setModal(m => ({...m, data:{...m.data, [path]:{...m.data[path],[field]:v}}})); }
+    else       { setModal(m => ({...m, data:{...m.data,[field]:v}})); }
+  };
+  return (
+    <div>
+      <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>{label}</label>
+      {multiline
+        ? <textarea value={val} onChange={onChange} placeholder={placeholder} rows={3}
+            style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box", resize:"vertical" }} />
+        : <input value={val} onChange={onChange} placeholder={placeholder} type={type}
+            style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+      }
+    </div>
+  );
+};
+const CertifStringList = ({ modal, setModal, field, placeholder }) => {
+  const list = modal?.data?.[field] || [];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      {list.map((item, i) => (
+        <div key={i} style={{ display:"flex", gap:6, alignItems:"center" }}>
+          <input value={item} onChange={e => { const u=[...list]; u[i]=e.target.value; setModal(m=>({...m,data:{...m.data,[field]:u}})); }}
+            placeholder={placeholder} style={{ flex:1, padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+          <button onClick={() => { const u=list.filter((_,j)=>j!==i); setModal(m=>({...m,data:{...m.data,[field]:u}})); }}
+            style={{ width:28, height:28, border:"none", borderRadius:7, background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+        </div>
+      ))}
+      <button onClick={() => setModal(m=>({...m,data:{...m.data,[field]:[...list,""]}}))}
+        style={{ alignSelf:"flex-start", padding:"6px 12px", background:"#f1f5f9", border:"1px dashed #94a3b8", borderRadius:7, fontSize:11, color:"#475569", cursor:"pointer", fontWeight:600 }}>
+        ➕ Ajouter
+      </button>
+    </div>
+  );
+};
+const CertifObjList = ({ modal, setModal, field, fields }) => {
+  const list = modal?.data?.[field] || [];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      {list.map((item, i) => (
+        <div key={i} style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 12px" }}>
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:6 }}>
+            <button onClick={() => { const u=list.filter((_,j)=>j!==i); setModal(m=>({...m,data:{...m.data,[field]:u}})); }}
+              style={{ padding:"3px 8px", border:"none", borderRadius:5, background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:11, fontWeight:700 }}>🗑️ Supprimer</button>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:8 }}>
+            {fields.map(f => (
+              <div key={f.key}>
+                <label style={{ fontSize:11, fontWeight:600, color:"#374151", display:"block", marginBottom:3 }}>{f.label}</label>
+                {f.multiline
+                  ? <textarea value={item[f.key]||""} rows={2} onChange={e => { const u=[...list]; u[i]={...u[i],[f.key]:e.target.value}; setModal(m=>({...m,data:{...m.data,[field]:u}})); }}
+                      style={{ width:"100%", padding:"6px 9px", border:"1px solid #e5e7eb", borderRadius:6, fontSize:12, resize:"vertical", boxSizing:"border-box" }} />
+                  : <input value={item[f.key]||""} onChange={e => { const u=[...list]; u[i]={...u[i],[f.key]:e.target.value}; setModal(m=>({...m,data:{...m.data,[field]:u}})); }}
+                      style={{ width:"100%", padding:"6px 9px", border:"1px solid #e5e7eb", borderRadius:6, fontSize:12, boxSizing:"border-box" }} />
+                }
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <button onClick={() => { const empty={}; fields.forEach(f=>{empty[f.key]="";}); setModal(m=>({...m,data:{...m.data,[field]:[...list,empty]}})); }}
+        style={{ alignSelf:"flex-start", padding:"6px 12px", background:"#f1f5f9", border:"1px dashed #94a3b8", borderRadius:7, fontSize:11, color:"#475569", cursor:"pointer", fontWeight:600 }}>
+        ➕ Ajouter
+      </button>
+    </div>
+  );
+};
 
 /* ═══════════════════════════════════════════════════════
    COMPOSANT PRINCIPAL
@@ -549,6 +650,7 @@ export default function SuperAdminDashboard() {
   const [auditLog, setAuditLog] = useState(GLOBAL_AUDIT);
   const [filtreRole, setFiltreRole] = useState("Tous");
   const [filtreStatut, setFiltreStatut] = useState("Tous");
+  const [filtreCentre, setFiltreCentre] = useState("Tous");
   const [searchUser, setSearchUser] = useState("");
   const [editingRole, setEditingRole] = useState("admin");
   const [filtreAudit, setFiltreAudit] = useState("Tous");
@@ -652,7 +754,6 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => { if (activeTab === "assistantes") fetchAssistantesAdmin(); }, [activeTab]);
   useEffect(() => { fetchCentresList(); }, []);
-  useEffect(() => { if (activeTab === "temoignages") fetchTemos(); }, [activeTab]);
 
   const temoAction = async (id, updates) => {
     try {
@@ -919,13 +1020,20 @@ export default function SuperAdminDashboard() {
   const usersFiltres = useMemo(() => {
     let r = [...users];
     if (filtreRole !== "Tous") r = r.filter(u => u.role === filtreRole);
+    if (filtreCentre !== "Tous") {
+      if (filtreCentre === "national") {
+        r = r.filter(u => !u.scope || u.scope.includes("national") || u.role === "super_admin");
+      } else {
+        r = r.filter(u => u.scope && u.scope.includes(filtreCentre));
+      }
+    }
     if (filtreStatut === "Actifs") r = r.filter(u => u.actif);
     if (filtreStatut === "Inactifs") r = r.filter(u => !u.actif);
     if (filtreStatut === "Sans 2FA") r = r.filter(u => !u.twofa);
     if (filtreStatut === "En ligne") r = r.filter(u => onlineUsers.includes(u.id));
     if (searchUser) r = r.filter(u => u.nom.toLowerCase().includes(searchUser.toLowerCase()) || u.email.toLowerCase().includes(searchUser.toLowerCase()));
     return r;
-  }, [users, filtreRole, filtreStatut, searchUser, onlineUsers]);
+  }, [users, filtreRole, filtreCentre, filtreStatut, searchUser, onlineUsers]);
 
   const auditFiltres = useMemo(() => {
     if (filtreAudit === "Tous") return auditLog;
@@ -1245,16 +1353,60 @@ export default function SuperAdminDashboard() {
     } catch { toast.error("Erreur suppression"); }
   };
 
-  useEffect(() => { if (activeTab === "blog_comments") fetchBlogComments(); }, [activeTab]);
 
-  useEffect(() => { if (activeTab === "boutique") { fetchProduits(); fetchCommandes(); } }, [activeTab]);
-  useEffect(() => { if (activeTab === "boutique" && boutiqueSubTab === "commandes") fetchCommandes(); }, [cmdFiltreStatut]);
+  const fetchApprenants = async () => {
+    setLoadingApprenants(true);
+    try {
+      const res  = await fetch(`${API_URL}/api/parcours/assignations`, { headers: authHeaders() });
+      const data = await res.json();
+      const all  = (data.assignations || []).map(a => ({
+        id:              a.id,
+        nom:             a.prospect_nom       || "—",
+        email:           a.prospect_email     || "—",
+        telephone:       a.prospect_telephone || "—",
+        type_cours:      a.type_cours         || "—",
+        type_coaching:   a.type_coaching      || "—",
+        centre_id:       a.centre_id          || null,
+        centre_nom:      a.centre_nom         || null,
+        statut:          a.statut             || "nouveau",
+        statut_paiement: a.statut_paiement    || null,
+        mode_paiement:   a.mode_paiement      || null,
+        commercial:      a.assistante_nom     || "—",
+        created_at:      a.created_at,
+      }));
+      setApprenants(all);
+    } catch(e) { console.error("Erreur chargement apprenants", e); }
+    finally { setLoadingApprenants(false); }
+  };
+  useEffect(() => { if (activeTab === "apprenants") fetchApprenants(); }, [activeTab]);
 
   // États pour les onglets Coachs & Apprenants
   const [selectedCoach,     setSelectedCoach]     = useState(null);
   const [selectedApprenant, setSelectedApprenant] = useState(null);
   const [coachSubTab,       setCoachSubTab]       = useState("liste");
-  const [apprenantFiltre,   setApprenantFiltre]   = useState({ niveau:"Tous", centre:"Tous", statut:"Tous", search:"" });
+  const [apprenantFiltre,   setApprenantFiltre]   = useState({ type_cours:"Tous", centre:"Tous", statut:"Tous", search:"" });
+  const [apprenants,        setApprenants]        = useState([]);
+  const [loadingApprenants, setLoadingApprenants] = useState(false);
+  const [apprenantPage,     setApprenantPage]     = useState(1);
+  const APPRENANTS_PER_PAGE = 20;
+
+  // États Paiements
+  const [paiements,        setPaiements]        = useState([]);
+  const [loadingPaiements, setLoadingPaiements] = useState(false);
+  const [paiementPage,     setPaiementPage]     = useState(1);
+  const [paiementFiltre,   setPaiementFiltre]   = useState({ statut:"Tous", mode:"Tous", search:"" });
+  const PAIEMENTS_PER_PAGE = 25;
+
+  const fetchPaiements = async () => {
+    setLoadingPaiements(true);
+    try {
+      const res  = await fetch(`${API_URL}/api/paiements/all`, { headers: authHeaders() });
+      const data = await res.json();
+      setPaiements(data.paiements || []);
+    } catch(e) { console.error("Erreur chargement paiements", e); }
+    finally { setLoadingPaiements(false); }
+  };
+  useEffect(() => { if (activeTab === "paiements") fetchPaiements(); }, [activeTab]);
 
   // Onglets principaux (élargis)
   const tabs = [
@@ -1268,16 +1420,13 @@ export default function SuperAdminDashboard() {
     { key: "offres",        label: "Offres & Formations",    icon: "🎓" },
     { key: "ca",            label: "Chiffre d'affaires",     icon: "💰" },
     { key: "paiements",     label: "Paiements",              icon: "💳" },
-    { key: "progression",   label: "Progression apprenants", icon: "📈" },
     { key: "support",       label: "Requêtes & Support",     icon: "🛠️" },
+    { key: "progression",   label: "Progression apprenants", icon: "📈" },
     { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
-    { key: "apprenants",    label: "Apprenants",             icon: "🎓",  badge: APPRENANTS_MOCK.length },
+    { key: "apprenants",    label: "Apprenants",             icon: "🎓",  badge: apprenants.length || null },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
-    { key: "temoignages",   label: "Témoignages",            icon: "⭐",  badge: temosPending||null, danger: temosPending>0 },
-    { key: "boutique",      label: "Boutique",               icon: "🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
-    { key: "blog_comments", label: "Commentaires Blog",      icon: "💬",  badge: blogComments.length || null },
   ];
 
   const permTabs = [
@@ -1293,7 +1442,337 @@ export default function SuperAdminDashboard() {
     { key:"general",       label:"Paramètres généraux", icon:"⚙️" },
     { key:"whatsapp",      label:"Messages WhatsApp",   icon:"💬" },
     { key:"coachs_photos", label:"Équipe Coachs",       icon:"👨‍🏫" },
+    { key:"marquee",          label:"Marquee",             icon:"📢" },
+    { key:"centres",          label:"Nos centres",         icon:"📍" },
+    { key:"offres_en_ligne",  label:"Offres En ligne",     icon:"💻" },
+    { key:"offres_domicile",  label:"Offres À domicile",   icon:"🏠" },
+    { key:"certifications",   label:"Certifications",       icon:"🏆" },
+    { key:"temoignages",      label:"Témoignages",          icon:"⭐", badge: temosPending||null, danger: temosPending>0 },
+    { key:"boutique",         label:"Boutique",             icon:"🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
+    { key:"blog_comments",    label:"Commentaires Blog",    icon:"💬", badge: blogComments.length || null },
   ];
+  // useEffects dépendant de platformSubTab (déclarés après useState)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "temoignages") fetchTemos(); }, [activeTab, platformSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "blog_comments") fetchBlogComments(); }, [activeTab, platformSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "boutique") { fetchProduits(); fetchCommandes(); } }, [activeTab, platformSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "boutique" && boutiqueSubTab === "commandes") fetchCommandes(); }, [cmdFiltreStatut]);
+
+  // ── Marquee ─────────────────────────────────────────────────────────────
+  const [marqueeMessages, setMarqueeMessages] = useState([]);
+  const [marqueeLoading,  setMarqueeLoading]  = useState(false);
+  const [marqueeForm,     setMarqueeForm]     = useState(null); // null=fermé
+  const [marqueeSavingId, setMarqueeSavingId] = useState(null);
+  const [marqueePage,     setMarqueePage]     = useState(1);
+  const MARQUEE_PER_PAGE = 5;
+
+  // ── Centres master (source de vérité partagée) ───────────────────────────────
+  const CENTRES_MASTER_KEY = "bet_centres_master";
+  const CENTRES_BET_COLORS = ["#25d366","#facc15","#0891b2","#a855f7","#f97316","#ef4444","#8b5cf6","#ec4899","#14b8a6","#f59e0b"];
+  const DEFAULT_OFFRES = [
+    { id:"cours_groupe",  label:"Cours en groupe",          actif:true,  prix:"30 000 F/mois", duration:"Sans engagement", desc:"Sessions hebdomadaires en petits groupes de 4–8 apprenants.", brochure_url:"", brochure_nom:"" },
+    { id:"cours_prives",  label:"Cours privés",             actif:true,  prix:"50 000 F/mois", duration:"Sans engagement", desc:"Coaching 1-pour-1 avec un formateur certifié.",               brochure_url:"", brochure_nom:"" },
+    { id:"toeic_prep",    label:"Préparation TOEIC",        actif:true,  prix:"45 000 F/mois", duration:"2 mois",          desc:"Programme intensif pour viser 750+ dès le 1er passage.",     brochure_url:"", brochure_nom:"" },
+    { id:"ielts_prep",    label:"Préparation IELTS",        actif:false, prix:"45 000 F/mois", duration:"2 mois",          desc:"Entraînement complet aux 4 compétences IELTS.",               brochure_url:"", brochure_nom:"" },
+    { id:"toefl_prep",    label:"Préparation TOEFL",        actif:false, prix:"45 000 F/mois", duration:"2 mois",          desc:"Préparation ciblée au TOEFL iBT.",                            brochure_url:"", brochure_nom:"" },
+    { id:"enfants",       label:"Cours enfants (6–17 ans)", actif:true,  prix:"20 000 F/mois", duration:"Sans engagement", desc:"Méthodes ludiques adaptées à chaque tranche d'âge.",          brochure_url:"", brochure_nom:"" },
+    { id:"entreprise",    label:"Formation entreprises",    actif:true,  prix:"Sur devis",      duration:"Sur mesure",      desc:"Programmes sur-mesure pour vos équipes (min. 5 employés).",   brochure_url:"", brochure_nom:"" },
+  ];
+  const DEFAULT_CTA = { rdv:{ actif:true, lien:"/contact" }, inscrire:{ actif:true, lien:"/parcours/particulier" }, contact:{ actif:true, lien:"/contact" } };
+  const DEFAULT_ADVANTAGES = ["Groupes de 6 personnes maximum","Matériel pédagogique fourni","Certification officielle en fin de stage","Suivi personnalisé par un formateur certifié"];
+  const DEFAULT_CABINET = { subtitle:"", hero_image:"", advantages:[...DEFAULT_ADVANTAGES], testimonials:[], faq:[] };
+  const CENTRES_MASTER_DEFAULT = [
+    { key:"angre",    name:"BET Angré",       ville:"Abidjan",     addr:"Angré 7ème Tranche, Abidjan",    lat:5.3699, lng:-3.9674, color:"#25d366", actif:true, description:"Centre phare d'Abidjan-Cocody, dans un cadre moderne et accessible.",           horaires:"Lun–Ven : 08h–19h | Sam : 09h–17h", telephone:"+225 07 00 000 001", email:"angre@bet-ci.com",    photos:[], brochure_url:"", brochure_nom:"Brochure BET Angré.pdf",       maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000001",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré."},{nom:"Assistante 2",phone:"2250700000011",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Angré."}], ...DEFAULT_CABINET },
+    { key:"bouake",   name:"BET Bouaké",      ville:"Bouaké",      addr:"Centre-Ville, Bouaké",            lat:7.6936, lng:-5.0232, color:"#facc15", actif:true, description:"Le seul centre BET hors Abidjan — au cœur de la capitale économique du centre.", horaires:"Lun–Ven : 08h–18h30 | Sam : 09h–15h", telephone:"+225 07 00 000 002", email:"bouake@bet-ci.com",   photos:[], brochure_url:"", brochure_nom:"Brochure BET Bouaké.pdf",      maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000002",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké."},{nom:"Assistante 2",phone:"2250700000022",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Bouaké."}], ...DEFAULT_CABINET },
+    { key:"plateaux", name:"BET II Plateaux", ville:"Abidjan",     addr:"Riviera II Plateaux, Abidjan",   lat:5.3611, lng:-4.0103, color:"#0891b2", actif:true, description:"Situé au cœur des Deux-Plateaux, quartier résidentiel et d'affaires.",             horaires:"Lun–Ven : 08h–19h | Sam : 09h–17h", telephone:"+225 07 00 000 003", email:"plateaux@bet-ci.com", photos:[], brochure_url:"", brochure_nom:"Brochure BET II Plateaux.pdf", maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000003",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux."},{nom:"Assistante 2",phone:"2250700000033",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET II Plateaux."}], ...DEFAULT_CABINET },
+    { key:"yopougon", name:"BET Yopougon",    ville:"Abidjan",     addr:"Yopougon Sicogi, Abidjan",       lat:5.3264, lng:-4.0709, color:"#a855f7", actif:true, description:"Desservant le plus grand quartier populaire d'Afrique de l'Ouest.",               horaires:"Lun–Ven : 08h–18h30 | Sam : 09h–15h", telephone:"+225 07 00 000 004", email:"yopougon@bet-ci.com", photos:[], brochure_url:"", brochure_nom:"Brochure BET Yopougon.pdf",    maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000004",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon."},{nom:"Assistante 2",phone:"2250700000044",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Yopougon."}], ...DEFAULT_CABINET },
+    { key:"koumassi", name:"BET Koumassi",    ville:"Abidjan",     addr:"Koumassi Remblai, Abidjan",      lat:5.3001, lng:-3.9500, color:"#f97316", actif:true, description:"Centre stratégique desservant les communes du sud d'Abidjan.",                    horaires:"Lun–Ven : 08h–18h30 | Sam : 09h–15h", telephone:"+225 07 00 000 005", email:"koumassi@bet-ci.com", photos:[], brochure_url:"", brochure_nom:"Brochure BET Koumassi.pdf",   maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000005",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi."},{nom:"Assistante 2",phone:"2250700000055",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Koumassi."}], ...DEFAULT_CABINET },
+    { key:"abatta",   name:"BET Abatta",      ville:"Grand-Bassam",addr:"Abatta, Grand-Bassam",            lat:5.2667, lng:-3.8333, color:"#ef4444", actif:true, description:"Centre BET desservant la zone côtière Grand-Bassam / Assinie.",                   horaires:"Lun–Ven : 08h–18h | Sam : 09h–14h",   telephone:"+225 07 00 000 006", email:"abatta@bet-ci.com",   photos:[], brochure_url:"", brochure_nom:"Brochure BET Abatta.pdf",     maps_url:"", maps_embed:"", cta:{...DEFAULT_CTA}, offres:[...DEFAULT_OFFRES], assistantes:[{nom:"Assistante 1",phone:"2250700000006",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta."},{nom:"Assistante 2",phone:"2250700000066",message:"Bonjour, je souhaite avoir des informations sur les cours d'anglais chez BET Abatta."}], ...DEFAULT_CABINET },
+  ];
+
+  const readCentresMaster = () => {
+    try {
+      const s = localStorage.getItem(CENTRES_MASTER_KEY);
+      if (s) {
+        const parsed = JSON.parse(s);
+        return CENTRES_MASTER_DEFAULT.map(def => {
+          const saved = parsed.find(c => c.key === def.key);
+          return saved ? { ...def, ...saved, offres: saved.offres || def.offres, assistantes: saved.assistantes || def.assistantes, advantages: saved.advantages || def.advantages, testimonials: saved.testimonials || def.testimonials, faq: saved.faq || def.faq } : def;
+        }).concat(parsed.filter(c => !CENTRES_MASTER_DEFAULT.find(d => d.key === c.key)));
+      }
+      return CENTRES_MASTER_DEFAULT;
+    } catch { return CENTRES_MASTER_DEFAULT; }
+  };
+
+  const saveCentresMaster = async (data) => {
+    // 1. localStorage local (même onglet)
+    localStorage.setItem(CENTRES_MASTER_KEY, JSON.stringify(data));
+    const waCompat = data.filter(c => c.actif !== false).map(c => ({ key:c.key, name:c.name.replace("BET ",""), color:c.color, commerciaux:[], assistantes:c.assistantes||[] }));
+    localStorage.setItem("bet_centers_config", JSON.stringify(waCompat));
+    window.dispatchEvent(new StorageEvent("storage", { key: CENTRES_MASTER_KEY, newValue: JSON.stringify(data) }));
+    window.dispatchEvent(new StorageEvent("storage", { key: "bet_centers_config", newValue: JSON.stringify(waCompat) }));
+
+    // 2. Supabase (source de vérité partagée — accessible par le Frontend)
+    try {
+      await supabase.from("plateforme_config").upsert(
+        { key: "centres_master", valeur: data, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+      await supabase.from("plateforme_config").upsert(
+        { key: "centres_wa", valeur: waCompat, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+    } catch (e) { console.error("Supabase sync centres:", e); }
+  };
+
+  const [centresMaster,      setCentresMaster]      = useState(readCentresMaster);
+  useEffect(() => {
+    supabase.from("plateforme_config").select("valeur").eq("key","centres_master").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem(CENTRES_MASTER_KEY, JSON.stringify(data.valeur));
+          setCentresMaster(data.valeur);
+        }
+      });
+  }, []); // eslint-disable-line
+  const [centreEditKey,       setCentreEditKey]       = useState(null);
+  const [centreEditData,      setCentreEditData]      = useState(null);
+  const [centresSaving,       setCentresSaving]       = useState(false);
+  const [newPhotoUrl,         setNewPhotoUrl]         = useState("");
+  // ── Offres En ligne & À domicile ────────────────────────────────────────────
+  const DEFAULT_OFFRES_EN_LIGNE = [
+    { id:"el_groupe", label:"Coaching de groupe",     prix:"25 000 F/mois", duration:"Sans engagement", desc:"Sessions Zoom hebdomadaires, groupes de 5 apprenants max.",             actif:true,  icon:"👥" },
+    { id:"el_prive",  label:"Coaching privé",          prix:"45 000 F/mois", duration:"Sans engagement", desc:"Suivi individuel en visio avec un formateur certifié.",                actif:true,  icon:"👤" },
+    { id:"el_toeic",  label:"Prépa TOEIC en ligne",    prix:"40 000 F/mois", duration:"2 mois",          desc:"Programme intensif pour viser 750+ dès le 1er passage.",              actif:false, icon:"🎯" },
+    { id:"el_enfant", label:"Cours enfants en ligne",   prix:"20 000 F/mois", duration:"Sans engagement", desc:"Méthodes ludiques adaptées à chaque tranche d'âge (6–17 ans).",      actif:false, icon:"🎓" },
+  ];
+  const DEFAULT_OFFRES_DOMICILE = [
+    { id:"dom_prive",  label:"Cours privé à domicile",  prix:"Sur devis", duration:"Sur mesure", desc:"Un coach certifié se déplace chez vous. Tarif selon zone géographique.", actif:true,  icon:"🏠" },
+    { id:"dom_enfant", label:"Cours enfant à domicile",  prix:"Sur devis", duration:"Sur mesure", desc:"Coach spécialisé jeunesse, programme adapté à l'âge de l'enfant.",       actif:true,  icon:"👧" },
+    { id:"dom_groupe", label:"Groupe chez vous",          prix:"Sur devis", duration:"Sur mesure", desc:"Organisez un groupe chez vous — tarif partagé entre participants.",        actif:false, icon:"👥" },
+  ];
+  const DEFAULT_CERTIF_CONFIG = {
+    toeic: {
+      name:"TOEIC", fullName:"Test of English for International Communication",
+      tagline:"La certification anglais n°1 en entreprise — reconnue par 14 000 employeurs",
+      heroImage:"https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=1600&q=80",
+      level:"B1 → C1", duration:"6 semaines", price:"390 000 FCFA", oldPrice:"500 000 FCFA", discount:"22%",
+      rating:4.9, ratingCount:1248, students:5200,
+      description:"Le TOEIC est la référence mondiale pour évaluer vos compétences en anglais professionnel. Un score TOEIC reconnu ouvre les portes des entreprises internationales.",
+      whatYouLearn:["Maîtriser le Listening (200 points)","Stratégies Reading avancées","Vocabulaire professionnel ciblé","15 tests blancs corrigés","Techniques anti-stress d'examen","Score garanti 700+"],
+      examStructure:[
+        {section:"Listening",duration:"45 min",questions:"100 questions",desc:"Photographies, questions/réponses, courtes conversations, discours"},
+        {section:"Reading",duration:"75 min",questions:"100 questions",desc:"Phrases incomplètes, textes à compléter, lecture de passages"},
+      ],
+      preparationProgram:{weeks:6,hoursPerWeek:8,sessions:48,details:"6 semaines intensives. 2 sessions de 4h par semaine. Accès illimité aux ressources + 15 tests blancs + coaching individuel."},
+      benefits:["Reconnu par 14 000 entreprises dans le monde","Améliore votre CV immédiatement","Exigé pour de nombreux postes internationaux","Valable 2 ans — renouvelable","Score précis de 10 à 990"],
+      includes:[{icon:"🎥",label:"48 sessions de cours"},{icon:"📝",label:"15 tests blancs complets"},{icon:"📄",label:"Guide de stratégies PDF"},{icon:"📱",label:"Application mobile"},{icon:"∞",label:"Accès illimité à vie"},{icon:"🏆",label:"Certificat BET + TOEIC officiel"},{icon:"👤",label:"Coach personnel dédié"}],
+      whyChoose:"BET est centre officiel ETS pour le TOEIC en Côte d'Ivoire. Nos apprenants obtiennent en moyenne 780 points dès leur premier passage. Taux de réussite au score cible : 96%.",
+      faq:[
+        {q:"Quelle est la durée de validité du TOEIC ?",a:"Le TOEIC est valable 2 ans à partir de la date de l'examen."},
+        {q:"Quel score pour être compétitif ?",a:"Un score de 785+ est considéré professionnel. Pour le management international, 900+ est recommandé."},
+        {q:"L'examen se passe-t-il chez BET ?",a:"Oui, BET est centre officiel ETS. L'examen a lieu dans nos locaux dans des conditions officielles."},
+      ],
+    },
+    ielts: {
+      name:"IELTS", fullName:"International English Language Testing System",
+      tagline:"La certification anglais pour étudier et migrer dans les pays anglophones",
+      heroImage:"https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1200&q=80",
+      level:"B1 → C2", duration:"6 à 10 semaines", price:"210 000 FCFA", oldPrice:"", discount:"",
+      rating:4.8, ratingCount:856, students:3400,
+      description:"L'IELTS est le test d'anglais le plus populaire pour étudier, travailler ou migrer dans les pays anglophones (Royaume-Uni, Australie, Canada).",
+      whatYouLearn:["Maîtriser les 4 compétences","Techniques de Reading académique","Speaking avec locuteurs natifs","Writing Task 1 & 2","Listening strategies","Band 7+ garanti"],
+      examStructure:[
+        {section:"Listening",duration:"30 min",questions:"40 questions",desc:"Enregistrements variés — conversations et monologues"},
+        {section:"Reading",duration:"60 min",questions:"40 questions",desc:"3 passages longs — 500 à 900 mots chacun"},
+        {section:"Writing",duration:"60 min",questions:"2 tâches",desc:"Task 1 (rapport/lettre) + Task 2 (essai argumentatif)"},
+        {section:"Speaking",duration:"11–14 min",questions:"3 parties",desc:"Interview individuelle, long turn, discussion thématique"},
+      ],
+      preparationProgram:{weeks:8,hoursPerWeek:9,sessions:36,details:"8 semaines de préparation complète avec simulations d'examen et corrections détaillées."},
+      benefits:["Reconnu par plus de 10 000 organisations dans le monde","Idéal pour l'immigration au Canada, Australie, NZ","Deux versions : Academic et General Training","Évaluation de l'anglais réel (accents variés)"],
+      includes:[{icon:"🎥",label:"36 sessions de cours"},{icon:"📝",label:"8 simulations complètes"},{icon:"👤",label:"Coach personnel"},{icon:"📄",label:"Fiches de stratégies"},{icon:"🏆",label:"Certificat BET + IELTS officiel"}],
+      whyChoose:"Nous proposons une préparation IELTS avec des examinateurs certifiés. Bénéficiez de 8 simulations complètes et d'un plan de progression personnalisé. Taux de réussite : 94%.",
+      faq:[
+        {q:"IELTS Academic vs General Training ?",a:"Academic pour les études universitaires. General Training pour l'immigration et la formation professionnelle."},
+        {q:"Combien de fois puis-je passer l'IELTS ?",a:"Autant de fois que nécessaire, sans délai minimum entre les passages."},
+      ],
+    },
+    toefl: {
+      name:"TOEFL", fullName:"Test of English as a Foreign Language",
+      tagline:"La certification académique pour intégrer les meilleures universités du monde",
+      heroImage:"https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1200&q=80",
+      level:"B2 → C2", duration:"8 semaines", price:"220 000 FCFA", oldPrice:"", discount:"",
+      rating:4.7, ratingCount:632, students:2100,
+      description:"Le TOEFL est le test d'anglais académique le plus reconnu pour entrer dans les universités américaines, canadiennes et européennes.",
+      whatYouLearn:["Reading académique avancé","Listening académique","Speaking structuré","Writing intégré","Gestion du temps en examen","Score 100+ iBT garanti"],
+      examStructure:[
+        {section:"Reading",duration:"54–72 min",questions:"30–40 questions",desc:"3–4 passages académiques de 700 mots chacun"},
+        {section:"Listening",duration:"41–57 min",questions:"28–39 questions",desc:"Conférences et conversations académiques enregistrées"},
+        {section:"Speaking",duration:"17 min",questions:"4 tâches",desc:"Integrated et Independent speaking tasks chronométrés"},
+        {section:"Writing",duration:"50 min",questions:"2 tâches",desc:"Integrated writing + Independent essay argumentatif"},
+      ],
+      preparationProgram:{weeks:8,hoursPerWeek:10,sessions:40,details:"8 semaines intensives avec accès à une plateforme exclusive (+500 exercices), corrigés types et sessions de speaking en petit groupe avec des natifs."},
+      benefits:["Admission dans plus de 11 000 universités dans le monde","Test complet évaluant les 4 compétences","Reconnu par les gouvernements pour l'immigration","Valable 2 ans"],
+      includes:[{icon:"🎥",label:"40 sessions de cours"},{icon:"📝",label:"6 tests blancs complets"},{icon:"💻",label:"Accès plateforme exclusive"},{icon:"🗣️",label:"Sessions speaking natifs"},{icon:"🏆",label:"Certificat BET + TOEFL officiel"}],
+      whyChoose:"Notre préparation TOEFL vous offre un accès à une plateforme exclusive avec +500 exercices, des corrigés types, et des sessions de speaking en petit groupe avec des natifs.",
+      faq:[
+        {q:"TOEFL iBT vs TOEFL Essentials ?",a:"Le TOEFL iBT est la version standard pour les universités. TOEFL Essentials est plus court et flexible."},
+        {q:"Quel score pour les top universités ?",a:"100+ iBT pour la plupart des grandes universités. Certaines (Harvard, MIT) demandent 110+."},
+      ],
+    },
+  };
+  const readOffresEnLigne  = () => { try { const s=localStorage.getItem("bet_offres_en_ligne");  return s ? JSON.parse(s) : DEFAULT_OFFRES_EN_LIGNE;  } catch { return DEFAULT_OFFRES_EN_LIGNE;  } };
+  const readOffresDomicile = () => { try { const s=localStorage.getItem("bet_offres_domicile"); return s ? JSON.parse(s) : DEFAULT_OFFRES_DOMICILE; } catch { return DEFAULT_OFFRES_DOMICILE; } };
+  const saveOffresEnLigne  = async (data) => {
+    localStorage.setItem("bet_offres_en_ligne", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_offres_en_ligne", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"offres_en_ligne", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase offres_en_ligne:", e); }
+  };
+  const saveOffresDomicile = async (data) => {
+    localStorage.setItem("bet_offres_domicile", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_offres_domicile", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"offres_domicile", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase offres_domicile:", e); }
+  };
+  const [offresEnLigne,  setOffresEnLigne]  = useState(readOffresEnLigne);
+  const [offresDomicile, setOffresDomicile] = useState(readOffresDomicile);
+  useEffect(() => {
+    supabase.from("plateforme_config").select("valeur").eq("key","offres_en_ligne").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem("bet_offres_en_ligne", JSON.stringify(data.valeur));
+          setOffresEnLigne(data.valeur);
+        }
+      });
+    supabase.from("plateforme_config").select("valeur").eq("key","offres_domicile").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem("bet_offres_domicile", JSON.stringify(data.valeur));
+          setOffresDomicile(data.valeur);
+        }
+      });
+  }, []); // eslint-disable-line
+  const [offreEditModal, setOffreEditModal] = useState(null); // { mode:"en_ligne"|"domicile", idx, data }
+
+  // ── Config page Aperçu (CourseDetail) ────────────────────────────────────
+  const DEFAULT_COURSE_APERCU = {
+    en_ligne: {
+      description:"Nos cours en ligne vous offrent une flexibilité totale. Suivez vos leçons en direct ou en replay, accédez à une plateforme interactive et progressez avec un suivi personnalisé.",
+      advantages:["Accès 24/7 à la plateforme e-learning","Classes en visio avec des professeurs natifs","Exercices interactifs et corrections automatiques","Certification de fin de formation incluse"],
+      whatYouLearn:["Maîtriser la communication professionnelle en anglais","Préparer et réussir TOEIC, TOEFL ou IELTS","Rédiger des emails, rapports et présentations en anglais","Conduire des réunions et négociations internationales"],
+      includes:[{icon:"🎥",label:"Sessions vidéo en direct"},{icon:"📱",label:"Accès mobile & tablette"},{icon:"∞",label:"Accès illimité à vie"},{icon:"🏆",label:"Certificat de fin de formation"}],
+      requirements:["Niveau A2 minimum en anglais","Un ordinateur avec webcam et connexion internet stable","30 minutes par jour de disponibilité"],
+      targetAudience:["Professionnels souhaitant évoluer dans un contexte international","Étudiants visant une certification TOEIC, TOEFL ou IELTS","Toute personne souhaitant apprendre à son rythme"],
+      faq:[{q:"Quel matériel est nécessaire ?",a:"Un ordinateur avec webcam et une connexion internet stable."},{q:"Peut-on annuler un cours ?",a:"Oui, jusqu'à 24h à l'avance sans frais."}],
+    },
+    domicile: {
+      description:"Nos cours à domicile sont conçus pour s'adapter parfaitement à votre vie. Un enseignant se déplace chez vous aux horaires que vous choisissez.",
+      advantages:["Horaires 100% flexibles","Programme personnalisé selon vos objectifs","Suivi hebdomadaire des progrès","Tarifs dégressifs selon la formule choisie"],
+      whatYouLearn:["Anglais adapté à vos objectifs personnels","Communication orale et écrite","Préparation aux certifications si souhaité","Grammaire et vocabulaire ciblés"],
+      includes:[{icon:"🏠",label:"Cours à votre domicile"},{icon:"👤",label:"Coach personnel dédié"},{icon:"📋",label:"Programme personnalisé"},{icon:"🏆",label:"Certification BET incluse"}],
+      requirements:["Espace disponible pour les cours","Engagement minimum de 4 semaines"],
+      targetAudience:["Personnes avec un emploi du temps chargé","Parents souhaitant des cours pour leurs enfants","Professionnels en reconversion"],
+      faq:[{q:"Dans quelles zones intervenez-vous ?",a:"Nous couvrons tout le grand Abidjan et plusieurs villes de l'intérieur."},{q:"Peut-on changer de professeur ?",a:"Oui, sans frais si vous n'êtes pas satisfait."}],
+    },
+  };
+  const readCourseApercu  = () => { try { const s=localStorage.getItem("bet_course_apercu_config"); return s ? JSON.parse(s) : DEFAULT_COURSE_APERCU; } catch { return DEFAULT_COURSE_APERCU; } };
+  const saveCourseApercu  = async (data) => {
+    localStorage.setItem("bet_course_apercu_config", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_course_apercu_config", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"course_apercu_config", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase course apercu:", e); }
+  };
+  const [courseApercu,          setCourseApercu]          = useState(readCourseApercu);
+  useEffect(() => {
+    supabase.from("plateforme_config").select("valeur").eq("key","course_apercu_config").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data?.valeur && typeof data.valeur === "object") {
+          localStorage.setItem("bet_course_apercu_config", JSON.stringify(data.valeur));
+          setCourseApercu(data.valeur);
+        }
+      });
+  }, []); // eslint-disable-line
+  const [courseApercuEditModal, setCourseApercuEditModal] = useState(null); // { type:"en_ligne"|"domicile", data:{} }
+  const [courseApercuSection,   setCourseApercuSection]   = useState("general");
+  const readCertifConfig = () => { try { const s=localStorage.getItem("bet_certifications_config"); return s ? JSON.parse(s) : DEFAULT_CERTIF_CONFIG; } catch { return DEFAULT_CERTIF_CONFIG; } };
+  const saveCertifConfig = async (data) => {
+    localStorage.setItem("bet_certifications_config", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_certifications_config", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"certifications_config", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase certif:", e); }
+  };
+  const [certifConfig,      setCertifConfig]      = useState(readCertifConfig);
+  useEffect(() => {
+    supabase.from("plateforme_config").select("valeur").eq("key","certifications_config").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data?.valeur && typeof data.valeur === "object") {
+          localStorage.setItem("bet_certifications_config", JSON.stringify(data.valeur));
+          setCertifConfig(data.valeur);
+        }
+      });
+  }, []); // eslint-disable-line
+  const [certifEditModal,   setCertifEditModal]   = useState(null);
+  const [certifEditSection, setCertifEditSection] = useState("general");
+
+  const [showAddCentre,       setShowAddCentre]       = useState(false);
+  const [newCentreForm,       setNewCentreForm]       = useState({ name:"", ville:"", addr:"", telephone:"", email:"", color:"#0891b2", lat:"", lng:"" });
+
+  const fetchMarquee = async () => {
+    setMarqueeLoading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const r = await fetch(`${API_URL}/api/marquee`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setMarqueeMessages(d.messages || []);
+      setMarqueePage(1);
+    } catch { toast.error("Erreur chargement marquee"); }
+    finally { setMarqueeLoading(false); }
+  };
+
+  const saveMarquee = async (form) => {
+    setMarqueeSavingId(form.id || "__new");
+    try {
+      const token = localStorage.getItem("admin_token");
+      const isEdit = !!form.id;
+      const url  = isEdit ? `${API_URL}/api/marquee/${form.id}` : `${API_URL}/api/marquee`;
+      const method = isEdit ? "PATCH" : "POST";
+      const body = {
+        texte: form.texte, code_promo: form.code_promo || null,
+        lien_url: form.lien_url || null, lien_label: form.lien_label || null,
+        date_expiration: form.date_expiration || null,
+        actif: form.actif !== false,
+        ordre: form.ordre != null ? Number(form.ordre) : undefined,
+      };
+      const r = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error((await r.json()).error || "Erreur");
+      toast.success(isEdit ? "Message mis à jour" : "Message créé");
+      setMarqueeForm(null);
+      fetchMarquee();
+    } catch (e) { toast.error(e.message); }
+    finally { setMarqueeSavingId(null); }
+  };
+
+  const deleteMarquee = async (id) => {
+    if (!window.confirm("Supprimer ce message ?")) return;
+    try {
+      const token = localStorage.getItem("admin_token");
+      await fetch(`${API_URL}/api/marquee/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Message supprimé");
+      fetchMarquee();
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const toggleMarqueeActif = async (msg) => {
+    try {
+      const token = localStorage.getItem("admin_token");
+      await fetch(`${API_URL}/api/marquee/${msg.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ actif: !msg.actif }),
+      });
+      setMarqueeMessages(prev => prev.map(m => m.id === msg.id ? { ...m, actif: !m.actif } : m));
+    } catch { toast.error("Erreur"); }
+  };
   const [coachsList, setCoachsList]           = useState([]);
   const [coachsLoading, setCoachsLoading]     = useState(false);
   const [coachsEdits, setCoachsEdits]         = useState({});
@@ -1374,6 +1853,7 @@ export default function SuperAdminDashboard() {
   }, []);
 
   useEffect(() => { if (platformSubTab === "coachs_photos") fetchCoachs(); }, [platformSubTab, fetchCoachs]);
+  useEffect(() => { if (platformSubTab === "marquee") fetchMarquee(); }, [platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveCoach = async (photo) => {
     const edits = coachsEdits[photo.id] || {};
@@ -1687,6 +2167,1862 @@ export default function SuperAdminDashboard() {
                   </div>
                 </div>
                 )}
+                {/* ── Sous-onglet : Marquee ── */}
+                {platformSubTab === "marquee" && (
+                  <div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+                      <div>
+                        <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>📢 Messages défilants (Marquee)</h3>
+                        <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Ces messages s'affichent en bandeau sur la page d'accueil. Seuls les messages actifs et non expirés sont visibles.</p>
+                      </div>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button onClick={fetchMarquee} style={{ padding:"8px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+                        <button onClick={() => setMarqueeForm({ texte:"", code_promo:"", lien_url:"", lien_label:"", date_expiration:"", actif:true })} style={{ padding:"8px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Nouveau message</button>
+                      </div>
+                    </div>
+
+                    {/* Aperçu live */}
+                    {marqueeMessages.filter(m => m.actif).length > 0 && (
+                      <div style={{ marginBottom:16, background:"#0f172a", borderRadius:10, padding:"10px 16px", overflow:"hidden", position:"relative" }}>
+                        <div style={{ fontSize:11, color:"#64748b", marginBottom:6, fontWeight:600 }}>APERÇU BANDEAU</div>
+                        <div style={{ display:"flex", gap:20, overflow:"hidden", whiteSpace:"nowrap" }}>
+                          {marqueeMessages.filter(m => m.actif).map((m, i) => (
+                            <span key={i} style={{ fontSize:12, color:"#e2e8f0", flexShrink:0 }}>
+                              {m.texte}
+                              {m.code_promo && <span style={{ marginLeft:6, background:"#fbbf24", color:"#78350f", padding:"1px 6px", borderRadius:4, fontWeight:700, fontSize:11 }}>{m.code_promo}</span>}
+                              {m.lien_url && <span style={{ marginLeft:6, color:"#38bdf8", textDecoration:"underline", fontSize:11 }}>{m.lien_label || m.lien_url}</span>}
+                              <span style={{ marginLeft:12, color:"#334155" }}>·</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Formulaire création / édition */}
+                    {marqueeForm && (
+                      <div style={{ background:"#f8fafc", border:`1.5px solid ${BET_COLOR}33`, borderRadius:12, padding:20, marginBottom:20 }}>
+                        <h4 style={{ margin:"0 0 14px", fontSize:14, fontWeight:700, color:"#0f172a" }}>
+                          {marqueeForm.id ? "✏️ Modifier le message" : "➕ Nouveau message"}
+                        </h4>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                          <div style={{ gridColumn:"1 / -1" }}>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Texte du message *</label>
+                            <input value={marqueeForm.texte} onChange={e => setMarqueeForm(p => ({ ...p, texte: e.target.value }))}
+                              placeholder="🎁 Offre spéciale · -15% sur l'inscription en ligne !"
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Code promo (optionnel)</label>
+                            <input value={marqueeForm.code_promo} onChange={e => setMarqueeForm(p => ({ ...p, code_promo: e.target.value }))}
+                              placeholder="BET2024"
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Lien de redirection (optionnel)</label>
+                            <input value={marqueeForm.lien_url} onChange={e => setMarqueeForm(p => ({ ...p, lien_url: e.target.value }))}
+                              placeholder="https://bet-languages.com/offre"
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Texte du lien</label>
+                            <input value={marqueeForm.lien_label} onChange={e => setMarqueeForm(p => ({ ...p, lien_label: e.target.value }))}
+                              placeholder="En savoir plus →"
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Date d'expiration (optionnel)</label>
+                            <input type="datetime-local" value={marqueeForm.date_expiration}
+                              onChange={e => setMarqueeForm(p => ({ ...p, date_expiration: e.target.value }))}
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Ordre d'affichage</label>
+                            <input type="number" value={marqueeForm.ordre ?? ""} onChange={e => setMarqueeForm(p => ({ ...p, ordre: e.target.value }))}
+                              placeholder="0"
+                              style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:20 }}>
+                            <ToggleSwitch on={marqueeForm.actif !== false} onChange={v => setMarqueeForm(p => ({ ...p, actif: v }))} color={BET_COLOR} />
+                            <span style={{ fontSize:13, color:"#374151" }}>Actif (visible sur le site)</span>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                          <button onClick={() => setMarqueeForm(null)} style={{ padding:"8px 16px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:7, cursor:"pointer", fontWeight:600, fontSize:13 }}>Annuler</button>
+                          <button
+                            onClick={() => saveMarquee(marqueeForm)}
+                            disabled={!marqueeForm.texte?.trim() || !!marqueeSavingId}
+                            style={{ padding:"8px 18px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:13, opacity:(!marqueeForm.texte?.trim() || !!marqueeSavingId) ? 0.6 : 1 }}>
+                            {marqueeSavingId ? "⏳ Enregistrement…" : "💾 Enregistrer"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Liste des messages */}
+                    {marqueeLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>⏳ Chargement…</div>
+                    ) : marqueeMessages.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:32, color:"#9ca3af", fontSize:13 }}>Aucun message. Créez-en un ci-dessus.</div>
+                    ) : (() => {
+                      const totalPages = Math.ceil(marqueeMessages.length / MARQUEE_PER_PAGE);
+                      const page       = Math.min(marqueePage, totalPages);
+                      const slice      = marqueeMessages.slice((page - 1) * MARQUEE_PER_PAGE, page * MARQUEE_PER_PAGE);
+                      return (
+                        <>
+                          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                            {slice.map(msg => {
+                              const isExpired = msg.date_expiration && new Date(msg.date_expiration) < new Date();
+                              return (
+                                <div key={msg.id} style={{ background:"#fff", borderRadius:10, padding:"14px 16px", border:`1px solid ${isExpired ? "#fecaca" : msg.actif ? "#d1fae5" : "#e5e7eb"}`, display:"flex", alignItems:"flex-start", gap:14, boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
+                                  {/* Ordre + toggle */}
+                                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6, minWidth:36 }}>
+                                    <span style={{ fontSize:11, fontWeight:700, color:"#9ca3af" }}>#{msg.ordre}</span>
+                                    <ToggleSwitch on={msg.actif} onChange={() => toggleMarqueeActif(msg)} color={BET_COLOR} />
+                                  </div>
+                                  {/* Contenu */}
+                                  <div style={{ flex:1, minWidth:0 }}>
+                                    <div style={{ fontSize:13, fontWeight:600, color:"#0f172a", marginBottom:4 }}>{msg.texte}</div>
+                                    <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                                      {msg.code_promo && (
+                                        <span style={{ background:"#fef3c7", color:"#92400e", padding:"2px 8px", borderRadius:5, fontSize:11, fontWeight:700 }}>🏷️ {msg.code_promo}</span>
+                                      )}
+                                      {msg.lien_url && (
+                                        <span style={{ background:"#e0f2fe", color:"#0369a1", padding:"2px 8px", borderRadius:5, fontSize:11 }}>🔗 {msg.lien_label || msg.lien_url}</span>
+                                      )}
+                                      {msg.date_expiration && (
+                                        <span style={{ background: isExpired ? "#fee2e2" : "#f0fdf4", color: isExpired ? "#dc2626" : "#166534", padding:"2px 8px", borderRadius:5, fontSize:11 }}>
+                                          {isExpired ? "⛔ Expiré" : "⏳ Exp."} {new Date(msg.date_expiration).toLocaleDateString("fr-FR", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                        </span>
+                                      )}
+                                      {!msg.actif && !isExpired && <span style={{ background:"#f1f5f9", color:"#64748b", padding:"2px 8px", borderRadius:5, fontSize:11 }}>Inactif</span>}
+                                    </div>
+                                  </div>
+                                  {/* Actions */}
+                                  <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                                    <button onClick={() => setMarqueeForm({ ...msg, date_expiration: msg.date_expiration ? msg.date_expiration.slice(0,16) : "" })}
+                                      style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>✏️</button>
+                                    <button onClick={() => deleteMarquee(msg.id)}
+                                      style={{ padding:"5px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🗑️</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* ── Pagination ── */}
+                          {totalPages > 1 && (
+                            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:16, padding:"10px 0" }}>
+                              <span style={{ fontSize:12, color:"#6b7280" }}>
+                                {(page - 1) * MARQUEE_PER_PAGE + 1}–{Math.min(page * MARQUEE_PER_PAGE, marqueeMessages.length)} sur {marqueeMessages.length} messages
+                              </span>
+                              <div style={{ display:"flex", gap:4 }}>
+                                <button onClick={() => setMarqueePage(1)} disabled={page === 1}
+                                  style={{ padding:"5px 9px", borderRadius:6, border:"1px solid #e5e7eb", background: page===1?"#f9fafb":"#fff", color: page===1?"#d1d5db":"#374151", cursor: page===1?"default":"pointer", fontSize:12, fontWeight:600 }}>«</button>
+                                <button onClick={() => setMarqueePage(p => Math.max(1, p - 1))} disabled={page === 1}
+                                  style={{ padding:"5px 9px", borderRadius:6, border:"1px solid #e5e7eb", background: page===1?"#f9fafb":"#fff", color: page===1?"#d1d5db":"#374151", cursor: page===1?"default":"pointer", fontSize:12, fontWeight:600 }}>‹</button>
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                                  <button key={p} onClick={() => setMarqueePage(p)}
+                                    style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${p===page ? BET_COLOR : "#e5e7eb"}`, background: p===page ? BET_COLOR : "#fff", color: p===page ? "#fff" : "#374151", cursor:"pointer", fontSize:12, fontWeight:700 }}>{p}</button>
+                                ))}
+                                <button onClick={() => setMarqueePage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                                  style={{ padding:"5px 9px", borderRadius:6, border:"1px solid #e5e7eb", background: page===totalPages?"#f9fafb":"#fff", color: page===totalPages?"#d1d5db":"#374151", cursor: page===totalPages?"default":"pointer", fontSize:12, fontWeight:600 }}>›</button>
+                                <button onClick={() => setMarqueePage(totalPages)} disabled={page === totalPages}
+                                  style={{ padding:"5px 9px", borderRadius:6, border:"1px solid #e5e7eb", background: page===totalPages?"#f9fafb":"#fff", color: page===totalPages?"#d1d5db":"#374151", cursor: page===totalPages?"default":"pointer", fontSize:12, fontWeight:600 }}>»</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {platformSubTab === "centres" && (
+                  <div>
+                    {/* Header */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                      <div>
+                        <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>📍 Nos centres & leurs offres</h3>
+                        <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Source de vérité partagée — Navbar, parcours et frontend se synchronisent automatiquement.</p>
+                      </div>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button onClick={() => setCentresMaster(readCentresMaster())} style={{ padding:"8px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+                        <button onClick={() => setShowAddCentre(true)} style={{ padding:"8px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Nouveau centre</button>
+                      </div>
+                    </div>
+
+                    {/* Grille des centres */}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+                      {centresMaster.map(c => (
+                        <div key={c.key} style={{ background:"#fff", borderRadius:14, border:`2px solid ${c.actif ? c.color+"33" : "#f1f5f9"}`, padding:16, boxShadow:"0 1px 6px rgba(0,0,0,.05)", opacity:c.actif?1:.65 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                            <div style={{ width:42, height:42, borderRadius:10, background:c.color+"22", border:`2px solid ${c.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0, overflow:"hidden" }}>
+                              {c.photos?.[0] ? <img src={c.photos[0]} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : "📍"}
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{c.name}</div>
+                              <div style={{ fontSize:11, color:"#64748b" }}>{c.ville}</div>
+                            </div>
+                            <span style={{ padding:"3px 8px", borderRadius:20, fontSize:10, fontWeight:700, background:c.actif?"#dcfce7":"#fee2e2", color:c.actif?"#166534":"#991b1b", flexShrink:0 }}>{c.actif ? "Actif" : "Inactif"}</span>
+                          </div>
+                          <div style={{ marginBottom:8 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Offres actives</div>
+                            <div style={{ display:"flex", flexWrap:"wrap", gap:3 }}>
+                              {(c.offres||[]).filter(o => o.actif).map(o => <span key={o.id} style={{ padding:"2px 7px", borderRadius:20, fontSize:10, fontWeight:600, background:BET_LIGHT, color:BET_COLOR }}>{o.label}</span>)}
+                              {(c.offres||[]).filter(o => o.actif).length === 0 && <span style={{ fontSize:11, color:"#94a3b8", fontStyle:"italic" }}>Aucune</span>}
+                            </div>
+                          </div>
+                          <div style={{ fontSize:11, color:"#64748b", marginBottom:8 }}>🕐 {c.horaires}</div>
+                          {c.brochure_url && <div style={{ fontSize:11, color:"#0891b2", marginBottom:8 }}>📄 Brochure configurée</div>}
+                          <div style={{ display:"flex", gap:6 }}>
+                            <button onClick={() => { setCentreEditKey(c.key); setCentreEditData(JSON.parse(JSON.stringify(c))); }}
+                              style={{ flex:1, padding:"8px 0", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                              ✏️ Modifier
+                            </button>
+                            <button onClick={() => { if(window.confirm(`Supprimer ${c.name} ?`)) { const u=centresMaster.filter(x=>x.key!==c.key); saveCentresMaster(u); setCentresMaster(u); toast.success("Centre supprimé"); } }}
+                              style={{ padding:"8px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Modal Ajouter un centre */}
+                    {showAddCentre && (
+                      <div onClick={e => { if(e.target===e.currentTarget) setShowAddCentre(false); }}
+                        style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                        <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:520, boxShadow:"0 24px 60px rgba(0,0,0,0.25)", overflow:"hidden" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 24px", borderBottom:"1px solid #f1f5f9" }}>
+                            <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a", flex:1 }}>➕ Nouveau centre BET</h3>
+                            <button onClick={() => setShowAddCentre(false)} style={{ width:30, height:30, borderRadius:8, border:"none", background:"#f1f5f9", cursor:"pointer", fontSize:16, color:"#64748b" }}>✕</button>
+                          </div>
+                          <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+                            {[
+                              { field:"name",      label:"Nom du centre",      placeholder:"BET Cocody" },
+                              { field:"ville",     label:"Ville",              placeholder:"Abidjan" },
+                              { field:"addr",      label:"Adresse physique",   placeholder:"Cocody Danga, Abidjan" },
+                              { field:"telephone", label:"Téléphone",          placeholder:"+225 07 00 000 00" },
+                              { field:"email",     label:"E-mail",             placeholder:"nouveau@bet-ci.com" },
+                            ].map(f => (
+                              <div key={f.field}>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>{f.label}</label>
+                                <input value={newCentreForm[f.field]} onChange={e => setNewCentreForm(x => ({...x,[f.field]:e.target.value}))}
+                                  placeholder={f.placeholder} style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, color:"#0f172a", background:"#fff", boxSizing:"border-box" }} />
+                              </div>
+                            ))}
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Latitude</label>
+                                <input value={newCentreForm.lat} onChange={e => setNewCentreForm(x=>({...x,lat:e.target.value}))} placeholder="5.3742" style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Longitude</label>
+                                <input value={newCentreForm.lng} onChange={e => setNewCentreForm(x=>({...x,lng:e.target.value}))} placeholder="-3.9832" style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:6 }}>Couleur</label>
+                              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                {CENTRES_BET_COLORS.map(col => (
+                                  <button key={col} onClick={() => setNewCentreForm(x=>({...x,color:col}))} type="button"
+                                    style={{ width:28, height:28, borderRadius:"50%", background:col, border:`3px solid ${newCentreForm.color===col?"#0f172a":"transparent"}`, cursor:"pointer" }} />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", gap:10, justifyContent:"flex-end", padding:"16px 24px", borderTop:"1px solid #f1f5f9", background:"#fafafa" }}>
+                            <button onClick={() => setShowAddCentre(false)} style={{ padding:"10px 20px", background:"#f1f5f9", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                            <button onClick={() => {
+                              if (!newCentreForm.name.trim() || !newCentreForm.ville.trim()) { toast.error("Nom et ville requis"); return; }
+                              const key = newCentreForm.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"_").replace(/_+/g,"_");
+                              const nouveau = {
+                                key, name:newCentreForm.name.trim(), ville:newCentreForm.ville.trim(),
+                                addr:newCentreForm.addr.trim(), lat:parseFloat(newCentreForm.lat)||0, lng:parseFloat(newCentreForm.lng)||0,
+                                color:newCentreForm.color, actif:true,
+                                description:"", horaires:"Lun–Ven : 08h–19h | Sam : 09h–17h",
+                                telephone:newCentreForm.telephone.trim(), email:newCentreForm.email.trim(),
+                                photos:[], brochure_url:"", brochure_nom:`Brochure ${newCentreForm.name.trim()}.pdf`,
+                                maps_url:"", maps_embed:"",
+                                cta:{ rdv:{actif:true,lien:"/contact"}, inscrire:{actif:true,lien:"/parcours/particulier"}, contact:{actif:true,lien:"/contact"} },
+                                offres:[...DEFAULT_OFFRES],
+                                assistantes:[
+                                  { nom:"Assistante 1", phone:"", message:`Bonjour, je souhaite avoir des informations sur les cours d'anglais chez ${newCentreForm.name.trim()}.` },
+                                ],
+                              };
+                              const updated = [...centresMaster, nouveau];
+                              saveCentresMaster(updated);
+                              setCentresMaster(updated);
+                              setShowAddCentre(false);
+                              setNewCentreForm({ name:"", ville:"", addr:"", telephone:"", email:"", color:"#0891b2", lat:"", lng:"" });
+                              toast.success(`Centre ${nouveau.name} créé`);
+                            }} style={{ padding:"10px 24px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>
+                              ✅ Créer
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Modal Modifier un centre */}
+                    {centreEditKey && centreEditData && (() => {
+                      const updateField = (field, val) => setCentreEditData(d => ({ ...d, [field]: val }));
+                      const updateOffre  = (id, field, val) => setCentreEditData(d => ({ ...d, offres: d.offres.map(o => o.id === id ? { ...o, [field]: val } : o) }));
+                      const removeOffre  = (id) => setCentreEditData(d => ({ ...d, offres: (d.offres||[]).filter(o => o.id !== id) }));
+                      const addOffre     = () => setCentreEditData(d => { const newId = `offre_${Date.now()}`; return { ...d, offres: [...(d.offres||[]), { id:newId, label:"Nouvelle offre", actif:true, prix:"", duration:"", desc:"", brochure_url:"", brochure_nom:"" }] }; });
+                      const updateCta   = (btn, field, val) => setCentreEditData(d => ({ ...d, cta:{ ...(d.cta||{}), [btn]:{ ...(d.cta?.[btn]||{}), [field]:val } } }));
+                      const addPhoto    = () => { if (!newPhotoUrl.trim()) return; setCentreEditData(d => ({ ...d, photos:[...(d.photos||[]), newPhotoUrl.trim()] })); setNewPhotoUrl(""); };
+                      const removePhoto = (idx) => setCentreEditData(d => ({ ...d, photos:(d.photos||[]).filter((_,i) => i!==idx) }));
+                      const updateAsst  = (idx, field, val) => setCentreEditData(d => ({ ...d, assistantes:d.assistantes.map((a,i) => i===idx ? {...a,[field]:val} : a) }));
+                      const addAsst     = () => setCentreEditData(d => ({ ...d, assistantes:[...(d.assistantes||[]), { nom:`Assistante ${(d.assistantes||[]).length+1}`, phone:"", message:`Bonjour, je souhaite avoir des informations sur les cours d'anglais chez ${d.name}.` }] }));
+                      const removeAsst  = (idx) => setCentreEditData(d => ({ ...d, assistantes:(d.assistantes||[]).filter((_,i) => i!==idx) }));
+                      const updateAdvantage  = (idx, val) => setCentreEditData(d => ({ ...d, advantages:(d.advantages||[]).map((a,i) => i===idx ? val : a) }));
+                      const addAdvantage     = () => setCentreEditData(d => ({ ...d, advantages:[...(d.advantages||[]), ""] }));
+                      const removeAdvantage  = (idx) => setCentreEditData(d => ({ ...d, advantages:(d.advantages||[]).filter((_,i) => i!==idx) }));
+                      const updateTestimonial= (idx, field, val) => setCentreEditData(d => ({ ...d, testimonials:(d.testimonials||[]).map((t,i) => i===idx ? {...t,[field]:val} : t) }));
+                      const addTestimonial   = () => setCentreEditData(d => ({ ...d, testimonials:[...(d.testimonials||[]), { name:"", text:"", avatar:"👤" }] }));
+                      const removeTestimonial= (idx) => setCentreEditData(d => ({ ...d, testimonials:(d.testimonials||[]).filter((_,i) => i!==idx) }));
+                      const updateFaq        = (idx, field, val) => setCentreEditData(d => ({ ...d, faq:(d.faq||[]).map((f,i) => i===idx ? {...f,[field]:val} : f) }));
+                      const addFaq           = () => setCentreEditData(d => ({ ...d, faq:[...(d.faq||[]), { q:"", a:"" }] }));
+                      const removeFaq        = (idx) => setCentreEditData(d => ({ ...d, faq:(d.faq||[]).filter((_,i) => i!==idx) }));
+                      const handleSave  = () => {
+                        setCentresSaving(true);
+                        const updated = centresMaster.map(c => c.key === centreEditKey ? centreEditData : c);
+                        saveCentresMaster(updated);
+                        setCentresMaster(updated);
+                        setCentreEditKey(null); setCentreEditData(null); setNewPhotoUrl("");
+                        setCentresSaving(false);
+                        toast.success(`Centre ${centreEditData.name} mis à jour — Navbar & parcours synchronisés`);
+                      };
+                      const closeModal = () => { setCentreEditKey(null); setCentreEditData(null); setNewPhotoUrl(""); };
+                      const iStyle = { width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, color:"#0f172a", background:"#fff", boxSizing:"border-box" };
+                      const lStyle = { fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 };
+                      const sectionTitle = (t) => <div style={{ fontSize:12, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:".06em", marginBottom:12, paddingBottom:6, borderBottom:"1px solid #f1f5f9" }}>{t}</div>;
+                      const commercialesAffilies = (users||[]).filter(u => u.role==="commercial" && (u.scope||[]).includes(centreEditData.key));
+                      return (
+                        <div onClick={e => { if(e.target===e.currentTarget) closeModal(); }}
+                          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                          <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:720, maxHeight:"90vh", display:"flex", flexDirection:"column", boxShadow:"0 24px 60px rgba(0,0,0,0.25)", overflow:"hidden" }}>
+
+                            {/* Header */}
+                            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 24px", borderBottom:"1px solid #f1f5f9", flexShrink:0 }}>
+                              <div style={{ width:36, height:36, borderRadius:10, background:centreEditData.color+"22", border:`2px solid ${centreEditData.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📍</div>
+                              <div style={{ flex:1 }}>
+                                <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a" }}>{centreEditData.name}</h3>
+                                <span style={{ fontSize:11, color:"#64748b" }}>{centreEditData.ville}</span>
+                              </div>
+                              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                                <div>
+                                  {CENTRES_BET_COLORS.map(col => (
+                                    <button key={col} onClick={() => updateField("color",col)} type="button"
+                                      style={{ width:18, height:18, borderRadius:"50%", background:col, border:`2px solid ${centreEditData.color===col?"#0f172a":"transparent"}`, cursor:"pointer", margin:"0 2px" }} />
+                                  ))}
+                                </div>
+                                <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:centreEditData.actif?"#dcfce7":"#fee2e2", color:centreEditData.actif?"#166534":"#991b1b" }}>
+                                  {centreEditData.actif ? "Actif" : "Inactif"}
+                                </span>
+                              </div>
+                              <button onClick={closeModal} style={{ width:30, height:30, borderRadius:8, border:"none", background:"#f1f5f9", cursor:"pointer", fontSize:16, color:"#64748b", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>✕</button>
+                            </div>
+
+                            {/* Corps scrollable */}
+                            <div style={{ overflowY:"auto", flex:1, padding:"20px 24px", display:"flex", flexDirection:"column", gap:22 }}>
+
+                              {/* Infos générales */}
+                              <div>
+                                {sectionTitle("Informations générales")}
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                                  <div><label style={lStyle}>Nom affiché</label><input style={iStyle} value={centreEditData.name} onChange={e => updateField("name",e.target.value)} /></div>
+                                  <div><label style={lStyle}>Ville</label><input style={iStyle} value={centreEditData.ville} onChange={e => updateField("ville",e.target.value)} /></div>
+                                  <div><label style={lStyle}>Horaires</label><input style={iStyle} value={centreEditData.horaires} onChange={e => updateField("horaires",e.target.value)} placeholder="Lun–Ven : 08h–19h | Sam : 09h–17h" /></div>
+                                  <div><label style={lStyle}>Téléphone</label><input style={iStyle} value={centreEditData.telephone} onChange={e => updateField("telephone",e.target.value)} /></div>
+                                  <div><label style={lStyle}>E-mail</label><input style={iStyle} value={centreEditData.email} onChange={e => updateField("email",e.target.value)} type="email" /></div>
+                                  <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:20 }}>
+                                    <label style={{ ...lStyle, margin:0 }}>Visible</label>
+                                    <button onClick={() => updateField("actif",!centreEditData.actif)} type="button" style={{ padding:"5px 14px", borderRadius:20, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:centreEditData.actif?"#dcfce7":"#fee2e2", color:centreEditData.actif?"#166534":"#991b1b" }}>
+                                      {centreEditData.actif ? "✅ Actif" : "❌ Inactif"}
+                                    </button>
+                                  </div>
+                                  <div style={{ gridColumn:"1/-1" }}><label style={lStyle}>Description</label><textarea style={{ ...iStyle, minHeight:64, resize:"vertical" }} value={centreEditData.description} onChange={e => updateField("description",e.target.value)} /></div>
+                                  <div><label style={lStyle}>Latitude</label><input style={iStyle} type="number" step="0.0001" value={centreEditData.lat||""} onChange={e => updateField("lat",parseFloat(e.target.value)||0)} placeholder="5.3699" /></div>
+                                  <div><label style={lStyle}>Longitude</label><input style={iStyle} type="number" step="0.0001" value={centreEditData.lng||""} onChange={e => updateField("lng",parseFloat(e.target.value)||0)} placeholder="-3.9674" /></div>
+                                </div>
+                              </div>
+
+                              {/* Adresse & Maps */}
+                              <div>
+                                {sectionTitle("📍 Adresse & Google Maps")}
+                                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                                  <div><label style={lStyle}>Adresse physique</label><input style={iStyle} value={centreEditData.addr} onChange={e => updateField("addr",e.target.value)} placeholder="Ex : Angré 7ème Tranche, Abidjan" /></div>
+                                  <div><label style={lStyle}>Lien Google Maps direct</label><input style={iStyle} value={centreEditData.maps_url||""} onChange={e => updateField("maps_url",e.target.value)} placeholder="https://maps.google.com/?q=…" /></div>
+                                  <div>
+                                    <label style={lStyle}>URL embed iframe</label>
+                                    <input style={iStyle} value={centreEditData.maps_embed||""} onChange={e => updateField("maps_embed",e.target.value)} placeholder="https://www.google.com/maps/embed?pb=…" />
+                                    <p style={{ fontSize:11, color:"#94a3b8", margin:"4px 0 0" }}>Google Maps → Partager → Intégrer une carte → copier le src de l'iframe</p>
+                                  </div>
+                                  {centreEditData.maps_embed && (
+                                    <div style={{ borderRadius:10, overflow:"hidden", border:"1px solid #e5e7eb", height:160 }}>
+                                      <iframe title="maps-preview" src={centreEditData.maps_embed} width="100%" height="160" style={{ border:0, display:"block" }} allowFullScreen loading="lazy" />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Brochure PDF */}
+                              <div>
+                                {sectionTitle("📄 Brochure PDF (téléchargeable par le client)")}
+                                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                                  <div><label style={lStyle}>URL du PDF</label><input style={iStyle} value={centreEditData.brochure_url||""} onChange={e => updateField("brochure_url",e.target.value)} placeholder="https://… ou /brochures/angre.pdf" /></div>
+                                  <div><label style={lStyle}>Nom affiché du fichier</label><input style={iStyle} value={centreEditData.brochure_nom||""} onChange={e => updateField("brochure_nom",e.target.value)} placeholder="Brochure BET Angré.pdf" /></div>
+                                  {centreEditData.brochure_url && (
+                                    <a href={centreEditData.brochure_url} target="_blank" rel="noreferrer"
+                                      style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"9px 16px", background:"#f0fdf4", color:"#166534", border:"1px solid #86efac", borderRadius:8, fontSize:12, fontWeight:700, textDecoration:"none" }}>
+                                      📄 Aperçu — {centreEditData.brochure_nom||"brochure.pdf"}
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Galerie photos */}
+                              <div>
+                                {sectionTitle("🖼️ Galerie photos")}
+                                <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                                  <input style={{ ...iStyle, flex:1 }} value={newPhotoUrl} onChange={e => setNewPhotoUrl(e.target.value)} placeholder="URL photo (https://…)" onKeyDown={e => e.key==="Enter" && addPhoto()} />
+                                  <button onClick={addPhoto} type="button" style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>＋ Ajouter</button>
+                                </div>
+                                {(centreEditData.photos||[]).length === 0 && <p style={{ fontSize:12, color:"#94a3b8", fontStyle:"italic", margin:0 }}>Aucune photo.</p>}
+                                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))", gap:8 }}>
+                                  {(centreEditData.photos||[]).map((url, idx) => (
+                                    <div key={idx} style={{ position:"relative", borderRadius:8, overflow:"hidden", aspectRatio:"4/3", background:"#f1f5f9" }}>
+                                      <img src={url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e => { e.currentTarget.style.opacity=".3"; }} />
+                                      <button onClick={() => removePhoto(idx)} type="button" style={{ position:"absolute", top:4, right:4, width:22, height:22, borderRadius:"50%", background:"rgba(220,38,38,.9)", color:"#fff", border:"none", cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>✕</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Page Cabinet (CourseDetail) */}
+                              <div>
+                                {sectionTitle("🎓 Contenu de la page Cabinet (CourseDetail)")}
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+                                  <div style={{ gridColumn:"1/-1" }}>
+                                    <label style={lStyle}>Sous-titre (affiché sous le titre)</label>
+                                    <input style={iStyle} value={centreEditData.subtitle||""} onChange={e => updateField("subtitle",e.target.value)} placeholder="Apprenez en petit groupe dans nos centres modernes" />
+                                  </div>
+                                  <div style={{ gridColumn:"1/-1" }}>
+                                    <label style={lStyle}>Image de couverture (URL)</label>
+                                    <input style={iStyle} value={centreEditData.hero_image||""} onChange={e => updateField("hero_image",e.target.value)} placeholder="https://images.unsplash.com/…" />
+                                    {centreEditData.hero_image && <img src={centreEditData.hero_image} alt="" style={{ marginTop:8, width:"100%", height:100, objectFit:"cover", borderRadius:8 }} onError={e => { e.currentTarget.style.display="none"; }} />}
+                                  </div>
+                                </div>
+
+                                {/* Avantages */}
+                                <label style={{ ...lStyle, marginBottom:8 }}>✅ Avantages exclusifs (section "Aperçu")</label>
+                                <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
+                                  {(centreEditData.advantages||[]).map((adv, idx) => (
+                                    <div key={idx} style={{ display:"flex", gap:8, alignItems:"center" }}>
+                                      <input style={{ ...iStyle, flex:1, fontSize:12 }} value={adv} onChange={e => updateAdvantage(idx, e.target.value)} placeholder="Ex : Groupes de 6 personnes maximum" />
+                                      <button onClick={() => removeAdvantage(idx)} type="button" style={{ padding:"9px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, flexShrink:0 }}>🗑️</button>
+                                    </div>
+                                  ))}
+                                  <button onClick={addAdvantage} type="button" style={{ padding:"8px 0", background:"#f0fdf4", color:"#166534", border:"1.5px dashed #86efac", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>＋ Ajouter un avantage</button>
+                                </div>
+
+                                {/* Témoignages */}
+                                <label style={{ ...lStyle, marginBottom:8 }}>💬 Témoignages (onglet "Avis")</label>
+                                <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+                                  {(centreEditData.testimonials||[]).map((t, idx) => (
+                                    <div key={idx} style={{ background:"#f8fafc", border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 14px" }}>
+                                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, alignItems:"end", marginBottom:8 }}>
+                                        <div><label style={lStyle}>Nom</label><input style={{ ...iStyle, fontSize:12 }} value={t.name} onChange={e => updateTestimonial(idx,"name",e.target.value)} placeholder="Fatou S." /></div>
+                                        <div><label style={lStyle}>Avatar (emoji)</label><input style={{ ...iStyle, fontSize:12 }} value={t.avatar} onChange={e => updateTestimonial(idx,"avatar",e.target.value)} placeholder="👩‍🎓" /></div>
+                                        <button onClick={() => removeTestimonial(idx)} type="button" style={{ padding:"9px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, alignSelf:"end" }}>🗑️</button>
+                                      </div>
+                                      <div><label style={lStyle}>Témoignage</label><textarea style={{ ...iStyle, fontSize:12, minHeight:48, resize:"none" }} value={t.text} onChange={e => updateTestimonial(idx,"text",e.target.value)} placeholder="Mon expérience chez BET…" /></div>
+                                    </div>
+                                  ))}
+                                  <button onClick={addTestimonial} type="button" style={{ padding:"9px 0", background:"#f0f9ff", color:"#0369a1", border:"1.5px dashed #7dd3fc", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>＋ Ajouter un témoignage</button>
+                                </div>
+
+                                {/* FAQ */}
+                                <label style={{ ...lStyle, marginBottom:8 }}>❓ FAQ (onglet "FAQ")</label>
+                                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                                  {(centreEditData.faq||[]).map((item, idx) => (
+                                    <div key={idx} style={{ background:"#f8fafc", border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 14px" }}>
+                                      <div style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8 }}>
+                                        <div style={{ flex:1 }}><label style={lStyle}>Question</label><input style={{ ...iStyle, fontSize:12 }} value={item.q} onChange={e => updateFaq(idx,"q",e.target.value)} placeholder="Où sont situés les cabinets ?" /></div>
+                                        <button onClick={() => removeFaq(idx)} type="button" style={{ padding:"9px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, marginTop:20 }}>🗑️</button>
+                                      </div>
+                                      <div><label style={lStyle}>Réponse</label><textarea style={{ ...iStyle, fontSize:12, minHeight:52, resize:"vertical" }} value={item.a} onChange={e => updateFaq(idx,"a",e.target.value)} placeholder="Nous avons des centres à Abidjan…" /></div>
+                                    </div>
+                                  ))}
+                                  <button onClick={addFaq} type="button" style={{ padding:"9px 0", background:"#fdf4ff", color:"#7e22ce", border:"1.5px dashed #d8b4fe", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>＋ Ajouter une question FAQ</button>
+                                </div>
+                              </div>
+
+                              {/* Offres = Formules & Tarifs sur le frontend */}
+                              <div>
+                                {sectionTitle("📋 Offres disponibles — affiché comme « Formules & Tarifs » sur le site")}
+                                <p style={{ fontSize:11, color:"#64748b", marginTop:-6, marginBottom:10 }}>Les offres actives apparaissent dans l'onglet <strong>Formules & Tarifs</strong> de la page Cabinet côté client.</p>
+                                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                                  {(centreEditData.offres||[]).map(o => (
+                                    <div key={o.id} style={{ background:o.actif?"#f0fdf4":"#fafafa", border:`1.5px solid ${o.actif?"#86efac":"#e5e7eb"}`, borderRadius:10, padding:"11px 13px" }}>
+                                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:o.actif?10:0 }}>
+                                        <button onClick={() => updateOffre(o.id,"actif",!o.actif)} type="button" style={{ width:34, height:20, borderRadius:10, border:"none", cursor:"pointer", flexShrink:0, background:o.actif?"#22c55e":"#d1d5db", position:"relative", transition:"background .2s" }}>
+                                          <div style={{ width:14, height:14, borderRadius:"50%", background:"#fff", position:"absolute", top:3, left:o.actif?17:3, transition:"left .2s" }} />
+                                        </button>
+                                        <input
+                                          value={o.label}
+                                          onChange={e => updateOffre(o.id,"label",e.target.value)}
+                                          style={{ flex:1, padding:"5px 9px", border:"1px solid #e5e7eb", borderRadius:7, fontSize:13, fontWeight:700, color:o.actif?"#166534":"#6b7280", background:"transparent", outline:"none" }}
+                                          placeholder="Nom de l'offre"
+                                        />
+                                        <button onClick={() => removeOffre(o.id)} type="button" title="Supprimer cette offre" style={{ padding:"5px 8px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontSize:13, flexShrink:0 }}>🗑️</button>
+                                      </div>
+                                      {o.actif && (
+                                        <>
+                                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                                            <div>
+                                              <label style={lStyle}>Prix</label>
+                                              <input value={o.prix} onChange={e => updateOffre(o.id,"prix",e.target.value)} style={{ ...iStyle, fontSize:12 }} placeholder="30 000 F/mois" />
+                                            </div>
+                                            <div>
+                                              <label style={lStyle}>Durée</label>
+                                              <input value={o.duration||""} onChange={e => updateOffre(o.id,"duration",e.target.value)} style={{ ...iStyle, fontSize:12 }} placeholder="Sans engagement" />
+                                            </div>
+                                          </div>
+                                          <textarea value={o.desc} onChange={e => updateOffre(o.id,"desc",e.target.value)} style={{ width:"100%", padding:"6px 10px", border:"1px solid #e2e8f0", borderRadius:7, fontSize:12, resize:"none", minHeight:40, color:"#374151", boxSizing:"border-box" }} placeholder="Description courte affichée sous le prix…" />
+                                          {/* Brochure PDF par offre */}
+                                          <div style={{ marginTop:8 }}>
+                                            <label style={{ fontSize:11, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>📄 Brochure PDF (téléchargeable par le client)</label>
+                                            {o.brochure_url ? (
+                                              <div style={{ display:"flex", alignItems:"center", gap:8, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:8, padding:"7px 11px" }}>
+                                                <span style={{ fontSize:15 }}>📄</span>
+                                                <a href={o.brochure_url} target="_blank" rel="noopener noreferrer" style={{ flex:1, fontSize:11, fontWeight:600, color:"#1e3a8a", textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.brochure_nom || "Brochure.pdf"}</a>
+                                                <CloudinaryUpload type="document" compact label="Remplacer" onSuccess={f => updateOffre(o.id,"brochure_url",f.url) || updateOffre(o.id,"brochure_nom",f.original_name)} style={{ flexShrink:0 }} />
+                                                <button onClick={() => { updateOffre(o.id,"brochure_url",""); updateOffre(o.id,"brochure_nom",""); }} type="button" style={{ width:24, height:24, borderRadius:6, border:"none", background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:12, flexShrink:0 }}>✕</button>
+                                              </div>
+                                            ) : (
+                                              <CloudinaryUpload type="document" label="Uploader la brochure PDF" onSuccess={f => { updateOffre(o.id,"brochure_url",f.url); updateOffre(o.id,"brochure_nom",f.original_name); }} />
+                                            )}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <button onClick={addOffre} type="button" style={{ padding:"9px 0", background:"#fffbeb", color:"#92400e", border:"1.5px dashed #fcd34d", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>＋ Ajouter une offre</button>
+                                </div>
+                              </div>
+
+                              {/* Assistantes WhatsApp */}
+                              <div>
+                                {sectionTitle("💬 Assistantes WhatsApp (contact client)")}
+                                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                                  {(centreEditData.assistantes||[]).map((a, idx) => (
+                                    <div key={idx} style={{ background:"#f8fafc", border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 14px" }}>
+                                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, alignItems:"end" }}>
+                                        <div><label style={lStyle}>Nom</label><input value={a.nom} onChange={e => updateAsst(idx,"nom",e.target.value)} style={{ ...iStyle, fontSize:12 }} /></div>
+                                        <div><label style={lStyle}>Téléphone WhatsApp</label><input value={a.phone} onChange={e => updateAsst(idx,"phone",e.target.value)} placeholder="225XXXXXXXXX" style={{ ...iStyle, fontSize:12 }} /></div>
+                                        <button onClick={() => removeAsst(idx)} style={{ padding:"9px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, alignSelf:"end" }}>🗑️</button>
+                                      </div>
+                                      <div style={{ marginTop:8 }}><label style={lStyle}>Message pré-rempli</label><textarea value={a.message} onChange={e => updateAsst(idx,"message",e.target.value)} style={{ ...iStyle, fontSize:12, minHeight:44, resize:"none" }} /></div>
+                                    </div>
+                                  ))}
+                                  <button onClick={addAsst} style={{ padding:"9px 0", background:"#f0fdf4", color:"#166534", border:"1.5px dashed #86efac", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>＋ Ajouter une assistante</button>
+                                </div>
+                              </div>
+
+                              {/* Commerciales affiliées */}
+                              <div>
+                                {sectionTitle("👤 Commerciales affiliées à ce centre")}
+                                {commercialesAffilies.length === 0 ? (
+                                  <p style={{ fontSize:12, color:"#94a3b8", fontStyle:"italic" }}>Aucune commerciale affiliée. Affectez-les depuis Gestion des utilisateurs en assignant le scope "{centreEditData.key}".</p>
+                                ) : (
+                                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                                    {commercialesAffilies.map(u => (
+                                      <div key={u.id} style={{ display:"flex", alignItems:"center", gap:12, background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"10px 14px" }}>
+                                        <div style={{ width:34, height:34, borderRadius:"50%", background:BET_LIGHT, color:BET_COLOR, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13, flexShrink:0 }}>
+                                          {((u.prenom||"")[0]||"")}{((u.nom||"")[0]||"")}
+                                        </div>
+                                        <div style={{ flex:1 }}>
+                                          <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{u.prenom} {u.nom}</div>
+                                          <div style={{ fontSize:11, color:"#64748b" }}>{u.email}</div>
+                                        </div>
+                                        <span style={{ padding:"3px 8px", borderRadius:20, fontSize:10, fontWeight:700, background:u.actif?"#dcfce7":"#fee2e2", color:u.actif?"#166534":"#991b1b" }}>{u.actif?"Actif":"Inactif"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* CTA */}
+                              <div>
+                                {sectionTitle("🔘 Boutons d'action (CTA)")}
+                                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                                  {[
+                                    { key:"rdv",      label:"Prendre RDV",  emoji:"📅", color:"#0891b2" },
+                                    { key:"inscrire", label:"S'inscrire",   emoji:"✍️", color:"#22c55e" },
+                                    { key:"contact",  label:"Me contacter", emoji:"💬", color:"#f97316" },
+                                  ].map(btn => {
+                                    const val = centreEditData.cta?.[btn.key] || { actif:true, lien:"" };
+                                    return (
+                                      <div key={btn.key} style={{ background:val.actif?"#f8fafc":"#fafafa", border:`1.5px solid ${val.actif?btn.color+"55":"#e5e7eb"}`, borderRadius:10, padding:"11px 14px" }}>
+                                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:val.actif?8:0 }}>
+                                          <button onClick={() => updateCta(btn.key,"actif",!val.actif)} type="button" style={{ width:34, height:20, borderRadius:10, border:"none", cursor:"pointer", flexShrink:0, background:val.actif?"#22c55e":"#d1d5db", position:"relative", transition:"background .2s" }}>
+                                            <div style={{ width:14, height:14, borderRadius:"50%", background:"#fff", position:"absolute", top:3, left:val.actif?17:3, transition:"left .2s" }} />
+                                          </button>
+                                          <span style={{ fontSize:16 }}>{btn.emoji}</span>
+                                          <span style={{ fontWeight:700, fontSize:13, color:val.actif?"#0f172a":"#6b7280", flex:1 }}>{btn.label}</span>
+                                        </div>
+                                        {val.actif && <input value={val.lien} onChange={e => updateCta(btn.key,"lien",e.target.value)} style={{ ...iStyle, fontSize:12, padding:"7px 10px" }} placeholder="Lien (/contact, /parcours/particulier, https://…)" />}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                            </div>
+
+                            {/* Footer */}
+                            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", padding:"16px 24px", borderTop:"1px solid #f1f5f9", flexShrink:0, background:"#fafafa" }}>
+                              <button onClick={closeModal} style={{ padding:"10px 20px", background:"#f1f5f9", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                              <button onClick={handleSave} disabled={centresSaving} style={{ padding:"10px 24px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13, opacity:centresSaving?.7:1 }}>
+                                {centresSaving ? "Enregistrement…" : "💾 Enregistrer & synchroniser"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── Sous-onglet : Offres En ligne ── */}
+                {platformSubTab === "offres_en_ligne" && (() => {
+                  const saveAndSet = async (data) => { setOffresEnLigne(data); await saveOffresEnLigne(data); toast.success("Offres en ligne synchronisées"); };
+                  const ICONS = ["👥","👤","🎯","🎓","💻","📱","🌐","⚡","🏆","📋"];
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>💻 Offres En ligne</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Formules affichées sur <code>/cours/en-ligne</code> et dans le parcours d'inscription en ligne.</p>
+                        </div>
+                        <div style={{ display:"flex", gap:8 }}>
+                          <a href="/cours/en-ligne" target="_blank" rel="noopener noreferrer" style={{ padding:"8px 14px", background:"#f1f5f9", color:"#374151", borderRadius:8, fontWeight:700, fontSize:12, textDecoration:"none", display:"flex", alignItems:"center", gap:5 }}>🔗 Voir la page</a>
+                          <button onClick={() => setOffreEditModal({ mode:"en_ligne", idx:-1, data:{ id:`el_${Date.now()}`, label:"Nouvelle offre", prix:"", duration:"", desc:"", actif:true, icon:"📋" } })}
+                            style={{ padding:"8px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Nouvelle offre</button>
+                        </div>
+                      </div>
+                      {/* Config page Aperçu */}
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"#eff6ff", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:13, color:"#1e3a8a" }}>📄 Contenu de l'onglet "Aperçu"</div>
+                          <div style={{ fontSize:11, color:"#3b82f6", marginTop:2 }}>Description, avantages, programme, FAQ affichés sur la page du cours en ligne.</div>
+                        </div>
+                        <button onClick={() => { setCourseApercuEditModal({ type:"en_ligne", data: JSON.parse(JSON.stringify(courseApercu.en_ligne || {})) }); setCourseApercuSection("general"); }}
+                          style={{ padding:"8px 16px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>✏️ Modifier</button>
+                      </div>
+                      {/* Grid */}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14, marginBottom:20 }}>
+                        {offresEnLigne.map((o, idx) => (
+                          <div key={o.id} style={{ background:"#fff", borderRadius:14, border:`2px solid ${o.actif ? BET_COLOR+"33" : "#f1f5f9"}`, padding:16, boxShadow:"0 1px 6px rgba(0,0,0,.05)", opacity:o.actif?1:.6 }}>
+                            <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+                              <div style={{ width:40, height:40, borderRadius:10, background:BET_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{o.icon||"📋"}</div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", lineHeight:1.3 }}>{o.label}</div>
+                                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{o.prix}{o.duration ? ` · ${o.duration}` : ""}</div>
+                              </div>
+                              <span style={{ padding:"3px 8px", borderRadius:20, fontSize:10, fontWeight:700, flexShrink:0, background:o.actif?"#dcfce7":"#fee2e2", color:o.actif?"#166534":"#991b1b" }}>{o.actif?"Actif":"Inactif"}</span>
+                            </div>
+                            {o.desc && <div style={{ fontSize:12, color:"#475569", lineHeight:1.5, marginBottom:12, minHeight:36 }}>{o.desc}</div>}
+                            <div style={{ display:"flex", gap:6 }}>
+                              <button onClick={() => setOffreEditModal({ mode:"en_ligne", idx, data:{...o} })} style={{ flex:1, padding:"7px 0", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }}>✏️ Modifier</button>
+                              <button onClick={() => { const u=[...offresEnLigne]; u[idx]={...u[idx],actif:!u[idx].actif}; saveAndSet(u); }}
+                                style={{ padding:"7px 10px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }} title={o.actif?"Désactiver":"Activer"}>{o.actif?"⏸":"▶️"}</button>
+                              <button onClick={() => { if(!window.confirm(`Supprimer "${o.label}" ?`)) return; saveAndSet(offresEnLigne.filter((_,i)=>i!==idx)); }}
+                                style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }}>🗑️</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Modal édition offre en ligne */}
+                      {offreEditModal?.mode === "en_ligne" && (
+                        <div onClick={e => { if(e.target===e.currentTarget) setOffreEditModal(null); }}
+                          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                          <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:480, boxShadow:"0 24px 60px rgba(0,0,0,.25)", overflow:"hidden" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 24px", borderBottom:"1px solid #f1f5f9" }}>
+                              <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a", flex:1 }}>{offreEditModal.idx === -1 ? "➕ Nouvelle offre en ligne" : "✏️ Modifier l'offre"}</h3>
+                              <button onClick={() => setOffreEditModal(null)} style={{ width:30, height:30, borderRadius:8, border:"none", background:"#f1f5f9", cursor:"pointer", fontSize:16, color:"#64748b" }}>✕</button>
+                            </div>
+                            <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Icône</label>
+                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                  {ICONS.map(ic => <button key={ic} onClick={() => setOffreEditModal(m => ({...m, data:{...m.data, icon:ic}}))} style={{ width:34, height:34, borderRadius:8, border:`2px solid ${offreEditModal.data.icon===ic ? BET_COLOR : "#e5e7eb"}`, background:offreEditModal.data.icon===ic ? BET_LIGHT : "#fff", fontSize:18, cursor:"pointer" }}>{ic}</button>)}
+                                </div>
+                              </div>
+                              {[
+                                { field:"label",    label:"Intitulé *",     placeholder:"Ex : Coaching de groupe" },
+                                { field:"prix",     label:"Prix",           placeholder:"Ex : 25 000 F/mois" },
+                                { field:"duration", label:"Durée",          placeholder:"Ex : Sans engagement" },
+                              ].map(f => (
+                                <div key={f.field}>
+                                  <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>{f.label}</label>
+                                  <input value={offreEditModal.data[f.field]||""} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, [f.field]:e.target.value}}))}
+                                    placeholder={f.placeholder} style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                                </div>
+                              ))}
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Description</label>
+                                <textarea value={offreEditModal.data.desc||""} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, desc:e.target.value}}))}
+                                  placeholder="Courte description visible par le client…" rows={3}
+                                  style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box", resize:"vertical" }} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:6 }}>📄 Brochure PDF</label>
+                                {offreEditModal.data.brochure_url ? (
+                                  <div style={{ display:"flex", alignItems:"center", gap:8, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:8, padding:"8px 12px" }}>
+                                    <span style={{ fontSize:16 }}>📄</span>
+                                    <a href={offreEditModal.data.brochure_url} target="_blank" rel="noopener noreferrer" style={{ flex:1, fontSize:12, fontWeight:600, color:BET_COLOR, textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{offreEditModal.data.brochure_nom || "Brochure.pdf"}</a>
+                                    <CloudinaryUpload type="document" compact label="Remplacer" onSuccess={f => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:f.url, brochure_nom:f.original_name}}))} style={{ flexShrink:0 }} />
+                                    <button onClick={() => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:"", brochure_nom:""}}))} style={{ width:26, height:26, borderRadius:6, border:"none", background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+                                  </div>
+                                ) : (
+                                  <CloudinaryUpload type="document" label="Uploader la brochure PDF" onSuccess={f => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:f.url, brochure_nom:f.original_name}}))} />
+                                )}
+                              </div>
+                              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151" }}>Actif</label>
+                                <input type="checkbox" checked={!!offreEditModal.data.actif} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, actif:e.target.checked}}))} style={{ width:16, height:16, accentColor:BET_COLOR, cursor:"pointer" }} />
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", padding:"14px 24px", borderTop:"1px solid #f1f5f9", background:"#fafafa" }}>
+                              <button onClick={() => setOffreEditModal(null)} style={{ padding:"9px 18px", background:"#f1f5f9", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                              <button onClick={() => {
+                                if (!offreEditModal.data.label?.trim()) { toast.error("Intitulé requis"); return; }
+                                let u;
+                                if (offreEditModal.idx === -1) { u = [...offresEnLigne, offreEditModal.data]; }
+                                else { u = offresEnLigne.map((o,i) => i === offreEditModal.idx ? offreEditModal.data : o); }
+                                saveAndSet(u); setOffreEditModal(null);
+                              }} style={{ padding:"9px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>💾 Enregistrer</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Sous-onglet : Offres À domicile ── */}
+                {platformSubTab === "offres_domicile" && (() => {
+                  const saveAndSet = async (data) => { setOffresDomicile(data); await saveOffresDomicile(data); toast.success("Offres à domicile synchronisées"); };
+                  const ICONS = ["🏠","👧","👥","👤","🎯","🎓","⭐","🏆","📋","✨"];
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>🏠 Offres À domicile</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Formules affichées sur <code>/cours/domicile</code> — un coach se déplace chez le client.</p>
+                        </div>
+                        <div style={{ display:"flex", gap:8 }}>
+                          <a href="/cours/domicile" target="_blank" rel="noopener noreferrer" style={{ padding:"8px 14px", background:"#f1f5f9", color:"#374151", borderRadius:8, fontWeight:700, fontSize:12, textDecoration:"none", display:"flex", alignItems:"center", gap:5 }}>🔗 Voir la page</a>
+                          <button onClick={() => setOffreEditModal({ mode:"domicile", idx:-1, data:{ id:`dom_${Date.now()}`, label:"Nouvelle offre", prix:"Sur devis", duration:"Sur mesure", desc:"", actif:true, icon:"🏠" } })}
+                            style={{ padding:"8px 16px", background:"#059669", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Nouvelle offre</button>
+                        </div>
+                      </div>
+                      {/* Config page Aperçu */}
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:13, color:"#14532d" }}>📄 Contenu de l'onglet "Aperçu"</div>
+                          <div style={{ fontSize:11, color:"#059669", marginTop:2 }}>Description, avantages, programme, FAQ affichés sur la page du cours à domicile.</div>
+                        </div>
+                        <button onClick={() => { setCourseApercuEditModal({ type:"domicile", data: JSON.parse(JSON.stringify(courseApercu.domicile || {})) }); setCourseApercuSection("general"); }}
+                          style={{ padding:"8px 16px", background:"#059669", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>✏️ Modifier</button>
+                      </div>
+                      {/* Grid */}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14, marginBottom:20 }}>
+                        {offresDomicile.map((o, idx) => (
+                          <div key={o.id} style={{ background:"#fff", borderRadius:14, border:`2px solid ${o.actif ? "#05996933" : "#f1f5f9"}`, padding:16, boxShadow:"0 1px 6px rgba(0,0,0,.05)", opacity:o.actif?1:.6 }}>
+                            <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+                              <div style={{ width:40, height:40, borderRadius:10, background:"#f0fdf4", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{o.icon||"🏠"}</div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", lineHeight:1.3 }}>{o.label}</div>
+                                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{o.prix}{o.duration ? ` · ${o.duration}` : ""}</div>
+                              </div>
+                              <span style={{ padding:"3px 8px", borderRadius:20, fontSize:10, fontWeight:700, flexShrink:0, background:o.actif?"#dcfce7":"#fee2e2", color:o.actif?"#166534":"#991b1b" }}>{o.actif?"Actif":"Inactif"}</span>
+                            </div>
+                            {o.desc && <div style={{ fontSize:12, color:"#475569", lineHeight:1.5, marginBottom:12, minHeight:36 }}>{o.desc}</div>}
+                            <div style={{ display:"flex", gap:6 }}>
+                              <button onClick={() => setOffreEditModal({ mode:"domicile", idx, data:{...o} })} style={{ flex:1, padding:"7px 0", background:"#059669", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }}>✏️ Modifier</button>
+                              <button onClick={() => { const u=[...offresDomicile]; u[idx]={...u[idx],actif:!u[idx].actif}; saveAndSet(u); }}
+                                style={{ padding:"7px 10px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }} title={o.actif?"Désactiver":"Activer"}>{o.actif?"⏸":"▶️"}</button>
+                              <button onClick={() => { if(!window.confirm(`Supprimer "${o.label}" ?`)) return; saveAndSet(offresDomicile.filter((_,i)=>i!==idx)); }}
+                                style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:11 }}>🗑️</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Note pédagogique */}
+                      <div style={{ display:"flex", gap:10, background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:10, padding:"12px 16px" }}>
+                        <span style={{ flexShrink:0 }}>💡</span>
+                        <p style={{ margin:0, fontSize:12, color:"#166534", lineHeight:1.6 }}>
+                          Les cours à domicile sont gérés par un <strong>Responsable pédagogique</strong> qui contacte le client sous 24–48h après sa demande. Les offres affichées ici sont indicatives.
+                        </p>
+                      </div>
+                      {/* Modal édition offre domicile */}
+                      {offreEditModal?.mode === "domicile" && (
+                        <div onClick={e => { if(e.target===e.currentTarget) setOffreEditModal(null); }}
+                          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                          <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:480, boxShadow:"0 24px 60px rgba(0,0,0,.25)", overflow:"hidden" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 24px", borderBottom:"1px solid #f1f5f9" }}>
+                              <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a", flex:1 }}>{offreEditModal.idx === -1 ? "➕ Nouvelle offre à domicile" : "✏️ Modifier l'offre"}</h3>
+                              <button onClick={() => setOffreEditModal(null)} style={{ width:30, height:30, borderRadius:8, border:"none", background:"#f1f5f9", cursor:"pointer", fontSize:16, color:"#64748b" }}>✕</button>
+                            </div>
+                            <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Icône</label>
+                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                  {ICONS.map(ic => <button key={ic} onClick={() => setOffreEditModal(m => ({...m, data:{...m.data, icon:ic}}))} style={{ width:34, height:34, borderRadius:8, border:`2px solid ${offreEditModal.data.icon===ic ? "#059669" : "#e5e7eb"}`, background:offreEditModal.data.icon===ic ? "#f0fdf4" : "#fff", fontSize:18, cursor:"pointer" }}>{ic}</button>)}
+                                </div>
+                              </div>
+                              {[
+                                { field:"label",    label:"Intitulé *",     placeholder:"Ex : Cours privé à domicile" },
+                                { field:"prix",     label:"Prix",           placeholder:"Ex : Sur devis" },
+                                { field:"duration", label:"Durée",          placeholder:"Ex : Sur mesure" },
+                              ].map(f => (
+                                <div key={f.field}>
+                                  <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>{f.label}</label>
+                                  <input value={offreEditModal.data[f.field]||""} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, [f.field]:e.target.value}}))}
+                                    placeholder={f.placeholder} style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                                </div>
+                              ))}
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Description</label>
+                                <textarea value={offreEditModal.data.desc||""} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, desc:e.target.value}}))}
+                                  placeholder="Courte description visible par le client…" rows={3}
+                                  style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box", resize:"vertical" }} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:6 }}>📄 Brochure PDF</label>
+                                {offreEditModal.data.brochure_url ? (
+                                  <div style={{ display:"flex", alignItems:"center", gap:8, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:8, padding:"8px 12px" }}>
+                                    <span style={{ fontSize:16 }}>📄</span>
+                                    <a href={offreEditModal.data.brochure_url} target="_blank" rel="noopener noreferrer" style={{ flex:1, fontSize:12, fontWeight:600, color:"#059669", textDecoration:"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{offreEditModal.data.brochure_nom || "Brochure.pdf"}</a>
+                                    <CloudinaryUpload type="document" compact label="Remplacer" onSuccess={f => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:f.url, brochure_nom:f.original_name}}))} style={{ flexShrink:0 }} />
+                                    <button onClick={() => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:"", brochure_nom:""}}))} style={{ width:26, height:26, borderRadius:6, border:"none", background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+                                  </div>
+                                ) : (
+                                  <CloudinaryUpload type="document" label="Uploader la brochure PDF" onSuccess={f => setOffreEditModal(m => ({...m, data:{...m.data, brochure_url:f.url, brochure_nom:f.original_name}}))} />
+                                )}
+                              </div>
+                              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                <label style={{ fontSize:12, fontWeight:600, color:"#374151" }}>Actif</label>
+                                <input type="checkbox" checked={!!offreEditModal.data.actif} onChange={e => setOffreEditModal(m => ({...m, data:{...m.data, actif:e.target.checked}}))} style={{ width:16, height:16, accentColor:"#059669", cursor:"pointer" }} />
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", padding:"14px 24px", borderTop:"1px solid #f1f5f9", background:"#fafafa" }}>
+                              <button onClick={() => setOffreEditModal(null)} style={{ padding:"9px 18px", background:"#f1f5f9", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                              <button onClick={() => {
+                                if (!offreEditModal.data.label?.trim()) { toast.error("Intitulé requis"); return; }
+                                let u;
+                                if (offreEditModal.idx === -1) { u = [...offresDomicile, offreEditModal.data]; }
+                                else { u = offresDomicile.map((o,i) => i === offreEditModal.idx ? offreEditModal.data : o); }
+                                saveAndSet(u); setOffreEditModal(null);
+                              }} style={{ padding:"9px 22px", background:"#059669", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>💾 Enregistrer</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Sous-onglet : Certifications ── */}
+                {platformSubTab === "certifications" && (() => {
+                  const CERT_KEYS = ["toeic","ielts","toefl"];
+                  const CERT_META = {
+                    toeic:{ color:"#1e3a8a", bg:"#eff6ff", route:"/certifications/toeic" },
+                    ielts:{ color:"#dc2626", bg:"#fef2f2", route:"/certifications/ielts" },
+                    toefl:{ color:"#059669", bg:"#f0fdf4", route:"/certifications/toefl" },
+                  };
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>🏆 Certifications</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>
+                            Contenu des pages TOEIC, IELTS et TOEFL affichées sur le site web.
+                          </p>
+                        </div>
+                      </div>
+                      {/* 3 cartes certifications */}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:24 }}>
+                        {CERT_KEYS.map(k => {
+                          const c = certifConfig[k] || {};
+                          const m = CERT_META[k];
+                          return (
+                            <div key={k} style={{ background:"#fff", borderRadius:16, border:`2px solid ${m.color}22`, overflow:"hidden", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+                              {c.heroImage && (
+                                <img src={c.heroImage} alt={k} style={{ width:"100%", height:72, objectFit:"cover", display:"block" }} />
+                              )}
+                              <div style={{ padding:"14px 16px" }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                                  <span style={{ fontWeight:900, fontSize:18, color:m.color }}>{c.name}</span>
+                                  <span style={{ fontSize:10, fontWeight:700, background:m.bg, color:m.color, borderRadius:999, padding:"2px 8px" }}>Officiel</span>
+                                </div>
+                                <div style={{ fontSize:11, color:"#64748b", marginBottom:4, lineHeight:1.4 }}>{c.fullName}</div>
+                                <div style={{ fontSize:13, fontWeight:800, color:"#0f172a", marginBottom:4 }}>{c.price}</div>
+                                <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:12 }}>
+                                  {c.level && <span style={{ fontSize:10, fontWeight:700, background:"#f1f5f9", color:"#475569", borderRadius:4, padding:"2px 7px" }}>📊 {c.level}</span>}
+                                  {c.duration && <span style={{ fontSize:10, fontWeight:700, background:"#f1f5f9", color:"#475569", borderRadius:4, padding:"2px 7px" }}>⏱ {c.duration}</span>}
+                                </div>
+                                <div style={{ display:"flex", gap:6 }}>
+                                  <button onClick={() => { setCertifEditModal({ key:k, data:JSON.parse(JSON.stringify(certifConfig[k]||DEFAULT_CERTIF_CONFIG[k])) }); setCertifEditSection("general"); }}
+                                    style={{ flex:1, padding:"8px 0", background:m.color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                    ✏️ Modifier
+                                  </button>
+                                  <a href={m.route} target="_blank" rel="noopener noreferrer"
+                                    style={{ padding:"8px 10px", background:"#f1f5f9", color:"#374151", borderRadius:8, fontWeight:700, fontSize:11, textDecoration:"none", display:"flex", alignItems:"center" }}>
+                                    🔗
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Info */}
+                      <div style={{ display:"flex", gap:10, background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 16px" }}>
+                        <span style={{ flexShrink:0 }}>💡</span>
+                        <p style={{ margin:0, fontSize:12, color:"#92400e", lineHeight:1.6 }}>
+                          Les modifications sont enregistrées en <strong>localStorage</strong> et synchronisées avec Supabase. Elles sont visibles immédiatement sur le site web.
+                        </p>
+                      </div>
+                      {/* Modal édition certification */}
+                      {certifEditModal && (
+                        <div onClick={e => { if(e.target===e.currentTarget) setCertifEditModal(null); }}
+                          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                          <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:680, maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 24px 60px rgba(0,0,0,.25)" }}>
+                            {/* Modal header */}
+                            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 24px", borderBottom:"1px solid #f1f5f9", flexShrink:0 }}>
+                              <span style={{ fontSize:20 }}>🏆</span>
+                              <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a", flex:1 }}>
+                                {certifConfig[certifEditModal.key]?.name || certifEditModal.key.toUpperCase()} — Configuration
+                              </h3>
+                              <button onClick={() => setCertifEditModal(null)} style={{ width:30, height:30, borderRadius:8, border:"none", background:"#f1f5f9", cursor:"pointer", fontSize:16, color:"#64748b" }}>✕</button>
+                            </div>
+                            {/* Section tabs */}
+                            <div style={{ display:"flex", borderBottom:"1px solid #f1f5f9", overflowX:"auto", flexShrink:0 }}>
+                              {[
+                                {key:"general",    label:"Général"},
+                                {key:"prix",       label:"Prix & Stats"},
+                                {key:"contenu",    label:"Contenu"},
+                                {key:"examen",     label:"Examen"},
+                                {key:"programme",  label:"Programme"},
+                                {key:"faq",        label:"FAQ"},
+                              ].map(s => (
+                                <button key={s.key} onClick={() => setCertifEditSection(s.key)}
+                                  style={{ padding:"10px 16px", border:"none", background:"none", cursor:"pointer", fontWeight:certifEditSection===s.key?800:500, fontSize:12, color:certifEditSection===s.key?"#1e3a8a":"#64748b", borderBottom:certifEditSection===s.key?"2px solid #1e3a8a":"2px solid transparent", whiteSpace:"nowrap", transition:"all .15s" }}>
+                                  {s.label}
+                                </button>
+                              ))}
+                            </div>
+                            {/* Section content */}
+                            <div style={{ flex:1, overflowY:"auto", padding:"20px 24px", display:"flex", flexDirection:"column", gap:14 }}>
+                              {certifEditSection === "general" && (<>
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Nom complet (fullName)" field="fullName" placeholder="Ex : Test of English for International Communication" />
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Accroche (tagline)" field="tagline" placeholder="Ex : La certification n°1 en entreprise" />
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Image héro (URL)" field="heroImage" placeholder="https://..." />
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Niveau" field="level" placeholder="Ex : B1 → C1" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Durée de préparation" field="duration" placeholder="Ex : 6 semaines" />
+                                </div>
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Description" field="description" placeholder="À propos de la certification…" multiline />
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Pourquoi choisir BET ?" field="whyChoose" placeholder="Texte affiché dans l'encart bleu…" multiline />
+                              </>)}
+                              {certifEditSection === "prix" && (<>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Prix affiché" field="price" placeholder="Ex : 390 000 FCFA" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Ancien prix (barré)" field="oldPrice" placeholder="Ex : 500 000 FCFA" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Réduction" field="discount" placeholder="Ex : 22%" />
+                                </div>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Note (ex: 4.9)" field="rating" type="number" placeholder="4.9" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Nb d'avis" field="ratingCount" type="number" placeholder="1248" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Nb de certifiés" field="students" type="number" placeholder="5200" />
+                                </div>
+                              </>)}
+                              {certifEditSection === "contenu" && (<>
+                                <div>
+                                  <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>✅ Ce que vous apprendrez</label>
+                                  <CertifStringList modal={certifEditModal} setModal={setCertifEditModal} field="whatYouLearn" placeholder="Ex : Maîtriser le Listening" />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>🎯 Avantages (Pourquoi passer cette certification ?)</label>
+                                  <CertifStringList modal={certifEditModal} setModal={setCertifEditModal} field="benefits" placeholder="Ex : Reconnu par 14 000 entreprises" />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>📦 Ce que comprend la préparation (includes)</label>
+                                  <CertifObjList modal={certifEditModal} setModal={setCertifEditModal} field="includes" fields={[{key:"icon",label:"Icône (emoji)"},{key:"label",label:"Libellé"}]} />
+                                </div>
+                              </>)}
+                              {certifEditSection === "examen" && (<>
+                                <p style={{ margin:0, fontSize:12, color:"#64748b" }}>Sections de l'examen officiel (structure affichée sur la page)</p>
+                                <CertifObjList modal={certifEditModal} setModal={setCertifEditModal} field="examStructure" fields={[
+                                  {key:"section",   label:"Section"},
+                                  {key:"duration",  label:"Durée"},
+                                  {key:"questions", label:"Questions / Tâches"},
+                                  {key:"desc",      label:"Description", multiline:true},
+                                ]} />
+                              </>)}
+                              {certifEditSection === "programme" && (<>
+                                <p style={{ margin:0, fontSize:12, color:"#64748b" }}>Statistiques du programme de préparation</p>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Nombre de semaines" field="weeks" path="preparationProgram" type="number" placeholder="6" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Heures / semaine" field="hoursPerWeek" path="preparationProgram" type="number" placeholder="8" />
+                                  <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Nombre de sessions" field="sessions" path="preparationProgram" type="number" placeholder="48" />
+                                </div>
+                                <CertifFieldInput modal={certifEditModal} setModal={setCertifEditModal} label="Détails du programme" field="details" path="preparationProgram" placeholder="Description détaillée du déroulé…" multiline />
+                              </>)}
+                              {certifEditSection === "faq" && (<>
+                                <p style={{ margin:0, fontSize:12, color:"#64748b" }}>Questions fréquentes affichées sur la page</p>
+                                <CertifObjList modal={certifEditModal} setModal={setCertifEditModal} field="faq" fields={[
+                                  {key:"q",label:"Question"},
+                                  {key:"a",label:"Réponse",multiline:true},
+                                ]} />
+                              </>)}
+                            </div>
+                            {/* Footer */}
+                            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", padding:"14px 24px", borderTop:"1px solid #f1f5f9", background:"#fafafa", flexShrink:0 }}>
+                              <button onClick={() => setCertifEditModal(null)} style={{ padding:"9px 18px", background:"#f1f5f9", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                              <button onClick={async () => {
+                                const updated = { ...certifConfig, [certifEditModal.key]: certifEditModal.data };
+                                setCertifConfig(updated);
+                                await saveCertifConfig(updated);
+                                toast.success(`${certifEditModal.data.name || certifEditModal.key.toUpperCase()} mis à jour`);
+                                setCertifEditModal(null);
+                              }} style={{ padding:"9px 22px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>💾 Enregistrer</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+          {/* ════ MODAL APERÇU COURS ════ */}
+          {courseApercuEditModal && (() => {
+            const type = courseApercuEditModal.type;
+            const accentColor = type === "en_ligne" ? "#1e3a8a" : "#059669";
+            const label = type === "en_ligne" ? "Cours en ligne" : "Cours à domicile";
+            const tabs = [
+              { key:"general",       label:"Général" },
+              { key:"avantages",     label:"Avantages" },
+              { key:"programme",     label:"Programme" },
+              { key:"inclus",        label:"Inclus" },
+              { key:"prerequis",     label:"Prérequis" },
+              { key:"faq",           label:"FAQ" },
+            ];
+            return (
+              <div onClick={e => { if(e.target===e.currentTarget) setCourseApercuEditModal(null); }}
+                style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:680, maxHeight:"90vh", boxShadow:"0 24px 60px rgba(0,0,0,.25)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+                  {/* Header */}
+                  <div style={{ display:"flex", alignItems:"center", gap:12, padding:"18px 24px", borderBottom:"1px solid #f1f5f9", background:accentColor, borderRadius:"20px 20px 0 0" }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:11, color:"rgba(255,255,255,.7)", fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>Onglet Aperçu</div>
+                      <h3 style={{ margin:0, fontSize:16, fontWeight:800, color:"#fff" }}>📄 {label} — Contenu de la page</h3>
+                    </div>
+                    <button onClick={() => setCourseApercuEditModal(null)} style={{ width:32, height:32, borderRadius:8, border:"none", background:"rgba(255,255,255,.2)", cursor:"pointer", fontSize:16, color:"#fff" }}>✕</button>
+                  </div>
+                  {/* Tabs */}
+                  <div style={{ display:"flex", gap:2, padding:"12px 24px 0", background:"#f8fafc", borderBottom:"1px solid #e5e7eb", overflowX:"auto" }}>
+                    {tabs.map(t => (
+                      <button key={t.key} onClick={() => setCourseApercuSection(t.key)}
+                        style={{ padding:"8px 14px", border:"none", borderRadius:"8px 8px 0 0", cursor:"pointer", fontWeight:700, fontSize:12, whiteSpace:"nowrap",
+                          background: courseApercuSection===t.key ? "#fff" : "transparent",
+                          color: courseApercuSection===t.key ? accentColor : "#64748b",
+                          borderBottom: courseApercuSection===t.key ? `3px solid ${accentColor}` : "3px solid transparent" }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Body */}
+                  <div style={{ flex:1, overflowY:"auto", padding:"20px 24px" }}>
+                    {courseApercuSection === "general" && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Description principale</label>
+                          <textarea value={courseApercuEditModal.data.description||""} onChange={e => setCourseApercuEditModal(m => ({...m, data:{...m.data, description:e.target.value}}))}
+                            rows={4} placeholder="Décrivez ce cours en quelques phrases…"
+                            style={{ width:"100%", padding:"9px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box", resize:"vertical" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Public cible</label>
+                          <ApercuStringList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="targetAudience" placeholder="Ex : Professionnels souhaitant…" />
+                        </div>
+                      </div>
+                    )}
+                    {courseApercuSection === "avantages" && (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:8 }}>Points forts / Avantages</label>
+                        <ApercuStringList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="advantages" placeholder="Ex : Accès 24/7 à la plateforme…" />
+                      </div>
+                    )}
+                    {courseApercuSection === "programme" && (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:8 }}>Ce que vous apprendrez</label>
+                        <ApercuStringList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="whatYouLearn" placeholder="Ex : Maîtriser la grammaire avancée…" />
+                      </div>
+                    )}
+                    {courseApercuSection === "inclus" && (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:8 }}>Ce qui est inclus</label>
+                        <ApercuObjList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="includes" keys={["icon","label"]} placeholders={["🎓","Accès à la plateforme…"]} />
+                      </div>
+                    )}
+                    {courseApercuSection === "prerequis" && (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:8 }}>Prérequis</label>
+                        <ApercuStringList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="requirements" placeholder="Ex : Niveau A2 minimum…" />
+                      </div>
+                    )}
+                    {courseApercuSection === "faq" && (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:8 }}>Questions fréquentes</label>
+                        <ApercuObjList modal={courseApercuEditModal} setModal={setCourseApercuEditModal} field="faq" keys={["q","a"]} placeholders={["Question…","Réponse…"]} />
+                      </div>
+                    )}
+                  </div>
+                  {/* Footer */}
+                  <div style={{ display:"flex", justifyContent:"flex-end", gap:10, padding:"14px 24px", borderTop:"1px solid #f1f5f9" }}>
+                    <button onClick={() => setCourseApercuEditModal(null)}
+                      style={{ padding:"9px 20px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>Annuler</button>
+                    <button onClick={async () => {
+                      const updated = { ...courseApercu, [type]: courseApercuEditModal.data };
+                      setCourseApercu(updated);
+                      await saveCourseApercu(updated);
+                      toast.success(`Aperçu "${label}" mis à jour`);
+                      setCourseApercuEditModal(null);
+                    }} style={{ padding:"9px 22px", background:accentColor, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>💾 Enregistrer</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ════ TÉMOIGNAGES ════ */}
+          {platformSubTab === "temoignages" && (
+            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+              {(() => {
+            const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🌟","💪","🏆","👑","✨"];
+            const filtered   = temoFiltre === "tous" ? temos : temos.filter(t => t.statut === temoFiltre);
+            const temoTotalPages = Math.max(1, Math.ceil(filtered.length / TEMO_PER_PAGE));
+            const displayed  = filtered.slice((temoPage - 1) * TEMO_PER_PAGE, temoPage * TEMO_PER_PAGE);
+            const temoGoTo   = (p) => { setTemoPage(Math.min(Math.max(1, p), temoTotalPages)); };
+            return (
+              <div className="temo-page">
+
+                {/* Header */}
+                <div className="temo-header">
+                  <div>
+                    <h2>⭐ Gestion des Témoignages</h2>
+                    <p>{temos.length} témoignage{temos.length>1?"s":""} · {temosPending} en attente de validation</p>
+                  </div>
+                  <div className="temo-header-actions">
+                    <button className="temo-btn temo-btn--outline" onClick={fetchTemos}>🔄 Actualiser</button>
+                    <button className="temo-btn temo-btn--primary" onClick={() => setTemoFormOpen(f => !f)}>
+                      {temoFormOpen ? "✕ Fermer" : "➕ Nouveau témoignage"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Formulaire création */}
+                {temoFormOpen && (
+                  <div className="temo-form">
+                    <h3>➕ Créer un témoignage (source admin)</h3>
+                    <div className="temo-form-grid">
+                      <div>
+                        <label>Nom *</label>
+                        <input value={temoForm.nom} onChange={e => setTemoForm(f=>({...f,nom:e.target.value}))} placeholder="Ex: Awa Koné" />
+                      </div>
+                      <div>
+                        <label>Rôle / Titre</label>
+                        <input value={temoForm.role} onChange={e => setTemoForm(f=>({...f,role:e.target.value}))} placeholder="Ex: Étudiante en droit" />
+                      </div>
+                      <div>
+                        <label>Type de certification</label>
+                        <select
+                          value={temoForm.score.split(" ")[0] || ""}
+                          onChange={e => {
+                            const type = e.target.value;
+                            const scoreNum = temoForm.score.split(" ").slice(1).join(" ");
+                            setTemoForm(f => ({ ...f, score: type ? `${type}${scoreNum ? " " + scoreNum : ""}` : scoreNum }));
+                          }}
+                        >
+                          <option value="">— Sélectionner —</option>
+                          <option value="TOEIC">TOEIC</option>
+                          <option value="TOEFL">TOEFL</option>
+                          <option value="IELTS">IELTS</option>
+                          <option value="Anglais Pro">Anglais Pro</option>
+                          <option value="Anglais Enfant">Anglais Enfant</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>Score obtenu</label>
+                        <input
+                          value={temoForm.score.split(" ").slice(1).join(" ")}
+                          onChange={e => {
+                            const type = temoForm.score.split(" ")[0] || "";
+                            const val  = e.target.value;
+                            setTemoForm(f => ({ ...f, score: type ? `${type}${val ? " " + val : ""}` : val }));
+                          }}
+                          placeholder="Ex: 850, 7.5, 104…"
+                        />
+                      </div>
+                      <div>
+                        <label>Étoiles</label>
+                        <select value={temoForm.etoiles} onChange={e => setTemoForm(f=>({...f,etoiles:Number(e.target.value)}))}>
+                          {[5,4,3,2,1].map(n => <option key={n} value={n}>{"★".repeat(n)} {n}/5</option>)}
+                        </select>
+                      </div>
+                      <div className="temo-form-grid--full">
+                        <label>Texte *</label>
+                        <textarea value={temoForm.texte} onChange={e => setTemoForm(f=>({...f,texte:e.target.value}))} rows={3} placeholder="Le témoignage..." />
+                      </div>
+                      <div>
+                        <label>Avatar</label>
+                        <div className="temo-emoji-row">
+                          {EMOJI_LIST.map(e => (
+                            <div key={e} className={`temo-emoji-btn${temoForm.avatar===e?" temo-emoji-btn--sel":""}`}
+                              onClick={() => setTemoForm(f=>({...f,avatar:e}))}>
+                              {e}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label>Couleur accent</label>
+                        <div className="temo-color-row">
+                          <input type="color" className="temo-color-swatch" value={temoForm.couleur}
+                            onChange={e => setTemoForm(f=>({...f,couleur:e.target.value}))} />
+                          <span style={{ fontSize:12, color:"#6b7280" }}>{temoForm.couleur}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label>Ordre d'affichage</label>
+                        <input type="number" value={temoForm.ordre} min={0}
+                          onChange={e => setTemoForm(f=>({...f,ordre:Number(e.target.value)}))} />
+                      </div>
+                    </div>
+                    <div className="temo-form-footer">
+                      <button className="temo-btn temo-btn--outline" onClick={() => setTemoFormOpen(false)}>Annuler</button>
+                      <button className="temo-btn temo-btn--primary" onClick={temoCreate}>✓ Créer</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filtres */}
+                <div className="temo-filters">
+                  {[
+                    { key:"tous",       label:`Tous (${temos.length})` },
+                    { key:"en_attente", label:`⏳ En attente (${temos.filter(t=>t.statut==="en_attente").length})` },
+                    { key:"actif",      label:`✅ Actifs (${temos.filter(t=>t.statut==="actif").length})` },
+                    { key:"rejete",     label:`❌ Rejetés (${temos.filter(t=>t.statut==="rejete").length})` },
+                  ].map(f => (
+                    <button key={f.key}
+                      className={`temo-filter-btn ${temoFiltre===f.key?"temo-filter-btn--active":"temo-filter-btn--inactive"}`}
+                      onClick={() => { setTemoFiltre(f.key); setTemoPage(1); }}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Modal rejet */}
+                {temoRejetId && (
+                  <div className="temo-modal-overlay">
+                    <div className="temo-modal">
+                      <h3>❌ Rejeter ce témoignage</h3>
+                      <label>Motif de rejet (optionnel)</label>
+                      <textarea value={temoMotif} onChange={e => setTemoMotif(e.target.value)} rows={3}
+                        placeholder="Ex: Contenu non conforme à la charte..." />
+                      <div className="temo-modal-footer">
+                        <button className="temo-btn temo-btn--outline temo-btn--sm"
+                          onClick={() => { setTemoRejetId(null); setTemoMotif(""); }}>Annuler</button>
+                        <button className="temo-btn temo-btn--danger temo-btn--sm"
+                          onClick={() => temoRejeter(temoRejetId)}>Confirmer le rejet</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Liste */}
+                {temosLoading ? (
+                  <div className="temo-loading">Chargement des témoignages…</div>
+                ) : filtered.length === 0 ? (
+                  <div className="temo-empty">
+                    <div className="temo-empty__icon">⭐</div>
+                    <div className="temo-empty__text">Aucun témoignage{temoFiltre!=="tous"?` — ${temoFiltre}`:""}</div>
+                    <div className="temo-empty__sub">Créez le premier via le bouton ci-dessus</div>
+                  </div>
+                ) : (
+                  <>
+                  {/* Info page */}
+                  <p style={{ fontSize:12, color:"#9ca3af", marginBottom:12 }}>
+                    {filtered.length} témoignage{filtered.length>1?"s":""} · page {temoPage}/{temoTotalPages}
+                  </p>
+                  <div className="temo-grid">
+                    {displayed.map(t => (
+                      <div key={t.id} className={`temo-card temo-card--${t.statut}`}>
+                        <div className="temo-card__accent" style={{ background: t.couleur || "#1e4080" }} />
+                        <div className="temo-card__body">
+                          {/* Identité */}
+                          <div className="temo-card__identity">
+                            <div className="temo-card__avatar-wrap">
+                              <div className="temo-card__avatar" style={{ background:`${t.couleur||"#1e4080"}18` }}>
+                                {t.avatar || "🎓"}
+                              </div>
+                              <div>
+                                <div className="temo-card__name">{t.nom}</div>
+                                {t.role  && <div className="temo-card__role">{t.role}</div>}
+                                {t.score && <div className="temo-card__score" style={{ color: t.couleur||"#1e4080" }}>{t.score}</div>}
+                              </div>
+                            </div>
+                            <div className="temo-card__badges">
+                              <span className={`temo-badge temo-badge--${t.statut}`}>
+                                {t.statut==="actif"?"✅ Actif":t.statut==="en_attente"?"⏳ En attente":"❌ Rejeté"}
+                              </span>
+                              <span className="temo-card__source">{t.source==="apprenant"?"👤 Apprenant":"🔧 Admin"}</span>
+                            </div>
+                          </div>
+
+                          {/* Étoiles */}
+                          <div className="temo-stars">
+                            <span className="temo-stars--filled">{"★".repeat(t.etoiles||5)}</span>
+                            <span className="temo-stars--empty">{"☆".repeat(5-(t.etoiles||5))}</span>
+                          </div>
+
+                          {/* Texte */}
+                          <p className="temo-card__texte">« {t.texte} »</p>
+
+                          {/* Motif rejet */}
+                          {t.motif_rejet && <div className="temo-card__motif">💬 {t.motif_rejet}</div>}
+
+                          {/* Info apprenant */}
+                          {t.apprenant && (
+                            <div className="temo-card__apprenant-info">
+                              👤 {t.apprenant.prenom} {t.apprenant.nom} — {t.apprenant.email}
+                            </div>
+                          )}
+
+                          {/* Contrôles */}
+                          <div className="temo-card__controls">
+                            <span>Ordre :</span>
+                            <input type="number" className="temo-ordre-input" defaultValue={t.ordre} min={0}
+                              onBlur={e => temoAction(t.id, { ordre: Number(e.target.value) })} />
+                            <span>Visible :</span>
+                            <ToggleSwitch on={t.actif} color="#1e4080" onChange={val => temoAction(t.id, { actif: val })} />
+                          </div>
+                        </div>
+
+                        {/* Footer actions */}
+                        <div className="temo-card__footer">
+                          {t.statut === "en_attente" && (
+                            <>
+                              <button className="temo-btn temo-btn--success temo-btn--sm" style={{ flex:1 }}
+                                onClick={() => temoApprouver(t.id)}>✅ Approuver</button>
+                              <button className="temo-btn temo-btn--danger temo-btn--sm" style={{ flex:1 }}
+                                onClick={() => { setTemoRejetId(t.id); setTemoMotif(""); }}>❌ Rejeter</button>
+                            </>
+                          )}
+                          {t.statut !== "en_attente" && (
+                            <button className="temo-btn temo-btn--outline temo-btn--sm" style={{ flex:1 }}
+                              onClick={() => temoAction(t.id, { statut: t.statut==="actif"?"rejete":"actif", actif: t.statut!=="actif" })}>
+                              {t.statut==="actif" ? "⏸ Désactiver" : "▶ Réactiver"}
+                            </button>
+                          )}
+                          <button className="temo-btn temo-btn--danger temo-btn--icon"
+                            onClick={() => temoDelete(t.id)}>🗑</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ── Pagination ── */}
+                  {temoTotalPages > 1 && (
+                    <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6, marginTop:28, flexWrap:"wrap" }}>
+                      <button onClick={() => temoGoTo(temoPage - 1)} disabled={temoPage === 1}
+                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===1?"#f8fafc":"#fff", color:temoPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===1?"not-allowed":"pointer" }}>
+                        ← Précédent
+                      </button>
+                      {Array.from({ length: temoTotalPages }, (_, i) => i + 1).map(n => {
+                        const near = Math.abs(n - temoPage) <= 1 || n === 1 || n === temoTotalPages;
+                        if (!near) {
+                          if (n === temoPage - 2 || n === temoPage + 2) return <span key={n} style={{ color:"#9ca3af", fontSize:12 }}>…</span>;
+                          return null;
+                        }
+                        return (
+                          <button key={n} onClick={() => temoGoTo(n)}
+                            style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===temoPage?"#1e4080":"#f1f5f9", color:n===temoPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
+                            {n}
+                          </button>
+                        );
+                      })}
+                      <button onClick={() => temoGoTo(temoPage + 1)} disabled={temoPage === temoTotalPages}
+                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===temoTotalPages?"#f8fafc":"#fff", color:temoPage===temoTotalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===temoTotalPages?"not-allowed":"pointer" }}>
+                        Suivant →
+                      </button>
+                    </div>
+                  )}
+                  </>
+                )}
+              </div>
+            );
+              })()}
+            </div>
+          )}
+
+          {/* ══ BOUTIQUE ══ */}
+          {platformSubTab === "boutique" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", padding:0, overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>🛍️ Boutique BET</h2>
+                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                    {produits.length} produit{produits.length!==1?"s":""} · {commandes.length} commande{commandes.length!==1?"s":""}
+                    {commandes.filter(c=>c.statut==="en_attente").length > 0 &&
+                      <span style={{ marginLeft:10, background:"#fbbf24", color:"#7c2d12", padding:"2px 10px", borderRadius:999, fontWeight:700, fontSize:11 }}>
+                        {commandes.filter(c=>c.statut==="en_attente").length} en attente
+                      </span>
+                    }
+                  </p>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => { setBoutiqueSubTab("produits"); setProdFormOpen(true); setSelectedProduit(null); setProdForm(PROD_FORM_INIT); }}
+                    style={{ padding:"9px 18px", background:"#fff", color:BET_COLOR, border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+                    + Nouveau produit
+                  </button>
+                </div>
+              </div>
+
+              {/* Sous-onglets */}
+              <div style={{ display:"flex", gap:0, borderBottom:"2px solid #e5e7eb", padding:"0 28px" }}>
+                {[{ key:"produits", label:"📦 Produits" }, { key:"commandes", label:"🧾 Commandes" }].map(t => (
+                  <button key={t.key} onClick={() => setBoutiqueSubTab(t.key)}
+                    style={{ padding:"12px 20px", border:"none", background:"none", cursor:"pointer", fontWeight:700, fontSize:13,
+                      color: boutiqueSubTab===t.key ? BET_COLOR : "#6b7280",
+                      borderBottom: boutiqueSubTab===t.key ? `3px solid ${BET_COLOR}` : "3px solid transparent",
+                      marginBottom:-2 }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ padding:28 }}>
+
+                {/* ── Formulaire ajout/édition produit ── */}
+                {boutiqueSubTab === "produits" && prodFormOpen && (
+                  <div style={{ background:"#f0f9ff", border:`1.5px solid ${BET_COLOR}40`, borderRadius:12, padding:24, marginBottom:28 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+                      <h3 style={{ margin:0, color:BET_DARK, fontWeight:800 }}>
+                        {selectedProduit ? "✏️ Modifier le produit" : "➕ Nouveau produit"}
+                      </h3>
+                      <button onClick={() => { setProdFormOpen(false); setSelectedProduit(null); }}
+                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:18, color:"#6b7280" }}>✕</button>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Nom du produit *</label>
+                        <input value={prodForm.nom} onChange={e=>setProdForm(f=>({...f,nom:e.target.value}))}
+                          placeholder="Ex: T-Shirt BET"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Catégorie</label>
+                        <select
+                          value={CATEGORIES_BOUTIQUE.includes(prodForm.categorie) ? prodForm.categorie : "__custom__"}
+                          onChange={e => {
+                            if (e.target.value === "__custom__") setProdForm(f=>({...f, categorie:""}));
+                            else setProdForm(f=>({...f, categorie:e.target.value}));
+                          }}
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }}>
+                          {CATEGORIES_BOUTIQUE.map(c=><option key={c}>{c}</option>)}
+                          <option value="__custom__">✏️ Saisir manuellement…</option>
+                        </select>
+                        {!CATEGORIES_BOUTIQUE.includes(prodForm.categorie) && (
+                          <input
+                            autoFocus
+                            value={prodForm.categorie}
+                            onChange={e=>setProdForm(f=>({...f,categorie:e.target.value}))}
+                            placeholder="Nom de la catégorie…"
+                            style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}`, borderRadius:8, fontSize:13 }}
+                          />
+                        )}
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Prix (FCFA) *</label>
+                        <input type="number" min="0" value={prodForm.prix} onChange={e=>setProdForm(f=>({...f,prix:e.target.value}))}
+                          placeholder="5000"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Stock</label>
+                        <input type="number" min="0" value={prodForm.stock} onChange={e=>setProdForm(f=>({...f,stock:e.target.value}))}
+                          placeholder="0"
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6, gridColumn:"1/-1" }}>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Description</label>
+                        <textarea value={prodForm.description} onChange={e=>setProdForm(f=>({...f,description:e.target.value}))}
+                          placeholder="Description du produit…" rows={3}
+                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13, resize:"vertical" }} />
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:8, gridColumn:"1/-1" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>
+                            Photos du produit <span style={{ color:"#94a3b8", fontWeight:400 }}>({prodForm.images.length} / 6)</span>
+                          </label>
+                          {prodForm.images.length < 6 && (
+                            <label style={{ padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
+                              {prodImageUploading ? "⏳ Upload…" : "📷 Ajouter une photo"}
+                              <input type="file" accept="image/*" style={{ display:"none" }}
+                                onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
+                            </label>
+                          )}
+                        </div>
+                        {prodForm.images.length === 0 ? (
+                          <label style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:100, border:`2px dashed ${BET_COLOR}40`, borderRadius:10, cursor:"pointer", color:"#94a3b8", fontSize:13, gap:6 }}>
+                            <span style={{ fontSize:28 }}>📷</span>
+                            Cliquez pour ajouter des photos
+                            <input type="file" accept="image/*" style={{ display:"none" }}
+                              onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
+                          </label>
+                        ) : (
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                            {prodForm.images.map((url, i) => (
+                              <div key={i} style={{ position:"relative", width:90, height:90 }}>
+                                <img src={url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:8, border: i===0?"2.5px solid "+BET_COLOR:"1.5px solid #e5e7eb" }} />
+                                {i===0 && <span style={{ position:"absolute", top:4, left:4, background:BET_COLOR, color:"#fff", fontSize:9, fontWeight:800, padding:"1px 5px", borderRadius:4 }}>PRINCIPALE</span>}
+                                <button onClick={()=>setProdForm(f=>({...f, images:f.images.filter((_,j)=>j!==i)}))}
+                                  style={{ position:"absolute", top:2, right:2, width:20, height:20, borderRadius:"50%", background:"#dc2626", color:"#fff", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p style={{ fontSize:11, color:"#94a3b8", margin:0 }}>La 1ère photo est l'image principale. Max 6 photos · 10 Mo par photo.</p>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:10, marginTop:20, justifyContent:"flex-end" }}>
+                      <button onClick={()=>{ setProdFormOpen(false); setSelectedProduit(null); }}
+                        style={{ padding:"9px 20px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:600 }}>
+                        Annuler
+                      </button>
+                      <button onClick={saveProduit} disabled={prodSaving}
+                        style={{ padding:"9px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, opacity:prodSaving?0.7:1 }}>
+                        {prodSaving ? "Enregistrement…" : selectedProduit ? "Mettre à jour" : "Créer le produit"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Liste des produits ── */}
+                {boutiqueSubTab === "produits" && (() => {
+                  const totalPages = Math.max(1, Math.ceil(produits.length / PROD_PER_PAGE));
+                  const paginated  = produits.slice((prodPage-1)*PROD_PER_PAGE, prodPage*PROD_PER_PAGE);
+                  return (
+                  <>
+                    {prodLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                    ) : produits.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:60 }}>
+                        <div style={{ fontSize:48, marginBottom:12 }}>📦</div>
+                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun produit pour l'instant</p>
+                        <button onClick={()=>setProdFormOpen(true)} style={{ padding:"10px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, marginTop:8 }}>
+                          + Ajouter le premier produit
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:18 }}>
+                        {paginated.map(p => {
+                          const imgs = Array.isArray(p.images) && p.images.length > 0 ? p.images : (p.image_url ? [p.image_url] : []);
+                          const mainImg = imgs[0] || null;
+                          return (
+                          <div key={p.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden", background:"#fff", boxShadow:"0 1px 4px rgba(0,0,0,0.05)", opacity:p.actif?1:0.65 }}>
+                            {/* Image principale */}
+                            <div style={{ height:150, background:"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative" }}>
+                              {mainImg
+                                ? <img src={mainImg} alt={p.nom} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                                : <span style={{ fontSize:48 }}>📦</span>
+                              }
+                              {imgs.length > 1 && (
+                                <span style={{ position:"absolute", bottom:6, right:6, background:"rgba(0,0,0,0.55)", color:"#fff", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999 }}>
+                                  +{imgs.length-1} photo{imgs.length>2?"s":""}
+                                </span>
+                              )}
+                            </div>
+                            {/* Miniatures */}
+                            {imgs.length > 1 && (
+                              <div style={{ display:"flex", gap:4, padding:"6px 8px", background:"#f8fafc", overflowX:"auto" }}>
+                                {imgs.slice(1).map((url, i) => (
+                                  <img key={i} src={url} alt="" style={{ width:36, height:36, objectFit:"cover", borderRadius:5, border:"1px solid #e5e7eb", flexShrink:0 }} />
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ padding:"12px 14px" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                                <div>
+                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{p.nom}</div>
+                                  <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>{p.categorie}</div>
+                                </div>
+                                <span style={{ padding:"2px 8px", borderRadius:999, fontSize:10, fontWeight:700,
+                                  background:p.actif?"#dcfce7":"#f1f5f9", color:p.actif?"#166534":"#6b7280" }}>
+                                  {p.actif?"Actif":"Inactif"}
+                                </span>
+                              </div>
+                              {p.description && <p style={{ fontSize:12, color:"#64748b", margin:"4px 0 8px", lineHeight:1.4 }}>{p.description.slice(0,70)}{p.description.length>70?"…":""}</p>}
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                                <span style={{ fontWeight:800, fontSize:15, color:BET_COLOR }}>{Number(p.prix).toLocaleString("fr-FR")} FCFA</span>
+                                <span style={{ fontSize:11, color: p.stock===0?"#dc2626":"#6b7280" }}>
+                                  {p.stock===0 ? "⚠ Rupture" : `Stock : ${p.stock}`}
+                                </span>
+                              </div>
+                              <div style={{ display:"flex", gap:7 }}>
+                                <button onClick={()=>{ setSelectedProduit(p); setProdForm({ nom:p.nom, description:p.description||"", prix:p.prix, stock:p.stock, categorie:p.categorie, images: imgs }); setProdFormOpen(true); }}
+                                  style={{ flex:1, padding:"7px 0", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  ✏️ Modifier
+                                </button>
+                                <button onClick={()=>toggleProduitActif(p.id, p.actif)}
+                                  style={{ padding:"7px 10px", background:p.actif?"#fff7ed":"#f0fdf4", color:p.actif?"#c2410c":"#166534", border:`1.5px solid ${p.actif?"#fed7aa":"#bbf7d0"}`, borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  {p.actif?"⏸":"▶"}
+                                </button>
+                                <button onClick={()=>deleteProduit(p.id)}
+                                  style={{ padding:"7px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );})}
+                      </div>
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:8, marginTop:24 }}>
+                          <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage===1}
+                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===1?"#f8fafc":"#fff", color:prodPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===1?"not-allowed":"pointer" }}>
+                            ← Précédent
+                          </button>
+                          {Array.from({length:totalPages},(_,i)=>i+1).map(n=>(
+                            <button key={n} onClick={()=>setProdPage(n)}
+                              style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===prodPage?BET_COLOR:"#f1f5f9", color:n===prodPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
+                              {n}
+                            </button>
+                          ))}
+                          <button onClick={()=>setProdPage(p=>Math.min(totalPages,p+1))} disabled={prodPage===totalPages}
+                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===totalPages?"#f8fafc":"#fff", color:prodPage===totalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===totalPages?"not-allowed":"pointer" }}>
+                            Suivant →
+                          </button>
+                          <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{produits.length} produit{produits.length>1?"s":""} · page {prodPage}/{totalPages}</span>
+                        </div>
+                      )}
+                      </>
+                    )}
+                  </>
+                  );
+                })()}
+
+
+                {/* ── Commandes ── */}
+                {boutiqueSubTab === "commandes" && (
+                  <>
+                    {/* Filtres statut */}
+                    <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+                      {STATUTS_CMD.map(s => (
+                        <button key={s.key} onClick={()=>setCmdFiltreStatut(s.key)}
+                          style={{ padding:"6px 16px", borderRadius:999, border:`1.5px solid ${cmdFiltreStatut===s.key?s.color:"#e5e7eb"}`,
+                            background:cmdFiltreStatut===s.key?s.color:"#fff",
+                            color:cmdFiltreStatut===s.key?"#fff":s.color,
+                            fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                          {s.label}
+                          {s.key!=="tous" && <span style={{ marginLeft:6, opacity:.85 }}>({commandes.filter(c=>c.statut===s.key).length})</span>}
+                        </button>
+                      ))}
+                      <button onClick={fetchCommandes} style={{ marginLeft:"auto", padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:999, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+                    </div>
+
+                    {cmdLoading ? (
+                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                    ) : commandes.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:60 }}>
+                        <div style={{ fontSize:48, marginBottom:12 }}>🧾</div>
+                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucune commande{cmdFiltreStatut!=="tous"?" dans ce statut":""}</p>
+                      </div>
+                    ) : (
+                      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                        {commandes.map(cmd => {
+                          const statutInfo = STATUTS_CMD.find(s=>s.key===cmd.statut) || STATUTS_CMD[0];
+                          return (
+                            <div key={cmd.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"16px 20px", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                                <div>
+                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{cmd.client_nom}</div>
+                                  <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>
+                                    {cmd.client_email} {cmd.client_telephone && `· ${cmd.client_telephone}`}
+                                  </div>
+                                  <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>
+                                    {new Date(cmd.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                  </div>
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                                  <span style={{ fontWeight:800, fontSize:16, color:BET_COLOR }}>{Number(cmd.total).toLocaleString("fr-FR")} FCFA</span>
+                                  <span style={{ padding:"3px 10px", borderRadius:999, fontSize:11, fontWeight:700, background:`${statutInfo.color}18`, color:statutInfo.color }}>
+                                    {statutInfo.label}
+                                  </span>
+                                </div>
+                              </div>
+                              {/* Articles */}
+                              {Array.isArray(cmd.items) && cmd.items.length > 0 && (
+                                <div style={{ background:"#f8fafc", borderRadius:8, padding:"10px 12px", marginBottom:10, fontSize:12 }}>
+                                  {cmd.items.map((item, i) => (
+                                    <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"2px 0", color:"#374151" }}>
+                                      <span>{item.nom} × {item.quantite}</span>
+                                      <span style={{ fontWeight:700 }}>{(Number(item.prix_unitaire)*Number(item.quantite)).toLocaleString("fr-FR")} FCFA</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {cmd.notes && <p style={{ fontSize:12, color:"#64748b", margin:"0 0 10px", fontStyle:"italic" }}>📝 {cmd.notes}</p>}
+                              {/* Actions statut */}
+                              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                                {STATUTS_CMD.filter(s=>s.key!=="tous"&&s.key!==cmd.statut).map(s => (
+                                  <button key={s.key} onClick={()=>updateCmdStatut(cmd.id, s.key)}
+                                    style={{ padding:"5px 12px", borderRadius:6, border:`1.5px solid ${s.color}40`, background:`${s.color}10`, color:s.color, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                                    → {s.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* ══ COMMENTAIRES BLOG ══ */}
+          {platformSubTab === "blog_comments" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>💬 Commentaires Blog</h2>
+                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                    {blogComments.length} commentaire{blogComments.length!==1?"s":""} · supprimez les contenus inappropriés
+                  </p>
+                </div>
+                <button onClick={fetchBlogComments} style={{ padding:"9px 18px", background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                  🔄 Actualiser
+                </button>
+              </div>
+
+              <div style={{ padding:28 }}>
+                {/* Recherche */}
+                <div style={{ marginBottom:20 }}>
+                  <input
+                    value={blogCommentsSearch}
+                    onChange={e => setBlogCommentsSearch(e.target.value)}
+                    placeholder="🔍 Rechercher par nom, article, contenu…"
+                    style={{ width:"100%", padding:"10px 14px", border:"1.5px solid #e5e7eb", borderRadius:10, fontSize:13, boxSizing:"border-box" }}
+                  />
+                </div>
+
+                {blogCommentsLoading ? (
+                  <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
+                ) : blogComments.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:60 }}>
+                    <div style={{ fontSize:48, marginBottom:12 }}>💬</div>
+                    <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun commentaire pour l'instant</p>
+                  </div>
+                ) : (() => {
+                  const q = blogCommentsSearch.toLowerCase();
+                  const filtered = blogComments.filter(c =>
+                    !q ||
+                    c.nom?.toLowerCase().includes(q) ||
+                    c.commentaire?.toLowerCase().includes(q) ||
+                    c.article_titre?.toLowerCase().includes(q) ||
+                    c.email?.toLowerCase().includes(q)
+                  );
+                  return (
+                    <>
+                      {filtered.length === 0 ? (
+                        <p style={{ color:"#94a3b8", textAlign:"center", padding:32 }}>Aucun résultat pour « {blogCommentsSearch} »</p>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          {filtered.map(c => (
+                            <div key={c.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"14px 18px", background:"#fff", display:"flex", gap:16, alignItems:"flex-start" }}>
+                              {/* Avatar */}
+                              <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".9rem", flexShrink:0 }}>
+                                {(c.nom||"?")[0].toUpperCase()}
+                              </div>
+                              {/* Contenu */}
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
+                                  <div>
+                                    <span style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{c.nom}</span>
+                                    {c.email && <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{c.email}</span>}
+                                  </div>
+                                  <span style={{ fontSize:11, color:"#94a3b8", flexShrink:0 }}>
+                                    {new Date(c.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize:11, fontWeight:700, margin:"4px 0 8px" }}>
+                                  📄{" "}
+                                  {c.article_id ? (
+                                    <a
+                                      href={`${FRONTEND_URL}/blog/${c.article_id}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ color:BET_COLOR, textDecoration:"none", borderBottom:`1px dashed ${BET_COLOR}` }}
+                                    >
+                                      {c.article_titre || "Voir l'article"}
+                                    </a>
+                                  ) : (
+                                    <span style={{ color:"#94a3b8" }}>{c.article_titre || "—"}</span>
+                                  )}
+                                </div>
+                                <p style={{ fontSize:13, color:"#334155", margin:0, lineHeight:1.6, wordBreak:"break-word" }}>{c.commentaire}</p>
+                              </div>
+                              {/* Supprimer */}
+                              <button
+                                onClick={() => deleteBlogComment(c.id)}
+                                title="Supprimer ce commentaire"
+                                style={{ padding:"6px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>
+                                🗑 Supprimer
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p style={{ textAlign:"right", fontSize:12, color:"#94a3b8", marginTop:14 }}>
+                        {filtered.length} / {blogComments.length} commentaire{blogComments.length>1?"s":""}
+                      </p>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
               </div>
             )}
 
@@ -1728,7 +4064,38 @@ export default function SuperAdminDashboard() {
                     </div>
                   )}
                   {!loadingUsers && users.length > 0 && <div><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}><div><h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>Utilisateurs</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>{usersFiltres.length} affiché(s) sur {users.length}</p></div><div style={{ display:"flex", gap:8 }}><button onClick={exportUsers} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export CSV</button><button onClick={()=>setShowInviteModal(true)} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>+ Inviter</button></div></div>
-                    <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:18 }}><input type="text" placeholder="🔍 Nom ou email…" value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:200, marginBottom:0 }} /><div style={{ display:"flex", gap:5 }}>{["Tous","super_admin","admin","manager","responsable","commercial","gestionnaire","coach","data_collector"].map(r=><button key={r} onClick={()=>setFiltreRole(r)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, fontWeight:600, cursor:"pointer", background:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#fff", color:filtreRole===r?"#fff":"#6b7280", borderColor:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#e5e7eb" }}>{r==="Tous"?"Tous":ROLES_DEF[r]?.emoji+" "+ROLES_DEF[r]?.label}</button>)}</div><div style={{ display:"flex", gap:5 }}>{["Tous","Actifs","Inactifs","Sans 2FA","En ligne"].map(s=><button key={s} onClick={()=>setFiltreStatut(s)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, cursor:"pointer", background:filtreStatut===s?BET_COLOR:"#fff", color:filtreStatut===s?"#fff":"#6b7280", borderColor:filtreStatut===s?BET_COLOR:"#e5e7eb" }}>{s}</button>)}</div></div>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:18 }}>
+                      {/* Barre de recherche */}
+                      <input type="text" placeholder="🔍 Nom ou email…" value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:200, marginBottom:0 }} />
+                      {/* Filtre par rôle */}
+                      <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                        {["Tous","super_admin","admin","manager","superviseur","responsable","pedagogical_advisor","commercial","onboarding","gestionnaire","rh","comptable","coach","customer_care","data_collector"].map(r=>(
+                          <button key={r} onClick={()=>setFiltreRole(r)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, fontWeight:600, cursor:"pointer", background:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#fff", color:filtreRole===r?"#fff":"#6b7280", borderColor:filtreRole===r?(ROLES_DEF[r]?.color||BET_COLOR):"#e5e7eb" }}>
+                            {r==="Tous"?"Tous":ROLES_DEF[r]?.emoji+" "+ROLES_DEF[r]?.label}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Filtre par statut */}
+                      <div style={{ display:"flex", gap:5 }}>
+                        {["Tous","Actifs","Inactifs","Sans 2FA","En ligne"].map(s=>(
+                          <button key={s} onClick={()=>setFiltreStatut(s)} style={{ padding:"5px 12px", borderRadius:20, border:"1px solid", fontSize:11, cursor:"pointer", background:filtreStatut===s?BET_COLOR:"#fff", color:filtreStatut===s?"#fff":"#6b7280", borderColor:filtreStatut===s?BET_COLOR:"#e5e7eb" }}>{s}</button>
+                        ))}
+                      </div>
+                      {/* Filtre par centre */}
+                      <div style={{ display:"flex", alignItems:"center", gap:6, background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"4px 10px" }}>
+                        <span style={{ fontSize:11, color:"#64748b", fontWeight:700, whiteSpace:"nowrap" }}>🏢 Centre :</span>
+                        <select value={filtreCentre} onChange={e=>setFiltreCentre(e.target.value)} style={{ border:"none", background:"transparent", fontSize:12, color:"#0f172a", fontWeight:600, cursor:"pointer", outline:"none" }}>
+                          <option value="Tous">Tous les centres</option>
+                          <option value="national">🌍 National (accès global)</option>
+                          {CENTRES_BET.map(c=>(
+                            <option key={c.id} value={c.id}>{c.label.replace("BET ","")}</option>
+                          ))}
+                        </select>
+                        {filtreCentre !== "Tous" && (
+                          <button onClick={()=>setFiltreCentre("Tous")} style={{ border:"none", background:"none", cursor:"pointer", color:"#94a3b8", fontSize:14, lineHeight:1, padding:0 }} title="Effacer">✕</button>
+                        )}
+                      </div>
+                    </div>
                     <div style={{ overflowX:"auto" }}>
                         <table style={{ width:"100%", borderCollapse:"collapse" }}><thead>
                         <tr style={{ background:"#f9fafb" }}>
@@ -1743,7 +4110,12 @@ export default function SuperAdminDashboard() {
                             <td style={{ padding:"12px" }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                                     <div style={{ position:"relative" }}>
-                                        <div style={{ width:36, height:36, borderRadius:"50%", background:`${r?.color||BET_COLOR}18`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, color:r?.color||BET_COLOR }}>{u.avatar||((u.prenom?.[0]||"")+(u.nom?.[0]||""))}</div>{isOnline&&<div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#22c55e", border:"2px solid #fff" }}/>}</div>
+                                        {u.avatar_url
+                                          ? <img src={u.avatar_url} alt={u.prenom} style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover", display:"block" }}/>
+                                          : <div style={{ width:36, height:36, borderRadius:"50%", background:`${r?.color||BET_COLOR}18`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, color:r?.color||BET_COLOR }}>{(u.prenom?.[0]||"")+(u.nom?.[0]||"")}</div>
+                                        }
+                                        {isOnline&&<div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#22c55e", border:"2px solid #fff" }}/>}
+                                    </div>
                                         <div><div style={{ fontWeight:600, fontSize:13 }}>{u.prenom} {u.nom}</div><div style={{ fontSize:11, color:"#9ca3af" }}>{u.email}</div></div>
                                 </div>
                             </td>
@@ -1968,45 +4340,192 @@ export default function SuperAdminDashboard() {
             )}
 
             {/* ================= ONGLET PAIEMENTS ================= */}
-            {activeTab === "paiements" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-                  <div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>💳 Paiements — Historique global</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Toutes les transactions de la plateforme</p></div>
-                  <button onClick={()=>toast.success("Historique des transactions exporté")} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export transactions</button>
+            {activeTab === "paiements" && (() => {
+              const STATUT_PAI = {
+                paye:       { label:"✅ Payé",       bg:"#d1fae5", color:"#065f46" },
+                en_attente: { label:"⏳ En attente", bg:"#fef9c3", color:"#854d0e" },
+                partiel:    { label:"⚡ Partiel",    bg:"#fff7ed", color:"#92400e" },
+                refuse:     { label:"❌ Refusé",     bg:"#fee2e2", color:"#dc2626" },
+                rembourse:  { label:"↩ Remboursé",  bg:"#f3e8ff", color:"#7c3aed" },
+              };
+
+              const modes = ["Tous", ...new Set(paiements.map(p=>p.mode_paiement).filter(Boolean))];
+
+              const filtres = paiements.filter(p => {
+                if (paiementFiltre.statut !== "Tous" && p.statut !== paiementFiltre.statut) return false;
+                if (paiementFiltre.mode   !== "Tous" && p.mode_paiement !== paiementFiltre.mode) return false;
+                if (paiementFiltre.search) {
+                  const q = paiementFiltre.search.toLowerCase();
+                  if (!p.client?.toLowerCase().includes(q) &&
+                      !p.email?.toLowerCase().includes(q) &&
+                      !p.commercial_nom?.toLowerCase().includes(q) &&
+                      !p.ref_transaction?.toLowerCase().includes(q)) return false;
+                }
+                return true;
+              });
+
+              const totalPages = Math.max(1, Math.ceil(filtres.length / PAIEMENTS_PER_PAGE));
+              const page       = Math.min(paiementPage, totalPages);
+              const pageItems  = filtres.slice((page-1)*PAIEMENTS_PER_PAGE, page*PAIEMENTS_PER_PAGE);
+
+              const totalRecu   = filtres.reduce((s,p) => s + (p.montant_recu || 0), 0);
+              const totalDu     = filtres.reduce((s,p) => s + (p.montant_du  || 0), 0);
+              const kpiPaye     = filtres.filter(p=>p.statut==="paye").length;
+              const kpiAttente  = filtres.filter(p=>p.statut==="en_attente").length;
+              const kpiRefuse   = filtres.filter(p=>p.statut==="refuse").length;
+
+              const exportCSV = () => {
+                const rows = [["Client","Email","Inscription","Montant dû","Montant reçu","Mode","Statut","Réf transaction","Commercial","Date"]];
+                filtres.forEach(p => rows.push([
+                  p.client||"—", p.email||"—", p.inscription||"—",
+                  p.montant_du||0, p.montant_recu||0, p.mode_paiement||"—",
+                  p.statut||"—", p.ref_transaction||"—", p.commercial_nom||"—",
+                  p.date_paiement||"—"
+                ]));
+                const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+                const blob = new Blob([csv],{type:"text/csv"});
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement("a"); a.href=url; a.download="paiements.csv"; a.click();
+                URL.revokeObjectURL(url);
+              };
+
+              const hasFilter = paiementFiltre.statut!=="Tous"||paiementFiltre.mode!=="Tous"||paiementFiltre.search;
+
+              return (
+                <div>
+                  {/* Header */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                    <div>
+                      <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>💳 Paiements — Historique global</h2>
+                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Toutes les transactions de toutes les commerciales</p>
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={fetchPaiements} style={{ padding:"9px 14px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🔄 Actualiser</button>
+                      <button onClick={exportCSV} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇ Export CSV</button>
+                    </div>
+                  </div>
+
+                  {/* KPIs */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
+                    <StatCard icon="💰" label="Total reçu (filtré)"  value={formatMoney(totalRecu)}        color="#22c55e" sub={`sur ${formatMoney(totalDu)} dû`} />
+                    <StatCard icon="✅" label="Payés"                value={kpiPaye}                       color="#22c55e" sub={`${filtres.length} transactions filtrées`} />
+                    <StatCard icon="⏳" label="En attente"           value={kpiAttente}                    color="#f59e0b" sub="À relancer" />
+                    <StatCard icon="❌" label="Refusés"              value={kpiRefuse}                     color={BET_RED}  sub="Vérifier" />
+                  </div>
+
+                  {/* Filtres */}
+                  <div style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+                    <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                      <input placeholder="🔍 Client, email, commerciale, réf…" value={paiementFiltre.search}
+                        onChange={e=>{ setPaiementFiltre(p=>({...p,search:e.target.value})); setPaiementPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, minWidth:280, background:"#fff" }} />
+                      <select value={paiementFiltre.statut} onChange={e=>{ setPaiementFiltre(p=>({...p,statut:e.target.value})); setPaiementPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                        <option value="Tous">Tous statuts</option>
+                        {Object.entries(STATUT_PAI).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                      </select>
+                      <select value={paiementFiltre.mode} onChange={e=>{ setPaiementFiltre(p=>({...p,mode:e.target.value})); setPaiementPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                        {modes.map(m=><option key={m} value={m}>{m==="Tous"?"Tous modes":m}</option>)}
+                      </select>
+                      <span style={{ fontSize:12, color:"#9ca3af", marginLeft:"auto" }}>{filtres.length} résultat(s)</span>
+                      {hasFilter && (
+                        <button onClick={()=>{ setPaiementFiltre({statut:"Tous",mode:"Tous",search:""}); setPaiementPage(1); }}
+                          style={{ padding:"6px 12px", background:"#fee2e2", color:BET_RED, border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>✕ Réinitialiser</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Contenu */}
+                  {loadingPaiements ? (
+                    <div style={{ textAlign:"center", padding:"60px 0", color:"#9ca3af", fontSize:13 }}>⏳ Chargement des paiements…</div>
+                  ) : paiements.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"60px 0" }}>
+                      <div style={{ fontSize:40, marginBottom:10 }}>💳</div>
+                      <div style={{ fontWeight:700, color:"#0f172a", marginBottom:6 }}>Aucun paiement enregistré</div>
+                      <p style={{ color:"#9ca3af", fontSize:13 }}>Les paiements saisis par les commerciales apparaîtront ici.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                          <thead>
+                            <tr style={{ background:"#f8fafc" }}>
+                              {["Client","Inscription","Montant dû","Montant reçu","Mode","Commercial","Statut","Date","Réf"].map(h=>(
+                                <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#9ca3af", borderBottom:"1px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pageItems.map(p => {
+                              const st = STATUT_PAI[p.statut] || { label:p.statut||"—", bg:"#f3f4f6", color:"#374151" };
+                              const initiales = (p.client||"?").split(" ").map(x=>x[0]||"").join("").slice(0,2).toUpperCase();
+                              const solde = (p.montant_du||0) - (p.montant_recu||0);
+                              return (
+                                <tr key={p.id} style={{ borderBottom:"1px solid #f1f5f9", background:"#fff" }}>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+                                      <div style={{ width:32, height:32, borderRadius:"50%", background:"#8b5cf620", color:"#8b5cf6", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                                      <div>
+                                        <div style={{ fontWeight:700, color:"#0f172a" }}>{p.client}</div>
+                                        <div style={{ fontSize:11, color:"#9ca3af" }}>{p.email||"—"}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:12, color:"#475569", maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.inscription||"—"}</td>
+                                  <td style={{ padding:"10px 12px", fontWeight:700, color:"#0f172a" }}>{formatMoney(p.montant_du||0)}</td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <span style={{ fontWeight:700, color: solde===0?"#22c55e":solde>0?"#f59e0b":"#9ca3af" }}>{formatMoney(p.montant_recu||0)}</span>
+                                    {solde > 0 && <div style={{ fontSize:10, color:"#f59e0b" }}>reste {formatMoney(solde)}</div>}
+                                  </td>
+                                  <td style={{ padding:"10px 12px" }}><span style={{ padding:"2px 8px", borderRadius:8, background:"#f3f4f6", fontSize:12 }}>{p.mode_paiement||"—"}</span></td>
+                                  <td style={{ padding:"10px 12px", fontSize:12, color:"#475569", fontWeight:600 }}>{p.commercial_nom}</td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:st.bg, color:st.color }}>{st.label}</span>
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:11, color:"#9ca3af", whiteSpace:"nowrap" }}>
+                                    {p.date_paiement ? new Date(p.date_paiement).toLocaleDateString("fr-FR") : "—"}
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:11, color:"#94a3b8", fontFamily:"monospace" }}>{p.ref_transaction||"—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {filtres.length === 0 && (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:13 }}>Aucun paiement ne correspond aux filtres.</div>
+                        )}
+                      </div>
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:16, padding:"0 4px" }}>
+                          <span style={{ fontSize:12, color:"#9ca3af" }}>
+                            {(page-1)*PAIEMENTS_PER_PAGE+1}–{Math.min(page*PAIEMENTS_PER_PAGE, filtres.length)} sur {filtres.length}
+                          </span>
+                          <div style={{ display:"flex", gap:4 }}>
+                            <button onClick={()=>setPaiementPage(p=>Math.max(1,p-1))} disabled={page===1}
+                              style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #e5e7eb", background:page===1?"#f9fafb":"#fff", color:page===1?"#d1d5db":"#374151", cursor:page===1?"not-allowed":"pointer", fontSize:13 }}>‹</button>
+                            {Array.from({length:totalPages},(_,i)=>i+1).filter(n=>n===1||n===totalPages||Math.abs(n-page)<=1).reduce((acc,n,idx,arr)=>{
+                              if(idx>0&&arr[idx-1]!==n-1) acc.push("…");
+                              acc.push(n); return acc;
+                            },[]).map((n,i)=> n==="…"
+                              ? <span key={`e${i}`} style={{ padding:"5px 6px", fontSize:13, color:"#9ca3af" }}>…</span>
+                              : <button key={n} onClick={()=>setPaiementPage(n)}
+                                  style={{ padding:"5px 10px", borderRadius:6, border:"1px solid", fontSize:13, cursor:"pointer", fontWeight:n===page?700:400,
+                                    background:n===page?BET_COLOR:"#fff", color:n===page?"#fff":"#374151", borderColor:n===page?BET_COLOR:"#e5e7eb" }}>{n}</button>
+                            )}
+                            <button onClick={()=>setPaiementPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}
+                              style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #e5e7eb", background:page===totalPages?"#f9fafb":"#fff", color:page===totalPages?"#d1d5db":"#374151", cursor:page===totalPages?"not-allowed":"pointer", fontSize:13 }}>›</button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                <div style={{ display:"flex", gap:12, marginBottom:20 }}>
-                  <StatCard label="Transactions validées" value={SA_TRANSACTIONS.filter(t=>t.statut==="validé").length} color="#22c55e" icon="✅" />
-                  <StatCard label="En attente" value={SA_TRANSACTIONS.filter(t=>t.statut==="en_attente").length} color="#f59e0b" icon="⏳" />
-                  <StatCard label="Échecs" value={SA_TRANSACTIONS.filter(t=>t.statut==="echoué").length} color={BET_RED} icon="❌" />
-                </div>
-                <div style={{ overflowX:"auto" }}>
-                  <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                    <thead><tr style={{ background:"#f9fafb", fontSize:12, color:"#6b7280" }}>
-                      <th style={{ padding:10, textAlign:"left" }}>Client</th>
-                      <th style={{ padding:10 }}>Montant</th>
-                      <th style={{ padding:10 }}>Date</th>
-                      <th style={{ padding:10 }}>Moyen de paiement</th>
-                      <th style={{ padding:10 }}>Statut</th>
-                    </tr></thead>
-                    <tbody>
-                      {SA_TRANSACTIONS.map(t => (
-                        <tr key={t.id} style={{ borderTop:"1px solid #e5e7eb", fontSize:13 }}>
-                          <td style={{ padding:"10px" }}><strong>{t.client}</strong></td>
-                          <td style={{ padding:"10px", fontWeight:700, color:"#0f172a" }}>{formatMoney(t.montant)}</td>
-                          <td style={{ padding:"10px", color:"#6b7280" }}>{formatDate(t.date)}</td>
-                          <td style={{ padding:"10px" }}><span style={{ padding:"3px 10px", borderRadius:8, background:"#f3f4f6", fontSize:12 }}>{t.moyen}</span></td>
-                          <td style={{ padding:"10px" }}>
-                            <span style={{ padding:"3px 10px", borderRadius:10, fontSize:12, fontWeight:700, background:t.statut==="validé"?"#dcfce7":t.statut==="en_attente"?"#fef3c7":"#fee2e2", color:t.statut==="validé"?"#166534":t.statut==="en_attente"?"#92400e":"#991b1b" }}>
-                              {t.statut==="validé"?"✅ Validé":t.statut==="en_attente"?"⏳ En attente":"❌ Échoué"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              );
+            })()}
+
 
             {/* ================= ONGLET PROGRESSION APPRENANTS ================= */}
             {activeTab === "progression" && (
@@ -2260,133 +4779,215 @@ export default function SuperAdminDashboard() {
 
             {/* ================= ONGLET APPRENANTS ================= */}
             {activeTab === "apprenants" && (() => {
-              const niveaux  = ["Tous","A1","A2","B1","B2","C1","C2"];
-              const centres  = ["Tous", ...new Set(APPRENANTS_MOCK.map(a=>a.centre))];
-              const statuts  = ["Tous","Actif","⚠ Risque","Certifié"];
+              const STATUT_LABEL = { nouveau:"Nouveau", contacte:"Contacté", en_cours:"En cours", converti:"Converti", annule:"Annulé", termine:"Terminé" };
+              const STATUT_STYLE = {
+                nouveau:  { bg:"#eff6ff", color:BET_COLOR },
+                contacte: { bg:"#fff7ed", color:"#92400e" },
+                en_cours: { bg:"#fef9c3", color:"#854d0e" },
+                converti: { bg:"#d1fae5", color:"#065f46" },
+                annule:   { bg:"#fee2e2", color:"#dc2626" },
+                termine:  { bg:"#f3f4f6", color:"#374151" },
+              };
+              const PAI_STYLE = {
+                paye:      { bg:"#d1fae5", color:"#065f46" },
+                en_attente:{ bg:"#fef9c3", color:"#854d0e" },
+                partiel:   { bg:"#fff7ed", color:"#92400e" },
+                impaye:    { bg:"#fee2e2", color:"#dc2626" },
+              };
 
-              const filtres  = APPRENANTS_MOCK.filter(a => {
-                if (apprenantFiltre.niveau!=="Tous" && a.niveau!==apprenantFiltre.niveau) return false;
-                if (apprenantFiltre.centre!=="Tous" && a.centre!==apprenantFiltre.centre) return false;
-                if (apprenantFiltre.statut!=="Tous" && a.statut!==apprenantFiltre.statut) return false;
-                if (apprenantFiltre.search && !a.nom.toLowerCase().includes(apprenantFiltre.search.toLowerCase())) return false;
+              const filtres = apprenants.filter(a => {
+                if (apprenantFiltre.type_cours !== "Tous" && a.type_cours !== apprenantFiltre.type_cours) return false;
+                if (apprenantFiltre.centre     !== "Tous" && a.centre_id  !== apprenantFiltre.centre)    return false;
+                if (apprenantFiltre.statut     !== "Tous" && a.statut     !== apprenantFiltre.statut)    return false;
+                if (apprenantFiltre.search) {
+                  const q = apprenantFiltre.search.toLowerCase();
+                  if (!a.nom.toLowerCase().includes(q) && !a.email.toLowerCase().includes(q) && !a.commercial.toLowerCase().includes(q)) return false;
+                }
                 return true;
               });
 
-              const aJour    = APPRENANTS_MOCK.filter(a=>a.paiement==="À jour").length;
-              const retard   = APPRENANTS_MOCK.filter(a=>a.paiement==="Retard"||a.paiement==="Impayé").length;
-              const certifie = APPRENANTS_MOCK.filter(a=>a.statut==="Certifié").length;
-              const progMoy  = Math.round(APPRENANTS_MOCK.reduce((s,a)=>s+a.progression,0)/APPRENANTS_MOCK.length);
+              const totalPages = Math.max(1, Math.ceil(filtres.length / APPRENANTS_PER_PAGE));
+              const page       = Math.min(apprenantPage, totalPages);
+              const pageItems  = filtres.slice((page-1)*APPRENANTS_PER_PAGE, page*APPRENANTS_PER_PAGE);
+
+              const kpiTotal    = apprenants.length;
+              const kpiConvert  = apprenants.filter(a=>a.statut==="converti").length;
+              const kpiEnLigne  = apprenants.filter(a=>a.type_cours==="en_ligne").length;
+              const kpiPaye     = apprenants.filter(a=>a.statut_paiement==="paye").length;
+
+              const exportCSV = () => {
+                const rows = [["Nom","Email","Téléphone","Type cours","Coaching","Centre","Commercial","Statut","Paiement","Inscrit le"]];
+                filtres.forEach(a => rows.push([a.nom,a.email,a.telephone,a.type_cours,a.type_coaching,a.centre_id||"—",a.commercial,a.statut,a.statut_paiement||"—",a.created_at?.slice(0,10)||"—"]));
+                const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+                const blob = new Blob([csv],{type:"text/csv"});
+                const url  = URL.createObjectURL(blob);
+                const link = document.createElement("a"); link.href=url; link.download="apprenants.csv"; link.click();
+                URL.revokeObjectURL(url);
+              };
+
+              const hasFilter = apprenantFiltre.type_cours!=="Tous"||apprenantFiltre.centre!=="Tous"||apprenantFiltre.statut!=="Tous"||apprenantFiltre.search;
 
               return (
                 <div>
                   {/* Header */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                     <div>
-                      <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🎓 Gestion des Apprenants</h2>
-                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Suivi complet — progression, paiements, examens, présences</p>
+                      <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🎓 Apprenants & Prospects</h2>
+                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Toutes les assignations parcours — données réelles</p>
                     </div>
-                    <button onClick={()=>toast.success("Export effectué")} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇ Exporter CSV</button>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={fetchApprenants} style={{ padding:"9px 14px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🔄 Actualiser</button>
+                      <button onClick={exportCSV} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇ Export CSV</button>
+                    </div>
                   </div>
 
                   {/* KPIs */}
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
                     {[
-                      { icon:"🎓", label:"Total apprenants",      value:APPRENANTS_MOCK.length, color:BET_COLOR,  sub:"Toutes formations" },
-                      { icon:"📈", label:"Progression moyenne",   value:`${progMoy}%`,          color:"#8b5cf6",  sub:"Toutes classes confondues" },
-                      { icon:"✅", label:"Paiements à jour",      value:aJour,                  color:"#22c55e",  sub:`${retard} en retard / impayé` },
-                      { icon:"🏅", label:"Certifiés ce mois",     value:certifie,               color:"#f59e0b",  sub:"Certificats délivrés" },
+                      { icon:"🎓", label:"Total inscrits",    value:kpiTotal,   color:BET_COLOR, sub:"Toutes assignations" },
+                      { icon:"💻", label:"Cours en ligne",    value:kpiEnLigne, color:"#8b5cf6", sub:`${kpiTotal-kpiEnLigne} présentiel` },
+                      { icon:"✅", label:"Convertis",         value:kpiConvert, color:"#22c55e", sub:"Inscription finalisée" },
+                      { icon:"💳", label:"Paiements reçus",   value:kpiPaye,    color:"#f59e0b", sub:"Statut paiement = payé" },
                     ].map((k,i) => <StatCard key={i} {...k} />)}
                   </div>
 
                   {/* Filtres */}
-                  <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:18, alignItems:"center" }}>
-                    <input placeholder="🔍 Rechercher un apprenant…" value={apprenantFiltre.search}
-                      onChange={e=>setApprenantFiltre(p=>({...p,search:e.target.value}))}
-                      style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, minWidth:220 }} />
-                    {[
-                      { label:"Niveau", key:"niveau", values:niveaux },
-                      { label:"Centre", key:"centre", values:centres },
-                      { label:"Statut", key:"statut", values:statuts },
-                    ].map(f => (
-                      <select key={f.key} value={apprenantFiltre[f.key]}
-                        onChange={e=>setApprenantFiltre(p=>({...p,[f.key]:e.target.value}))}
-                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer" }}>
-                        {f.values.map(v=><option key={v}>{v}</option>)}
+                  <div style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+                    <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                      <input placeholder="🔍 Nom, email ou commercial…" value={apprenantFiltre.search}
+                        onChange={e=>{ setApprenantFiltre(p=>({...p,search:e.target.value})); setApprenantPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, minWidth:240, background:"#fff" }} />
+                      <select value={apprenantFiltre.type_cours} onChange={e=>{ setApprenantFiltre(p=>({...p,type_cours:e.target.value})); setApprenantPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                        <option value="Tous">Tous les types</option>
+                        <option value="en_ligne">💻 En ligne</option>
+                        <option value="presentiel">🏢 Présentiel</option>
                       </select>
-                    ))}
-                    <span style={{ fontSize:12, color:"#9ca3af" }}>{filtres.length} résultat(s)</span>
-                    {(apprenantFiltre.niveau!=="Tous"||apprenantFiltre.centre!=="Tous"||apprenantFiltre.statut!=="Tous"||apprenantFiltre.search) && (
-                      <button onClick={()=>setApprenantFiltre({niveau:"Tous",centre:"Tous",statut:"Tous",search:""})}
-                        style={{ padding:"6px 12px", background:"#fee2e2", color:BET_RED, border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>✕ Réinitialiser</button>
-                    )}
+                      <select value={apprenantFiltre.centre} onChange={e=>{ setApprenantFiltre(p=>({...p,centre:e.target.value})); setApprenantPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                        <option value="Tous">🏢 Tous les centres</option>
+                        {CENTRES_BET.map(c=><option key={c.id} value={c.id}>{c.label.replace("BET ","")}</option>)}
+                      </select>
+                      <select value={apprenantFiltre.statut} onChange={e=>{ setApprenantFiltre(p=>({...p,statut:e.target.value})); setApprenantPage(1); }}
+                        style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                        <option value="Tous">Tous statuts</option>
+                        {Object.entries(STATUT_LABEL).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                      </select>
+                      <span style={{ fontSize:12, color:"#9ca3af", marginLeft:"auto" }}>{filtres.length} résultat(s)</span>
+                      {hasFilter && (
+                        <button onClick={()=>{ setApprenantFiltre({type_cours:"Tous",centre:"Tous",statut:"Tous",search:""}); setApprenantPage(1); }}
+                          style={{ padding:"6px 12px", background:"#fee2e2", color:BET_RED, border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>✕ Réinitialiser</button>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Tableau */}
-                  <div style={{ overflowX:"auto" }}>
-                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-                      <thead>
-                        <tr style={{ background:"#f8fafc" }}>
-                          {["Apprenant","Niveau","Formation","Coach","Centre","Progression","Présence","Dernier exam","Paiement","Statut",""].map(h=>(
-                            <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#9ca3af", borderBottom:"1px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtres.map(a => (
-                          <tr key={a.id} style={{ borderBottom:"1px solid #f1f5f9" }}>
-                            <td style={{ padding:"10px 12px" }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                                <div style={{ width:34, height:34, borderRadius:"50%", background:"#8b5cf620", color:"#8b5cf6", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{a.initiales}</div>
-                                <div>
-                                  <div style={{ fontWeight:700, color:"#0f172a" }}>{a.nom}</div>
-                                  <div style={{ fontSize:11, color:"#9ca3af" }}>{a.email}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td style={{ padding:"10px 12px" }}>
-                              <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:800, background: a.niveau>="C"?"#ede9fe":a.niveau>="B"?"#e0f2fe":"#f0fdf4", color: a.niveau>="C"?"#7c3aed":a.niveau>="B"?BET_COLOR:"#15803d" }}>{a.niveau}</span>
-                            </td>
-                            <td style={{ padding:"10px 12px", fontSize:12, color:"#475569", maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.typeFormation}</td>
-                            <td style={{ padding:"10px 12px", fontSize:12, color:"#475569" }}>{a.coach}</td>
-                            <td style={{ padding:"10px 12px" }}><span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700, background:"#e0f2fe", color:BET_COLOR }}>{a.centre}</span></td>
-                            <td style={{ padding:"10px 12px", minWidth:120 }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                <div style={{ flex:1, height:5, background:"#e5e7eb", borderRadius:3, overflow:"hidden" }}>
-                                  <div style={{ width:`${a.progression}%`, height:"100%", background: a.progression>=70?"#22c55e":a.progression>=45?"#f59e0b":"#ef4444", borderRadius:3 }} />
-                                </div>
-                                <span style={{ fontSize:12, fontWeight:700, color: a.progression>=70?"#22c55e":a.progression>=45?"#f59e0b":"#ef4444", minWidth:30 }}>{a.progression}%</span>
-                              </div>
-                            </td>
-                            <td style={{ padding:"10px 12px", fontWeight:700, color: a.presence>=85?"#22c55e":a.presence>=70?"#f59e0b":"#ef4444" }}>{a.presence}%</td>
-                            <td style={{ padding:"10px 12px", fontSize:12, color:BET_COLOR, fontWeight:600 }}>{a.dernierExam}</td>
-                            <td style={{ padding:"10px 12px" }}>
-                              <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                                background: a.paiement==="À jour"?"#d1fae5":a.paiement==="Retard"?"#fff7ed":"#fee2e2",
-                                color:       a.paiement==="À jour"?"#065f46":a.paiement==="Retard"?"#92400e":"#dc2626" }}>
-                                {a.paiement}
-                              </span>
-                            </td>
-                            <td style={{ padding:"10px 12px" }}>
-                              <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                                background: a.statut==="Actif"?"#eff6ff":a.statut==="Certifié"?"#d1fae5":"#fff7ed",
-                                color:       a.statut==="Actif"?BET_COLOR:a.statut==="Certifié"?"#065f46":"#92400e" }}>
-                                {a.statut}
-                              </span>
-                            </td>
-                            <td style={{ padding:"10px 12px" }}>
-                              <button onClick={()=>setSelectedApprenant(a)} style={{ padding:"5px 12px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:12 }}>Détail →</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {filtres.length === 0 && (
-                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:13 }}>Aucun apprenant ne correspond aux filtres sélectionnés.</div>
-                    )}
-                  </div>
+                  {/* Contenu */}
+                  {loadingApprenants ? (
+                    <div style={{ textAlign:"center", padding:"60px 0", color:"#9ca3af", fontSize:13 }}>⏳ Chargement des apprenants…</div>
+                  ) : apprenants.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"60px 0" }}>
+                      <div style={{ fontSize:40, marginBottom:10 }}>🎓</div>
+                      <div style={{ fontWeight:700, color:"#0f172a", marginBottom:6 }}>Aucun apprenant enregistré</div>
+                      <p style={{ color:"#9ca3af", fontSize:13 }}>Les prospects assignés par les commerciales apparaîtront ici.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                          <thead>
+                            <tr style={{ background:"#f8fafc" }}>
+                              {["Apprenant","Type cours","Coaching","Centre","Commerciale","Statut","Paiement","Date",""].map(h=>(
+                                <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#9ca3af", borderBottom:"1px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pageItems.map(a => {
+                              const initiales = a.nom.split(" ").map(p=>p[0]||"").join("").slice(0,2).toUpperCase();
+                              const centreLabel = CENTRES_BET.find(c=>c.id===a.centre_id)?.label.replace("BET ","") || a.centre_nom || a.centre_id || "—";
+                              const st  = STATUT_STYLE[a.statut]          || { bg:"#f3f4f6", color:"#374151" };
+                              const pai = PAI_STYLE[a.statut_paiement]    || null;
+                              return (
+                                <tr key={a.id} style={{ borderBottom:"1px solid #f1f5f9", background:"#fff" }}>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                      <div style={{ width:34, height:34, borderRadius:"50%", background:"#8b5cf620", color:"#8b5cf6", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                                      <div>
+                                        <div style={{ fontWeight:700, color:"#0f172a" }}>{a.nom}</div>
+                                        <div style={{ fontSize:11, color:"#9ca3af" }}>{a.email}</div>
+                                        {a.telephone && <div style={{ fontSize:11, color:"#94a3b8" }}>{a.telephone}</div>}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700,
+                                      background: a.type_cours==="en_ligne"?"#ede9fe":"#e0f2fe",
+                                      color: a.type_cours==="en_ligne"?"#7c3aed":BET_COLOR }}>
+                                      {a.type_cours==="en_ligne"?"💻 En ligne":"🏢 Présentiel"}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:12, color:"#475569" }}>{a.type_coaching || "—"}</td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    {a.centre_id
+                                      ? <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700, background:"#e0f2fe", color:BET_COLOR }}>🏢 {centreLabel}</span>
+                                      : <span style={{ fontSize:11, color:"#fca5a5", fontWeight:600 }}>⚠ Non assigné</span>}
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:12, color:"#475569", fontWeight:600 }}>{a.commercial}</td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:st.bg, color:st.color }}>
+                                      {STATUT_LABEL[a.statut] || a.statut}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    {pai
+                                      ? <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:pai.bg, color:pai.color }}>{a.statut_paiement}</span>
+                                      : <span style={{ fontSize:11, color:"#d1d5db" }}>—</span>}
+                                  </td>
+                                  <td style={{ padding:"10px 12px", fontSize:11, color:"#9ca3af", whiteSpace:"nowrap" }}>
+                                    {a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR") : "—"}
+                                  </td>
+                                  <td style={{ padding:"10px 12px" }}>
+                                    <button onClick={()=>setSelectedApprenant(a)} style={{ padding:"5px 12px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:12 }}>Détail →</button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {filtres.length === 0 && (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:13 }}>Aucun apprenant ne correspond aux filtres.</div>
+                        )}
+                      </div>
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:16, padding:"0 4px" }}>
+                          <span style={{ fontSize:12, color:"#9ca3af" }}>
+                            {(page-1)*APPRENANTS_PER_PAGE+1}–{Math.min(page*APPRENANTS_PER_PAGE, filtres.length)} sur {filtres.length}
+                          </span>
+                          <div style={{ display:"flex", gap:4 }}>
+                            <button onClick={()=>setApprenantPage(p=>Math.max(1,p-1))} disabled={page===1}
+                              style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #e5e7eb", background:page===1?"#f9fafb":"#fff", color:page===1?"#d1d5db":"#374151", cursor:page===1?"not-allowed":"pointer", fontSize:13 }}>‹</button>
+                            {Array.from({length:totalPages},(_,i)=>i+1).filter(n=>n===1||n===totalPages||Math.abs(n-page)<=1).reduce((acc,n,idx,arr)=>{
+                              if(idx>0&&arr[idx-1]!==n-1) acc.push("…");
+                              acc.push(n); return acc;
+                            },[]).map((n,i)=> n==="…"
+                              ? <span key={`e${i}`} style={{ padding:"5px 6px", fontSize:13, color:"#9ca3af" }}>…</span>
+                              : <button key={n} onClick={()=>setApprenantPage(n)}
+                                  style={{ padding:"5px 10px", borderRadius:6, border:"1px solid", fontSize:13, cursor:"pointer", fontWeight:n===page?700:400,
+                                    background:n===page?BET_COLOR:"#fff", color:n===page?"#fff":"#374151", borderColor:n===page?BET_COLOR:"#e5e7eb" }}>{n}</button>
+                            )}
+                            <button onClick={()=>setApprenantPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}
+                              style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #e5e7eb", background:page===totalPages?"#f9fafb":"#fff", color:page===totalPages?"#d1d5db":"#374151", cursor:page===totalPages?"not-allowed":"pointer", fontSize:13 }}>›</button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               );
             })()}
+
 
             {/* ══ ONGLET SONDAGES (Super Admin — vue globale) ══ */}
             {activeTab === "sondages" && (() => {
@@ -2746,7 +5347,7 @@ export default function SuperAdminDashboard() {
               <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", borderRadius:8, background:"#f8fafc", border:"1px solid #e5e7eb" }}><span style={{ fontSize:13, fontWeight:500 }}>2FA activé</span><ToggleSwitch on={editingUser.twofa} onChange={v=>setEditingUser({...editingUser,twofa:v})} color={BET_COLOR}/></div>
               <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", borderRadius:8, background:"#f8fafc", border:"1px solid #e5e7eb" }}><span style={{ fontSize:13, fontWeight:500 }}>Restr. IP</span><ToggleSwitch on={editingUser.ipRestr} onChange={v=>setEditingUser({...editingUser,ipRestr:v})} color={BET_COLOR}/></div>
             </div>
-            <div style={{ display:"flex", gap:10 }}><button onClick={()=>{ const old=users.find(u=>u.id===editingUser.id); setUsers(users.map(u=>u.id===editingUser.id?editingUser:u)); if(old.role!==editingUser.role) addAuditEntry("ROLE_MODIFIE",`${editingUser.nom} : ${old.role} → ${editingUser.role}`); toast.success("Modifications enregistrées ✓"); setShowUserModal(false); }} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>💾 Enregistrer</button><button onClick={()=>setShowUserModal(false)} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>Annuler</button></div>
+            <div style={{ display:"flex", gap:10 }}><button onClick={async()=>{ const old=users.find(u=>u.id===editingUser.id); try { const res = await fetch(`${API_URL}/api/admin/utilisateurs/${editingUser.id}`, { method:"PATCH", headers:{ ...authHeaders(), "Content-Type":"application/json" }, body: JSON.stringify({ nom: editingUser.nom, prenom: editingUser.prenom, telephone: editingUser.telephone, avatar_url: editingUser.avatar_url, role: editingUser.role }) }); if (!res.ok) { const e = await res.json().catch(()=>({})); toast.error(e.error||"Erreur lors de la sauvegarde"); return; } setUsers(users.map(u=>u.id===editingUser.id?editingUser:u)); if(old.role!==editingUser.role) addAuditEntry("ROLE_MODIFIE",`${editingUser.nom} : ${old.role} → ${editingUser.role}`); toast.success("Modifications enregistrées ✓"); setShowUserModal(false); } catch(err){ toast.error("Erreur réseau"); } }} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>💾 Enregistrer</button><button onClick={()=>setShowUserModal(false)} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>Annuler</button></div>
           </Modal>
         )}
 
@@ -3090,714 +5691,6 @@ export default function SuperAdminDashboard() {
             </div>
           )}
 
-          {/* ════ TÉMOIGNAGES ════ */}
-          {activeTab === "temoignages" && (
-            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
-              {(() => {
-            const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🌟","💪","🏆","👑","✨"];
-            const filtered   = temoFiltre === "tous" ? temos : temos.filter(t => t.statut === temoFiltre);
-            const temoTotalPages = Math.max(1, Math.ceil(filtered.length / TEMO_PER_PAGE));
-            const displayed  = filtered.slice((temoPage - 1) * TEMO_PER_PAGE, temoPage * TEMO_PER_PAGE);
-            const temoGoTo   = (p) => { setTemoPage(Math.min(Math.max(1, p), temoTotalPages)); };
-            return (
-              <div className="temo-page">
-
-                {/* Header */}
-                <div className="temo-header">
-                  <div>
-                    <h2>⭐ Gestion des Témoignages</h2>
-                    <p>{temos.length} témoignage{temos.length>1?"s":""} · {temosPending} en attente de validation</p>
-                  </div>
-                  <div className="temo-header-actions">
-                    <button className="temo-btn temo-btn--outline" onClick={fetchTemos}>🔄 Actualiser</button>
-                    <button className="temo-btn temo-btn--primary" onClick={() => setTemoFormOpen(f => !f)}>
-                      {temoFormOpen ? "✕ Fermer" : "➕ Nouveau témoignage"}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Formulaire création */}
-                {temoFormOpen && (
-                  <div className="temo-form">
-                    <h3>➕ Créer un témoignage (source admin)</h3>
-                    <div className="temo-form-grid">
-                      <div>
-                        <label>Nom *</label>
-                        <input value={temoForm.nom} onChange={e => setTemoForm(f=>({...f,nom:e.target.value}))} placeholder="Ex: Awa Koné" />
-                      </div>
-                      <div>
-                        <label>Rôle / Titre</label>
-                        <input value={temoForm.role} onChange={e => setTemoForm(f=>({...f,role:e.target.value}))} placeholder="Ex: Étudiante en droit" />
-                      </div>
-                      <div>
-                        <label>Type de certification</label>
-                        <select
-                          value={temoForm.score.split(" ")[0] || ""}
-                          onChange={e => {
-                            const type = e.target.value;
-                            const scoreNum = temoForm.score.split(" ").slice(1).join(" ");
-                            setTemoForm(f => ({ ...f, score: type ? `${type}${scoreNum ? " " + scoreNum : ""}` : scoreNum }));
-                          }}
-                        >
-                          <option value="">— Sélectionner —</option>
-                          <option value="TOEIC">TOEIC</option>
-                          <option value="TOEFL">TOEFL</option>
-                          <option value="IELTS">IELTS</option>
-                          <option value="Anglais Pro">Anglais Pro</option>
-                          <option value="Anglais Enfant">Anglais Enfant</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label>Score obtenu</label>
-                        <input
-                          value={temoForm.score.split(" ").slice(1).join(" ")}
-                          onChange={e => {
-                            const type = temoForm.score.split(" ")[0] || "";
-                            const val  = e.target.value;
-                            setTemoForm(f => ({ ...f, score: type ? `${type}${val ? " " + val : ""}` : val }));
-                          }}
-                          placeholder="Ex: 850, 7.5, 104…"
-                        />
-                      </div>
-                      <div>
-                        <label>Étoiles</label>
-                        <select value={temoForm.etoiles} onChange={e => setTemoForm(f=>({...f,etoiles:Number(e.target.value)}))}>
-                          {[5,4,3,2,1].map(n => <option key={n} value={n}>{"★".repeat(n)} {n}/5</option>)}
-                        </select>
-                      </div>
-                      <div className="temo-form-grid--full">
-                        <label>Texte *</label>
-                        <textarea value={temoForm.texte} onChange={e => setTemoForm(f=>({...f,texte:e.target.value}))} rows={3} placeholder="Le témoignage..." />
-                      </div>
-                      <div>
-                        <label>Avatar</label>
-                        <div className="temo-emoji-row">
-                          {EMOJI_LIST.map(e => (
-                            <div key={e} className={`temo-emoji-btn${temoForm.avatar===e?" temo-emoji-btn--sel":""}`}
-                              onClick={() => setTemoForm(f=>({...f,avatar:e}))}>
-                              {e}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <label>Couleur accent</label>
-                        <div className="temo-color-row">
-                          <input type="color" className="temo-color-swatch" value={temoForm.couleur}
-                            onChange={e => setTemoForm(f=>({...f,couleur:e.target.value}))} />
-                          <span style={{ fontSize:12, color:"#6b7280" }}>{temoForm.couleur}</span>
-                        </div>
-                      </div>
-                      <div>
-                        <label>Ordre d'affichage</label>
-                        <input type="number" value={temoForm.ordre} min={0}
-                          onChange={e => setTemoForm(f=>({...f,ordre:Number(e.target.value)}))} />
-                      </div>
-                    </div>
-                    <div className="temo-form-footer">
-                      <button className="temo-btn temo-btn--outline" onClick={() => setTemoFormOpen(false)}>Annuler</button>
-                      <button className="temo-btn temo-btn--primary" onClick={temoCreate}>✓ Créer</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Filtres */}
-                <div className="temo-filters">
-                  {[
-                    { key:"tous",       label:`Tous (${temos.length})` },
-                    { key:"en_attente", label:`⏳ En attente (${temos.filter(t=>t.statut==="en_attente").length})` },
-                    { key:"actif",      label:`✅ Actifs (${temos.filter(t=>t.statut==="actif").length})` },
-                    { key:"rejete",     label:`❌ Rejetés (${temos.filter(t=>t.statut==="rejete").length})` },
-                  ].map(f => (
-                    <button key={f.key}
-                      className={`temo-filter-btn ${temoFiltre===f.key?"temo-filter-btn--active":"temo-filter-btn--inactive"}`}
-                      onClick={() => { setTemoFiltre(f.key); setTemoPage(1); }}>
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Modal rejet */}
-                {temoRejetId && (
-                  <div className="temo-modal-overlay">
-                    <div className="temo-modal">
-                      <h3>❌ Rejeter ce témoignage</h3>
-                      <label>Motif de rejet (optionnel)</label>
-                      <textarea value={temoMotif} onChange={e => setTemoMotif(e.target.value)} rows={3}
-                        placeholder="Ex: Contenu non conforme à la charte..." />
-                      <div className="temo-modal-footer">
-                        <button className="temo-btn temo-btn--outline temo-btn--sm"
-                          onClick={() => { setTemoRejetId(null); setTemoMotif(""); }}>Annuler</button>
-                        <button className="temo-btn temo-btn--danger temo-btn--sm"
-                          onClick={() => temoRejeter(temoRejetId)}>Confirmer le rejet</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Liste */}
-                {temosLoading ? (
-                  <div className="temo-loading">Chargement des témoignages…</div>
-                ) : filtered.length === 0 ? (
-                  <div className="temo-empty">
-                    <div className="temo-empty__icon">⭐</div>
-                    <div className="temo-empty__text">Aucun témoignage{temoFiltre!=="tous"?` — ${temoFiltre}`:""}</div>
-                    <div className="temo-empty__sub">Créez le premier via le bouton ci-dessus</div>
-                  </div>
-                ) : (
-                  <>
-                  {/* Info page */}
-                  <p style={{ fontSize:12, color:"#9ca3af", marginBottom:12 }}>
-                    {filtered.length} témoignage{filtered.length>1?"s":""} · page {temoPage}/{temoTotalPages}
-                  </p>
-                  <div className="temo-grid">
-                    {displayed.map(t => (
-                      <div key={t.id} className={`temo-card temo-card--${t.statut}`}>
-                        <div className="temo-card__accent" style={{ background: t.couleur || "#1e4080" }} />
-                        <div className="temo-card__body">
-                          {/* Identité */}
-                          <div className="temo-card__identity">
-                            <div className="temo-card__avatar-wrap">
-                              <div className="temo-card__avatar" style={{ background:`${t.couleur||"#1e4080"}18` }}>
-                                {t.avatar || "🎓"}
-                              </div>
-                              <div>
-                                <div className="temo-card__name">{t.nom}</div>
-                                {t.role  && <div className="temo-card__role">{t.role}</div>}
-                                {t.score && <div className="temo-card__score" style={{ color: t.couleur||"#1e4080" }}>{t.score}</div>}
-                              </div>
-                            </div>
-                            <div className="temo-card__badges">
-                              <span className={`temo-badge temo-badge--${t.statut}`}>
-                                {t.statut==="actif"?"✅ Actif":t.statut==="en_attente"?"⏳ En attente":"❌ Rejeté"}
-                              </span>
-                              <span className="temo-card__source">{t.source==="apprenant"?"👤 Apprenant":"🔧 Admin"}</span>
-                            </div>
-                          </div>
-
-                          {/* Étoiles */}
-                          <div className="temo-stars">
-                            <span className="temo-stars--filled">{"★".repeat(t.etoiles||5)}</span>
-                            <span className="temo-stars--empty">{"☆".repeat(5-(t.etoiles||5))}</span>
-                          </div>
-
-                          {/* Texte */}
-                          <p className="temo-card__texte">« {t.texte} »</p>
-
-                          {/* Motif rejet */}
-                          {t.motif_rejet && <div className="temo-card__motif">💬 {t.motif_rejet}</div>}
-
-                          {/* Info apprenant */}
-                          {t.apprenant && (
-                            <div className="temo-card__apprenant-info">
-                              👤 {t.apprenant.prenom} {t.apprenant.nom} — {t.apprenant.email}
-                            </div>
-                          )}
-
-                          {/* Contrôles */}
-                          <div className="temo-card__controls">
-                            <span>Ordre :</span>
-                            <input type="number" className="temo-ordre-input" defaultValue={t.ordre} min={0}
-                              onBlur={e => temoAction(t.id, { ordre: Number(e.target.value) })} />
-                            <span>Visible :</span>
-                            <ToggleSwitch on={t.actif} color="#1e4080" onChange={val => temoAction(t.id, { actif: val })} />
-                          </div>
-                        </div>
-
-                        {/* Footer actions */}
-                        <div className="temo-card__footer">
-                          {t.statut === "en_attente" && (
-                            <>
-                              <button className="temo-btn temo-btn--success temo-btn--sm" style={{ flex:1 }}
-                                onClick={() => temoApprouver(t.id)}>✅ Approuver</button>
-                              <button className="temo-btn temo-btn--danger temo-btn--sm" style={{ flex:1 }}
-                                onClick={() => { setTemoRejetId(t.id); setTemoMotif(""); }}>❌ Rejeter</button>
-                            </>
-                          )}
-                          {t.statut !== "en_attente" && (
-                            <button className="temo-btn temo-btn--outline temo-btn--sm" style={{ flex:1 }}
-                              onClick={() => temoAction(t.id, { statut: t.statut==="actif"?"rejete":"actif", actif: t.statut!=="actif" })}>
-                              {t.statut==="actif" ? "⏸ Désactiver" : "▶ Réactiver"}
-                            </button>
-                          )}
-                          <button className="temo-btn temo-btn--danger temo-btn--icon"
-                            onClick={() => temoDelete(t.id)}>🗑</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* ── Pagination ── */}
-                  {temoTotalPages > 1 && (
-                    <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6, marginTop:28, flexWrap:"wrap" }}>
-                      <button onClick={() => temoGoTo(temoPage - 1)} disabled={temoPage === 1}
-                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===1?"#f8fafc":"#fff", color:temoPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===1?"not-allowed":"pointer" }}>
-                        ← Précédent
-                      </button>
-                      {Array.from({ length: temoTotalPages }, (_, i) => i + 1).map(n => {
-                        const near = Math.abs(n - temoPage) <= 1 || n === 1 || n === temoTotalPages;
-                        if (!near) {
-                          if (n === temoPage - 2 || n === temoPage + 2) return <span key={n} style={{ color:"#9ca3af", fontSize:12 }}>…</span>;
-                          return null;
-                        }
-                        return (
-                          <button key={n} onClick={() => temoGoTo(n)}
-                            style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===temoPage?"#1e4080":"#f1f5f9", color:n===temoPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
-                            {n}
-                          </button>
-                        );
-                      })}
-                      <button onClick={() => temoGoTo(temoPage + 1)} disabled={temoPage === temoTotalPages}
-                        style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:temoPage===temoTotalPages?"#f8fafc":"#fff", color:temoPage===temoTotalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:temoPage===temoTotalPages?"not-allowed":"pointer" }}>
-                        Suivant →
-                      </button>
-                    </div>
-                  )}
-                  </>
-                )}
-              </div>
-            );
-              })()}
-            </div>
-          )}
-
-          {/* ══ BOUTIQUE ══ */}
-          {activeTab === "boutique" && (
-            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", padding:0, overflow:"hidden" }}>
-              {/* Header */}
-              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>🛍️ Boutique BET</h2>
-                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
-                    {produits.length} produit{produits.length!==1?"s":""} · {commandes.length} commande{commandes.length!==1?"s":""}
-                    {commandes.filter(c=>c.statut==="en_attente").length > 0 &&
-                      <span style={{ marginLeft:10, background:"#fbbf24", color:"#7c2d12", padding:"2px 10px", borderRadius:999, fontWeight:700, fontSize:11 }}>
-                        {commandes.filter(c=>c.statut==="en_attente").length} en attente
-                      </span>
-                    }
-                  </p>
-                </div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <button onClick={() => { setBoutiqueSubTab("produits"); setProdFormOpen(true); setSelectedProduit(null); setProdForm(PROD_FORM_INIT); }}
-                    style={{ padding:"9px 18px", background:"#fff", color:BET_COLOR, border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
-                    + Nouveau produit
-                  </button>
-                </div>
-              </div>
-
-              {/* Sous-onglets */}
-              <div style={{ display:"flex", gap:0, borderBottom:"2px solid #e5e7eb", padding:"0 28px" }}>
-                {[{ key:"produits", label:"📦 Produits" }, { key:"commandes", label:"🧾 Commandes" }].map(t => (
-                  <button key={t.key} onClick={() => setBoutiqueSubTab(t.key)}
-                    style={{ padding:"12px 20px", border:"none", background:"none", cursor:"pointer", fontWeight:700, fontSize:13,
-                      color: boutiqueSubTab===t.key ? BET_COLOR : "#6b7280",
-                      borderBottom: boutiqueSubTab===t.key ? `3px solid ${BET_COLOR}` : "3px solid transparent",
-                      marginBottom:-2 }}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ padding:28 }}>
-
-                {/* ── Formulaire ajout/édition produit ── */}
-                {boutiqueSubTab === "produits" && prodFormOpen && (
-                  <div style={{ background:"#f0f9ff", border:`1.5px solid ${BET_COLOR}40`, borderRadius:12, padding:24, marginBottom:28 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
-                      <h3 style={{ margin:0, color:BET_DARK, fontWeight:800 }}>
-                        {selectedProduit ? "✏️ Modifier le produit" : "➕ Nouveau produit"}
-                      </h3>
-                      <button onClick={() => { setProdFormOpen(false); setSelectedProduit(null); }}
-                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:18, color:"#6b7280" }}>✕</button>
-                    </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Nom du produit *</label>
-                        <input value={prodForm.nom} onChange={e=>setProdForm(f=>({...f,nom:e.target.value}))}
-                          placeholder="Ex: T-Shirt BET"
-                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Catégorie</label>
-                        <select
-                          value={CATEGORIES_BOUTIQUE.includes(prodForm.categorie) ? prodForm.categorie : "__custom__"}
-                          onChange={e => {
-                            if (e.target.value === "__custom__") setProdForm(f=>({...f, categorie:""}));
-                            else setProdForm(f=>({...f, categorie:e.target.value}));
-                          }}
-                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }}>
-                          {CATEGORIES_BOUTIQUE.map(c=><option key={c}>{c}</option>)}
-                          <option value="__custom__">✏️ Saisir manuellement…</option>
-                        </select>
-                        {!CATEGORIES_BOUTIQUE.includes(prodForm.categorie) && (
-                          <input
-                            autoFocus
-                            value={prodForm.categorie}
-                            onChange={e=>setProdForm(f=>({...f,categorie:e.target.value}))}
-                            placeholder="Nom de la catégorie…"
-                            style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}`, borderRadius:8, fontSize:13 }}
-                          />
-                        )}
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Prix (FCFA) *</label>
-                        <input type="number" min="0" value={prodForm.prix} onChange={e=>setProdForm(f=>({...f,prix:e.target.value}))}
-                          placeholder="5000"
-                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Stock</label>
-                        <input type="number" min="0" value={prodForm.stock} onChange={e=>setProdForm(f=>({...f,stock:e.target.value}))}
-                          placeholder="0"
-                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13 }} />
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6, gridColumn:"1/-1" }}>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>Description</label>
-                        <textarea value={prodForm.description} onChange={e=>setProdForm(f=>({...f,description:e.target.value}))}
-                          placeholder="Description du produit…" rows={3}
-                          style={{ padding:"9px 12px", border:`1.5px solid ${BET_COLOR}40`, borderRadius:8, fontSize:13, resize:"vertical" }} />
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:8, gridColumn:"1/-1" }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <label style={{ fontSize:12, fontWeight:700, color:"#374151" }}>
-                            Photos du produit <span style={{ color:"#94a3b8", fontWeight:400 }}>({prodForm.images.length} / 6)</span>
-                          </label>
-                          {prodForm.images.length < 6 && (
-                            <label style={{ padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
-                              {prodImageUploading ? "⏳ Upload…" : "📷 Ajouter une photo"}
-                              <input type="file" accept="image/*" style={{ display:"none" }}
-                                onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
-                            </label>
-                          )}
-                        </div>
-                        {prodForm.images.length === 0 ? (
-                          <label style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:100, border:`2px dashed ${BET_COLOR}40`, borderRadius:10, cursor:"pointer", color:"#94a3b8", fontSize:13, gap:6 }}>
-                            <span style={{ fontSize:28 }}>📷</span>
-                            Cliquez pour ajouter des photos
-                            <input type="file" accept="image/*" style={{ display:"none" }}
-                              onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProduitImage(f); e.target.value=""; }} />
-                          </label>
-                        ) : (
-                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                            {prodForm.images.map((url, i) => (
-                              <div key={i} style={{ position:"relative", width:90, height:90 }}>
-                                <img src={url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:8, border: i===0?"2.5px solid "+BET_COLOR:"1.5px solid #e5e7eb" }} />
-                                {i===0 && <span style={{ position:"absolute", top:4, left:4, background:BET_COLOR, color:"#fff", fontSize:9, fontWeight:800, padding:"1px 5px", borderRadius:4 }}>PRINCIPALE</span>}
-                                <button onClick={()=>setProdForm(f=>({...f, images:f.images.filter((_,j)=>j!==i)}))}
-                                  style={{ position:"absolute", top:2, right:2, width:20, height:20, borderRadius:"50%", background:"#dc2626", color:"#fff", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>✕</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <p style={{ fontSize:11, color:"#94a3b8", margin:0 }}>La 1ère photo est l'image principale. Max 6 photos · 10 Mo par photo.</p>
-                      </div>
-                    </div>
-                    <div style={{ display:"flex", gap:10, marginTop:20, justifyContent:"flex-end" }}>
-                      <button onClick={()=>{ setProdFormOpen(false); setSelectedProduit(null); }}
-                        style={{ padding:"9px 20px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:600 }}>
-                        Annuler
-                      </button>
-                      <button onClick={saveProduit} disabled={prodSaving}
-                        style={{ padding:"9px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, opacity:prodSaving?0.7:1 }}>
-                        {prodSaving ? "Enregistrement…" : selectedProduit ? "Mettre à jour" : "Créer le produit"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Liste des produits ── */}
-                {boutiqueSubTab === "produits" && (() => {
-                  const totalPages = Math.max(1, Math.ceil(produits.length / PROD_PER_PAGE));
-                  const paginated  = produits.slice((prodPage-1)*PROD_PER_PAGE, prodPage*PROD_PER_PAGE);
-                  return (
-                  <>
-                    {prodLoading ? (
-                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
-                    ) : produits.length === 0 ? (
-                      <div style={{ textAlign:"center", padding:60 }}>
-                        <div style={{ fontSize:48, marginBottom:12 }}>📦</div>
-                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun produit pour l'instant</p>
-                        <button onClick={()=>setProdFormOpen(true)} style={{ padding:"10px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, marginTop:8 }}>
-                          + Ajouter le premier produit
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:18 }}>
-                        {paginated.map(p => {
-                          const imgs = Array.isArray(p.images) && p.images.length > 0 ? p.images : (p.image_url ? [p.image_url] : []);
-                          const mainImg = imgs[0] || null;
-                          return (
-                          <div key={p.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden", background:"#fff", boxShadow:"0 1px 4px rgba(0,0,0,0.05)", opacity:p.actif?1:0.65 }}>
-                            {/* Image principale */}
-                            <div style={{ height:150, background:"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative" }}>
-                              {mainImg
-                                ? <img src={mainImg} alt={p.nom} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                                : <span style={{ fontSize:48 }}>📦</span>
-                              }
-                              {imgs.length > 1 && (
-                                <span style={{ position:"absolute", bottom:6, right:6, background:"rgba(0,0,0,0.55)", color:"#fff", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999 }}>
-                                  +{imgs.length-1} photo{imgs.length>2?"s":""}
-                                </span>
-                              )}
-                            </div>
-                            {/* Miniatures */}
-                            {imgs.length > 1 && (
-                              <div style={{ display:"flex", gap:4, padding:"6px 8px", background:"#f8fafc", overflowX:"auto" }}>
-                                {imgs.slice(1).map((url, i) => (
-                                  <img key={i} src={url} alt="" style={{ width:36, height:36, objectFit:"cover", borderRadius:5, border:"1px solid #e5e7eb", flexShrink:0 }} />
-                                ))}
-                              </div>
-                            )}
-                            <div style={{ padding:"12px 14px" }}>
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
-                                <div>
-                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{p.nom}</div>
-                                  <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>{p.categorie}</div>
-                                </div>
-                                <span style={{ padding:"2px 8px", borderRadius:999, fontSize:10, fontWeight:700,
-                                  background:p.actif?"#dcfce7":"#f1f5f9", color:p.actif?"#166534":"#6b7280" }}>
-                                  {p.actif?"Actif":"Inactif"}
-                                </span>
-                              </div>
-                              {p.description && <p style={{ fontSize:12, color:"#64748b", margin:"4px 0 8px", lineHeight:1.4 }}>{p.description.slice(0,70)}{p.description.length>70?"…":""}</p>}
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                                <span style={{ fontWeight:800, fontSize:15, color:BET_COLOR }}>{Number(p.prix).toLocaleString("fr-FR")} FCFA</span>
-                                <span style={{ fontSize:11, color: p.stock===0?"#dc2626":"#6b7280" }}>
-                                  {p.stock===0 ? "⚠ Rupture" : `Stock : ${p.stock}`}
-                                </span>
-                              </div>
-                              <div style={{ display:"flex", gap:7 }}>
-                                <button onClick={()=>{ setSelectedProduit(p); setProdForm({ nom:p.nom, description:p.description||"", prix:p.prix, stock:p.stock, categorie:p.categorie, images: imgs }); setProdFormOpen(true); }}
-                                  style={{ flex:1, padding:"7px 0", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                                  ✏️ Modifier
-                                </button>
-                                <button onClick={()=>toggleProduitActif(p.id, p.actif)}
-                                  style={{ padding:"7px 10px", background:p.actif?"#fff7ed":"#f0fdf4", color:p.actif?"#c2410c":"#166534", border:`1.5px solid ${p.actif?"#fed7aa":"#bbf7d0"}`, borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                                  {p.actif?"⏸":"▶"}
-                                </button>
-                                <button onClick={()=>deleteProduit(p.id)}
-                                  style={{ padding:"7px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                                  🗑
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );})}
-                      </div>
-
-                      {/* Pagination */}
-                      {totalPages > 1 && (
-                        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:8, marginTop:24 }}>
-                          <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage===1}
-                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===1?"#f8fafc":"#fff", color:prodPage===1?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===1?"not-allowed":"pointer" }}>
-                            ← Précédent
-                          </button>
-                          {Array.from({length:totalPages},(_,i)=>i+1).map(n=>(
-                            <button key={n} onClick={()=>setProdPage(n)}
-                              style={{ width:34, height:34, borderRadius:"50%", border:"none", background:n===prodPage?BET_COLOR:"#f1f5f9", color:n===prodPage?"#fff":"#374151", fontWeight:800, fontSize:13, cursor:"pointer" }}>
-                              {n}
-                            </button>
-                          ))}
-                          <button onClick={()=>setProdPage(p=>Math.min(totalPages,p+1))} disabled={prodPage===totalPages}
-                            style={{ padding:"7px 16px", borderRadius:999, border:"1.5px solid #e5e7eb", background:prodPage===totalPages?"#f8fafc":"#fff", color:prodPage===totalPages?"#cbd5e1":"#0b1f40", fontWeight:700, fontSize:12, cursor:prodPage===totalPages?"not-allowed":"pointer" }}>
-                            Suivant →
-                          </button>
-                          <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{produits.length} produit{produits.length>1?"s":""} · page {prodPage}/{totalPages}</span>
-                        </div>
-                      )}
-                      </>
-                    )}
-                  </>
-                  );
-                })()}
-
-
-                {/* ── Commandes ── */}
-                {boutiqueSubTab === "commandes" && (
-                  <>
-                    {/* Filtres statut */}
-                    <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-                      {STATUTS_CMD.map(s => (
-                        <button key={s.key} onClick={()=>setCmdFiltreStatut(s.key)}
-                          style={{ padding:"6px 16px", borderRadius:999, border:`1.5px solid ${cmdFiltreStatut===s.key?s.color:"#e5e7eb"}`,
-                            background:cmdFiltreStatut===s.key?s.color:"#fff",
-                            color:cmdFiltreStatut===s.key?"#fff":s.color,
-                            fontWeight:700, fontSize:12, cursor:"pointer" }}>
-                          {s.label}
-                          {s.key!=="tous" && <span style={{ marginLeft:6, opacity:.85 }}>({commandes.filter(c=>c.statut===s.key).length})</span>}
-                        </button>
-                      ))}
-                      <button onClick={fetchCommandes} style={{ marginLeft:"auto", padding:"6px 14px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:999, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
-                    </div>
-
-                    {cmdLoading ? (
-                      <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
-                    ) : commandes.length === 0 ? (
-                      <div style={{ textAlign:"center", padding:60 }}>
-                        <div style={{ fontSize:48, marginBottom:12 }}>🧾</div>
-                        <p style={{ color:"#6b7280", fontWeight:600 }}>Aucune commande{cmdFiltreStatut!=="tous"?" dans ce statut":""}</p>
-                      </div>
-                    ) : (
-                      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                        {commandes.map(cmd => {
-                          const statutInfo = STATUTS_CMD.find(s=>s.key===cmd.statut) || STATUTS_CMD[0];
-                          return (
-                            <div key={cmd.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"16px 20px", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
-                                <div>
-                                  <div style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{cmd.client_nom}</div>
-                                  <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>
-                                    {cmd.client_email} {cmd.client_telephone && `· ${cmd.client_telephone}`}
-                                  </div>
-                                  <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>
-                                    {new Date(cmd.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
-                                  </div>
-                                </div>
-                                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
-                                  <span style={{ fontWeight:800, fontSize:16, color:BET_COLOR }}>{Number(cmd.total).toLocaleString("fr-FR")} FCFA</span>
-                                  <span style={{ padding:"3px 10px", borderRadius:999, fontSize:11, fontWeight:700, background:`${statutInfo.color}18`, color:statutInfo.color }}>
-                                    {statutInfo.label}
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Articles */}
-                              {Array.isArray(cmd.items) && cmd.items.length > 0 && (
-                                <div style={{ background:"#f8fafc", borderRadius:8, padding:"10px 12px", marginBottom:10, fontSize:12 }}>
-                                  {cmd.items.map((item, i) => (
-                                    <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"2px 0", color:"#374151" }}>
-                                      <span>{item.nom} × {item.quantite}</span>
-                                      <span style={{ fontWeight:700 }}>{(Number(item.prix_unitaire)*Number(item.quantite)).toLocaleString("fr-FR")} FCFA</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {cmd.notes && <p style={{ fontSize:12, color:"#64748b", margin:"0 0 10px", fontStyle:"italic" }}>📝 {cmd.notes}</p>}
-                              {/* Actions statut */}
-                              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                                {STATUTS_CMD.filter(s=>s.key!=="tous"&&s.key!==cmd.statut).map(s => (
-                                  <button key={s.key} onClick={()=>updateCmdStatut(cmd.id, s.key)}
-                                    style={{ padding:"5px 12px", borderRadius:6, border:`1.5px solid ${s.color}40`, background:`${s.color}10`, color:s.color, fontWeight:700, fontSize:11, cursor:"pointer" }}>
-                                    → {s.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-
-              </div>
-            </div>
-          )}
-
-          {/* ══ COMMENTAIRES BLOG ══ */}
-          {activeTab === "blog_comments" && (
-            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
-              {/* Header */}
-              <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>💬 Commentaires Blog</h2>
-                  <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
-                    {blogComments.length} commentaire{blogComments.length!==1?"s":""} · supprimez les contenus inappropriés
-                  </p>
-                </div>
-                <button onClick={fetchBlogComments} style={{ padding:"9px 18px", background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13 }}>
-                  🔄 Actualiser
-                </button>
-              </div>
-
-              <div style={{ padding:28 }}>
-                {/* Recherche */}
-                <div style={{ marginBottom:20 }}>
-                  <input
-                    value={blogCommentsSearch}
-                    onChange={e => setBlogCommentsSearch(e.target.value)}
-                    placeholder="🔍 Rechercher par nom, article, contenu…"
-                    style={{ width:"100%", padding:"10px 14px", border:"1.5px solid #e5e7eb", borderRadius:10, fontSize:13, boxSizing:"border-box" }}
-                  />
-                </div>
-
-                {blogCommentsLoading ? (
-                  <div style={{ textAlign:"center", padding:40, color:"#6b7280" }}>Chargement…</div>
-                ) : blogComments.length === 0 ? (
-                  <div style={{ textAlign:"center", padding:60 }}>
-                    <div style={{ fontSize:48, marginBottom:12 }}>💬</div>
-                    <p style={{ color:"#6b7280", fontWeight:600 }}>Aucun commentaire pour l'instant</p>
-                  </div>
-                ) : (() => {
-                  const q = blogCommentsSearch.toLowerCase();
-                  const filtered = blogComments.filter(c =>
-                    !q ||
-                    c.nom?.toLowerCase().includes(q) ||
-                    c.commentaire?.toLowerCase().includes(q) ||
-                    c.article_titre?.toLowerCase().includes(q) ||
-                    c.email?.toLowerCase().includes(q)
-                  );
-                  return (
-                    <>
-                      {filtered.length === 0 ? (
-                        <p style={{ color:"#94a3b8", textAlign:"center", padding:32 }}>Aucun résultat pour « {blogCommentsSearch} »</p>
-                      ) : (
-                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                          {filtered.map(c => (
-                            <div key={c.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:12, padding:"14px 18px", background:"#fff", display:"flex", gap:16, alignItems:"flex-start" }}>
-                              {/* Avatar */}
-                              <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".9rem", flexShrink:0 }}>
-                                {(c.nom||"?")[0].toUpperCase()}
-                              </div>
-                              {/* Contenu */}
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
-                                  <div>
-                                    <span style={{ fontWeight:800, color:"#0f172a", fontSize:14 }}>{c.nom}</span>
-                                    {c.email && <span style={{ fontSize:12, color:"#94a3b8", marginLeft:8 }}>{c.email}</span>}
-                                  </div>
-                                  <span style={{ fontSize:11, color:"#94a3b8", flexShrink:0 }}>
-                                    {new Date(c.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
-                                  </span>
-                                </div>
-                                <div style={{ fontSize:11, fontWeight:700, margin:"4px 0 8px" }}>
-                                  📄{" "}
-                                  {c.article_id ? (
-                                    <a
-                                      href={`${FRONTEND_URL}/blog/${c.article_id}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      style={{ color:BET_COLOR, textDecoration:"none", borderBottom:`1px dashed ${BET_COLOR}` }}
-                                    >
-                                      {c.article_titre || "Voir l'article"}
-                                    </a>
-                                  ) : (
-                                    <span style={{ color:"#94a3b8" }}>{c.article_titre || "—"}</span>
-                                  )}
-                                </div>
-                                <p style={{ fontSize:13, color:"#334155", margin:0, lineHeight:1.6, wordBreak:"break-word" }}>{c.commentaire}</p>
-                              </div>
-                              {/* Supprimer */}
-                              <button
-                                onClick={() => deleteBlogComment(c.id)}
-                                title="Supprimer ce commentaire"
-                                style={{ padding:"6px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>
-                                🗑 Supprimer
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <p style={{ textAlign:"right", fontSize:12, color:"#94a3b8", marginTop:14 }}>
-                        {filtered.length} / {blogComments.length} commentaire{blogComments.length>1?"s":""}
-                      </p>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-
           {/* ══ PLANNING ASSISTANTES ══ */}
           {activeTab === "assistantes" && (() => {
             const JOURS = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"];
@@ -3891,13 +5784,42 @@ export default function SuperAdminDashboard() {
                     const initiales = `${(a.prenom||"")[0]||""}${(a.nom||"")[0]||""}`.toUpperCase();
                     const hasDraft = !!(assistantesDrafts[a.id] && Object.keys(assistantesDrafts[a.id]).length > 0);
                     const isSaving = !!assistantesSaving[a.id];
+                    // photo : priorité photo_url de la table assistantes, sinon avatar_url du compte utilisateur lié
+                    const userLie = a.email ? users.find(u => u.email === a.email) : null;
+                    const photoSrc = a.photo_url || userLie?.avatar_url || null;
                     return (
                       <div key={a.id} style={{ background:"#fff", borderRadius:12, border:`2px solid ${hasDraft ? "#fde68a" : travailleAujourdHui && da.actif ? `${centreColor}40` : "#e5e7eb"}`, overflow:"hidden" }}>
                         <div style={{ height:3, background: hasDraft ? "#f59e0b" : travailleAujourdHui && da.actif ? centreColor : "#e5e7eb" }} />
                         <div style={{ padding:"14px 18px" }}>
                           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
                             <div style={{ position:"relative", flexShrink:0 }}>
-                              <div style={{ width:42, height:42, borderRadius:"50%", background:`linear-gradient(135deg,#0f172a,${centreColor})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13 }}>{initiales}</div>
+                              <input type="file" accept="image/*" id={`photo-assist-${a.id}`} style={{ display:"none" }}
+                                onChange={async e => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const fd = new FormData(); fd.append("file", file);
+                                  try {
+                                    const r = await fetch(`${API_URL}/api/upload/avatar`, { method:"POST", headers: authHeaders(), body: fd });
+                                    const d = await r.json();
+                                    const url = d.file?.url; if (!url) return;
+                                    await fetch(`${API_URL}/api/parcours/assistantes/${a.id}`, { method:"PATCH", headers:{ ...authHeaders(), "Content-Type":"application/json" }, body: JSON.stringify({ photo_url: url }) });
+                                    setAssistantesAdmin(prev => prev.map(x => x.id === a.id ? { ...x, photo_url: url } : x));
+                                    toast.success("Photo mise à jour ✓");
+                                  } catch { toast.error("Erreur upload photo"); }
+                                  e.target.value = "";
+                                }}
+                              />
+                              <div title="Changer la photo" onClick={() => document.getElementById(`photo-assist-${a.id}`).click()}
+                                style={{ cursor:"pointer", position:"relative", width:42, height:42 }}>
+                                {photoSrc
+                                  ? <img src={photoSrc} alt={a.prenom} style={{ width:42, height:42, borderRadius:"50%", objectFit:"cover", display:"block" }}/>
+                                  : <div style={{ width:42, height:42, borderRadius:"50%", background:`linear-gradient(135deg,#0f172a,${centreColor})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13 }}>{initiales}</div>
+                                }
+                                <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", opacity:0, transition:"opacity .15s" }}
+                                  onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
+                                  <span style={{ fontSize:14 }}>📷</span>
+                                </div>
+                              </div>
                               <div style={{ position:"absolute", bottom:-1, right:-1, width:12, height:12, borderRadius:"50%", background: travailleAujourdHui && da.actif ? "#22c55e" : "#d1d5db", border:"2px solid #fff" }} />
                             </div>
                             <div style={{ flex:1, minWidth:130 }}>

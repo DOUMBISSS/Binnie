@@ -114,8 +114,52 @@ router.post("/login", async (req, res) => {
       }
     }
 
+    // ── Auto-réparation : si le profil n'est pas en base mais que
+    //    app_metadata.role est valide, on le recrée silencieusement.
+    //    Cela évite le 403 lorsque la table utilisateurs est réinitialisée.
     if (!profil) {
-      return res.status(403).json({ error: "Profil introuvable — contactez le Super Admin BET" });
+      const roleFromAuth = user.app_metadata?.role;
+      const ROLES_VALIDES = [
+        "super_admin","admin","manager","responsable","commercial",
+        "gestionnaire","coach","data_collector","superviseur",
+        "pedagogical_advisor","onboarding","rh","comptable","customer_care",
+      ];
+      if (!roleFromAuth || !ROLES_VALIDES.includes(roleFromAuth)) {
+        return res.status(403).json({ error: "Accès refusé — rôle admin non reconnu" });
+      }
+      const DEPT_PAR_ROLE = {
+        super_admin:"Direction Générale", admin:"Administration",
+        manager:"Management", superviseur:"Supervision",
+        responsable:"Responsable de Centre", pedagogical_advisor:"Conseil Pédagogique",
+        commercial:"Commercial / Assistante", onboarding:"Onboarding & Classes",
+        gestionnaire:"Gestion Administrative", rh:"Ressources Humaines / Paie",
+        comptable:"Comptabilité / Trésorerie", coach:"Pédagogie",
+        customer_care:"Customer Care", data_collector:"Collecte de Données",
+      };
+      const nomMeta    = user.user_metadata?.nom    || user.email.split("@")[0];
+      const prenomMeta = user.user_metadata?.prenom || "Admin";
+      const { data: created, error: createErr } = await supabase
+        .from("utilisateurs")
+        .upsert({
+          id: user.id, email: user.email,
+          nom: nomMeta, prenom: prenomMeta,
+          role: roleFromAuth,
+          scope: ["national"],
+          departement: DEPT_PAR_ROLE[roleFromAuth] || null,
+          actif: true,
+          mdp_temporaire: false,
+        }, { onConflict: "id" })
+        .select()
+        .single();
+      if (createErr || !created) {
+        return res.status(403).json({ error: "Profil introuvable et impossible à recréer — contactez le support" });
+      }
+      await supabase.auth.admin.updateUserById(user.id, {
+        app_metadata: { ...user.app_metadata, role: roleFromAuth, actif: true },
+      });
+      profil = created;
+      source = "utilisateurs";
+      console.log(`[LOGIN AUTO-REPAIR] Profil recréé pour ${user.email} (rôle: ${roleFromAuth})`);
     }
 
     if (!profil.actif) {
@@ -583,7 +627,7 @@ router.get("/utilisateurs", authenticateAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("utilisateurs")
-      .select("id,email,nom,prenom,telephone,role,scope,departement,actif,twofa_active,mdp_temporaire,date_creation,derniere_connexion,note,cree_par_id")
+      .select("id,email,nom,prenom,telephone,role,scope,departement,actif,twofa_active,mdp_temporaire,date_creation,derniere_connexion,note,cree_par_id,avatar_url")
       .order("date_creation", { ascending: false });
     if (error) throw error;
     res.json({ utilisateurs: data });
@@ -612,13 +656,30 @@ router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, r
       return res.status(400).json({ error: authError.message, detail: authError });
     }
 
+    const DEPT_PAR_ROLE = {
+      super_admin:         "Direction Générale",
+      admin:               "Administration",
+      manager:             "Management",
+      superviseur:         "Supervision",
+      responsable:         "Responsable de Centre",
+      pedagogical_advisor: "Conseil Pédagogique",
+      commercial:          "Commercial / Assistante",
+      onboarding:          "Onboarding & Classes",
+      gestionnaire:        "Gestion Administrative",
+      rh:                  "Ressources Humaines / Paie",
+      comptable:           "Comptabilité / Trésorerie",
+      coach:               "Pédagogie",
+      customer_care:       "Customer Care Service",
+      data_collector:      "Collecte de Données",
+    };
+
     const { data: utilisateur, error: insertError } = await supabase
       .from("utilisateurs")
       .insert({
         id: authData.user.id, email, nom, prenom,
         telephone: telephone || null, role,
         scope: scope || ["national"],
-        departement: departement || null,
+        departement: departement || DEPT_PAR_ROLE[role] || null,
         actif: true, mdp_temporaire: true,
         mdp_initial: mdpTemp,
         cree_par_id: req.profil.id,
@@ -666,18 +727,34 @@ router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, r
 router.patch("/utilisateurs/:id", authenticateAdmin, requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { actif, note, scope, departement, twofa_active } = req.body;
+    const { actif, note, scope, departement, twofa_active, avatar_url, role, nom, prenom, telephone } = req.body;
     const updates = {};
+
+    if (avatar_url  !== undefined)  updates.avatar_url  = avatar_url;
+    if (nom         !== undefined)  updates.nom         = nom;
+    if (prenom      !== undefined)  updates.prenom      = prenom;
+    if (telephone   !== undefined)  updates.telephone   = telephone;
+    if (note        !== undefined)  updates.note        = note;
+    if (scope       !== undefined)  updates.scope       = scope;
+    if (departement !== undefined)  updates.departement = departement;
+
+    // Récupérer app_metadata actuel une seule fois pour tous les champs Auth
+    const needsAuthUpdate = actif !== undefined || role !== undefined;
+    let currentMeta = {};
+    if (needsAuthUpdate) {
+      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(id);
+      currentMeta = authUser?.app_metadata || {};
+    }
+
     if (actif !== undefined) {
       updates.actif = actif;
-      // Récupérer le app_metadata actuel pour ne pas écraser le rôle
-      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(id);
-      const currentMeta = authUser?.app_metadata || {};
       await supabase.auth.admin.updateUserById(id, { app_metadata: { ...currentMeta, actif } });
+      currentMeta = { ...currentMeta, actif };
     }
-    if (note         !== undefined)   updates.note         = note;
-    if (scope        !== undefined)   updates.scope        = scope;
-    if (departement  !== undefined)   updates.departement  = departement;
+    if (role !== undefined) {
+      updates.role = role;
+      await supabase.auth.admin.updateUserById(id, { app_metadata: { ...currentMeta, role } });
+    }
     if (twofa_active !== undefined) {
       updates.twofa_active = twofa_active;
       // Si désactivation : supprimer les facteurs TOTP enrôlés dans Supabase Auth
@@ -781,6 +858,114 @@ router.get("/permissions-matrice", authenticateAdmin, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur récupération permissions" });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/admin/diagnostic?email=xxx&secret=yyy
+   Diagnostique l'état du compte pour un email donné
+   (auth.users + utilisateurs + profils_admin + app_metadata)
+══════════════════════════════════════════════════════════════ */
+router.get("/diagnostic", async (req, res) => {
+  try {
+    const { email, secret } = req.query;
+    const EXPECTED = process.env.BOOTSTRAP_SECRET || "BET_BOOTSTRAP_2025";
+    if (secret !== EXPECTED) return res.status(403).json({ error: "Secret incorrect" });
+    if (!email) return res.status(400).json({ error: "email requis" });
+
+    // 1. Chercher dans Supabase Auth
+    const { data: { users } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const authUser = users.find(u => u.email === email);
+
+    if (!authUser) {
+      return res.json({ auth: null, utilisateur: null, profil_admin: null,
+        diagnostic: "❌ Email introuvable dans Supabase Auth. Vérifiez l'adresse email." });
+    }
+
+    // 2. Chercher dans utilisateurs
+    const { data: u } = await supabase.from("utilisateurs").select("id,email,nom,prenom,role,actif,scope").eq("id", authUser.id).maybeSingle();
+
+    // 3. Chercher dans profils_admin
+    const { data: pa } = await supabase.from("profils_admin").select("id,email,nom,prenom,profil_type,actif").eq("id", authUser.id).maybeSingle();
+
+    const roleAuth = authUser.app_metadata?.role;
+
+    let diagnostic = "";
+    if (!u && !pa) diagnostic = "❌ Profil absent de utilisateurs ET profils_admin → c'est la cause du 403. Appeler /bootstrap.";
+    else if (u && !u.actif) diagnostic = "⚠️ Profil trouvé dans utilisateurs mais actif=false → appeler /bootstrap pour réactiver.";
+    else if (!roleAuth) diagnostic = "⚠️ Profil DB ok mais app_metadata.role absent → appeler /bootstrap pour corriger.";
+    else if (roleAuth !== u?.role) diagnostic = `⚠️ Incohérence : role DB=${u?.role} / role auth=${roleAuth} → appeler /bootstrap.`;
+    else diagnostic = "✅ Tout semble correct. Essayez de vous reconnecter.";
+
+    res.json({
+      auth: { id: authUser.id, email: authUser.email, role_app_metadata: roleAuth, confirmed: !!authUser.email_confirmed_at },
+      utilisateur: u || null,
+      profil_admin: pa || null,
+      diagnostic,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   POST /api/admin/bootstrap
+   Corrige le profil super_admin manquant ou incomplet.
+   Ne supprime AUCUNE donnée — upsert ciblé sur l'email.
+   Corps : { email, secret }
+══════════════════════════════════════════════════════════════ */
+router.post("/bootstrap", async (req, res) => {
+  try {
+    const { email, secret } = req.body;
+    const EXPECTED = process.env.BOOTSTRAP_SECRET || "BET_BOOTSTRAP_2025";
+    if (secret !== EXPECTED) return res.status(403).json({ error: "Secret incorrect" });
+    if (!email) return res.status(400).json({ error: "email requis" });
+
+    // 1. Trouver dans Supabase Auth
+    const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    if (listErr) throw listErr;
+    const authUser = users.find(u => u.email === email);
+    if (!authUser) return res.status(404).json({ error: `Aucun compte Supabase Auth trouvé pour ${email}` });
+
+    // 2. Corriger app_metadata.role
+    await supabase.auth.admin.updateUserById(authUser.id, {
+      app_metadata: { ...authUser.app_metadata, role: "super_admin", actif: true },
+    });
+
+    // 3. Récupérer le profil existant (pour ne pas écraser ses données)
+    const { data: existing } = await supabase.from("utilisateurs").select("*").eq("id", authUser.id).maybeSingle();
+
+    const nom    = existing?.nom    || authUser.user_metadata?.nom    || email.split("@")[0];
+    const prenom = existing?.prenom || authUser.user_metadata?.prenom || "Admin";
+
+    // 4. Upsert — seuls role/actif/scope sont forcés, le reste est conservé
+    const { data: profil, error: upsertErr } = await supabase
+      .from("utilisateurs")
+      .upsert({
+        ...(existing || {}),        // garde toutes les données existantes
+        id:          authUser.id,
+        email:       authUser.email,
+        nom,
+        prenom,
+        role:        "super_admin",
+        scope:       existing?.scope || ["national"],
+        departement: existing?.departement || "Direction Générale",
+        actif:       true,
+        mdp_temporaire: existing?.mdp_temporaire ?? false,
+      }, { onConflict: "id" })
+      .select()
+      .single();
+
+    if (upsertErr) throw upsertErr;
+
+    res.json({
+      message: `✅ Super Admin activé pour ${email} — reconnectez-vous sur /login-admin`,
+      action:  existing ? "mise_a_jour" : "creation",
+      profil:  { id: profil.id, email: profil.email, role: profil.role, actif: profil.actif, scope: profil.scope },
+    });
+  } catch (err) {
+    console.error("Bootstrap error:", err);
+    res.status(500).json({ error: err.message || "Erreur interne" });
   }
 });
 

@@ -128,8 +128,8 @@ router.get("/all", authenticateAdmin, async (req, res) => {
     const applyScope = (q) => (!isNational && scope.length > 0) ? q.in("centre_id", scope) : q;
 
     const [adultes, enfants, etudiants] = await Promise.all([
-      applyScope(supabase.from("inscriptions_adultes").select("id, nom_complet, email, telephone, offre_titre, statut, centre_id, commercial_id, created_at").order("created_at", { ascending: false })),
-      applyScope(supabase.from("inscriptions_enfants").select("id, prenom_enfant, nom_enfant, nom_parent, email_parent, telephone_parent, statut, centre_id, commercial_id, created_at").order("created_at", { ascending: false })),
+      applyScope(supabase.from("inscriptions_adultes").select("id, nom_complet, email, telephone, offre_titre, niveau_detecte, mode_paiement, statut, centre_id, commercial_id, created_at").order("created_at", { ascending: false })),
+      applyScope(supabase.from("inscriptions_enfants").select("id, prenom_enfant, nom_enfant, nom_parent, email_parent, telephone_parent, tranche_age, statut, centre_id, commercial_id, created_at").order("created_at", { ascending: false })),
       applyScope(supabase.from("inscriptions_etudiants").select("id, prenom, nom, email, telephone, etablissement, statut, centre_id, created_at").order("created_at", { ascending: false })),
     ]);
 

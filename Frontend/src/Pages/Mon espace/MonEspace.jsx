@@ -1003,7 +1003,7 @@ const TabConseillereContact = ({ user, setActiveTab }) => {
           <p style={{ color:"rgba(255,255,255,.75)", fontSize:".88rem", lineHeight:1.6, margin:"0 0 20px" }}>
             Obtenez une assistante dédiée en quelques étapes. Choisissez votre mode d'apprentissage.
           </p>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
             <button
               onClick={() => openParcours("en_ligne")}
               style={{ background:"rgba(255,255,255,.1)", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:12, padding:"18px 16px", cursor:"pointer", textAlign:"center", color:"#fff", transition:"all .2s" }}
@@ -1023,6 +1023,16 @@ const TabConseillereContact = ({ user, setActiveTab }) => {
               <div style={{ fontSize:"1.8rem", marginBottom:6 }}>🏢</div>
               <div style={{ fontWeight:800, fontSize:".95rem", marginBottom:4 }}>En présentiel</div>
               <div style={{ fontSize:".78rem", color:"rgba(255,255,255,.7)", lineHeight:1.5 }}>En cabinet dans l'un de nos 6 centres BET</div>
+            </button>
+            <button
+              onClick={() => openParcours("domicile")}
+              style={{ background:"rgba(5,150,105,.15)", border:"1.5px solid rgba(5,150,105,.4)", borderRadius:12, padding:"18px 16px", cursor:"pointer", textAlign:"center", color:"#fff", transition:"all .2s" }}
+              onMouseOver={e => e.currentTarget.style.background="rgba(5,150,105,.28)"}
+              onMouseOut={e => e.currentTarget.style.background="rgba(5,150,105,.15)"}
+            >
+              <div style={{ fontSize:"1.8rem", marginBottom:6 }}>🏠</div>
+              <div style={{ fontWeight:800, fontSize:".95rem", marginBottom:4 }}>À domicile</div>
+              <div style={{ fontSize:".78rem", color:"rgba(255,255,255,.7)", lineHeight:1.5 }}>Un coach certifié se déplace chez vous</div>
             </button>
           </div>
         </div>

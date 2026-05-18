@@ -24,6 +24,7 @@ import equipePhotosRouter from "./routes/equipePhotos.js";
 import boutiqueRouter     from "./routes/boutique.js";
 import parcoursRouter     from "./routes/parcours.js";
 import corporateRouter    from "./routes/corporate.js";
+import marqueeRouter      from "./routes/marquee.js";
 
 const app = express();
 
@@ -68,5 +69,6 @@ app.use("/api/equipe-photos", equipePhotosRouter);
 app.use("/api/boutique",     boutiqueRouter);
 app.use("/api/parcours",     parcoursRouter);
 app.use("/api/corporate",   corporateRouter);
+app.use("/api/marquee",     marqueeRouter);
 
 export default app;

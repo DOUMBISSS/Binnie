@@ -1,8 +1,58 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { coursesData } from "../../data/coursesData";
 import Footer from "../Footer/Footer";
 import { insertDemandeDevis, insertInscriptionAdulte } from "../../services/formsService";
+import { supabase } from "../../config/supabase";
+
+const CENTRES_MASTER_KEY   = "bet_centres_master";
+const OFFRES_EN_LIGNE_KEY  = "bet_offres_en_ligne";
+const OFFRES_DOMICILE_KEY  = "bet_offres_domicile";
+const COURSE_APERCU_KEY    = "bet_course_apercu_config";
+
+function apercuFromLS(typeParam) {
+  const lsType = typeParam === "en-ligne" ? "en_ligne" : typeParam === "domicile" ? "domicile" : null;
+  if (!lsType) return null;
+  try {
+    const s = localStorage.getItem(COURSE_APERCU_KEY);
+    if (!s) return null;
+    const cfg = JSON.parse(s);
+    return cfg[lsType] || null;
+  } catch { return null; }
+}
+
+function offresFromLS(lsKey) {
+  try {
+    const s = localStorage.getItem(lsKey);
+    if (!s) return null;
+    const list = JSON.parse(s).filter(o => o.actif !== false);
+    if (!list.length) return null;
+    return list.map(o => ({ name: o.label, price: o.prix || "Sur devis", duration: o.duration || "", details: o.desc || "", brochure_url: o.brochure_url || "", brochure_nom: o.brochure_nom || "" }));
+  } catch { return null; }
+}
+function loadCabinetCourse(centreKey) {
+  if (!centreKey) return null;
+  try {
+    const s = localStorage.getItem(CENTRES_MASTER_KEY);
+    if (!s) return null;
+    const list = JSON.parse(s);
+    const centre = list.find(c => c.key === centreKey && c.actif !== false);
+    if (!centre) return null;
+    const formats = (centre.offres || [])
+      .filter(o => o.actif !== false)
+      .map(o => ({ name: o.label, price: o.prix, duration: o.duration || "", details: o.desc, brochure_url: o.brochure_url || "", brochure_nom: o.brochure_nom || "" }));
+    return {
+      title: centre.name,
+      subtitle: centre.subtitle || `Apprenez à ${centre.ville} dans un cadre moderne`,
+      heroImage: centre.hero_image || undefined,
+      description: centre.description,
+      advantages: centre.advantages?.length ? centre.advantages : undefined,
+      formats: formats.length ? formats : undefined,
+      testimonials: centre.testimonials?.length ? centre.testimonials : undefined,
+      faq: centre.faq?.length ? centre.faq : undefined,
+    };
+  } catch { return null; }
+}
 
 if (!document.querySelector("#cd-fonts")) {
   const l = document.createElement("link"); l.id="cd-fonts"; l.rel="stylesheet";
@@ -77,8 +127,139 @@ const FAQItem=({item})=>{
 
 const CourseDetail=()=>{
   const{type}=useParams(); const navigate=useNavigate();
+  const[searchParams]=useSearchParams();
+  const initCentreKey=searchParams.get("centre");
   const rawCourse=coursesData?.[type];
-  const course=rawCourse?{...MOCK_COURSE,...rawCourse}:MOCK_COURSE;
+  const isMounted=useRef(false);
+
+  // Centres (cabinet mode)
+  const[centresList,setCentresList]=useState([]);
+  const[selectedCentreKey,setSelectedCentreKey]=useState(initCentreKey||null);
+  const[sidebarAssistantes,setSidebarAssistantes]=useState([]);
+  const[loadingAssistantes,setLoadingAssistantes]=useState(false);
+  const[realCentresMap,setRealCentresMap]=useState({});
+
+  // Charger la liste réelle des centres depuis l'API (même logique Navbar)
+  useEffect(()=>{
+    if(type!=="cabinet") return;
+    const API_URL=process.env.REACT_APP_API_URL||"http://localhost:5001";
+    fetch(`${API_URL}/api/parcours/centres`)
+      .then(r=>r.json())
+      .then(d=>{
+        const map={};
+        (d.centres||[]).forEach(c=>{
+          const key=c.nom.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+          map[key]=c;
+        });
+        setRealCentresMap(map);
+      }).catch(()=>{});
+  },[type]);
+
+  // Charger les vraies assistantes dès que le centre change
+  useEffect(()=>{
+    if(type!=="cabinet"||!selectedCentreKey) return;
+    const centre=centresList.find(c=>c.key===selectedCentreKey);
+    if(!centre) return;
+    setSidebarAssistantes([]);
+    setLoadingAssistantes(true);
+    const API_URL=process.env.REACT_APP_API_URL||"http://localhost:5001";
+    const nomNorm=centre.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    let realId=null;
+    for(const[k,c] of Object.entries(realCentresMap)){
+      if(k.includes(nomNorm)||nomNorm.includes(k)){realId=c.id;break;}
+    }
+    const fallback=()=>{
+      setSidebarAssistantes((centre.assistantes||[]).map(a=>({
+        id:a.phone, prenom:a.nom, nom:"", telephone:a.phone, photo_url:null
+      })));
+      setLoadingAssistantes(false);
+    };
+    if(realId){
+      fetch(`${API_URL}/api/parcours/assistantes-presentiel/${realId}?tous=true`)
+        .then(r=>r.json())
+        .then(d=>{ setSidebarAssistantes(d.assistantes||[]); setLoadingAssistantes(false); })
+        .catch(fallback);
+    } else { fallback(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[selectedCentreKey,realCentresMap]);
+
+  useEffect(()=>{
+    if(type!=="cabinet") return;
+    try{
+      const s=localStorage.getItem(CENTRES_MASTER_KEY);
+      if(s){
+        const list=JSON.parse(s).filter(c=>c.actif!==false);
+        setCentresList(list);
+        if(!selectedCentreKey && list.length>0) setSelectedCentreKey(list[0].key);
+      }
+    }catch{}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[type]);
+
+  // ── Offres dynamiques (en-ligne / domicile) ──────────────────────────────
+  const [dynamicFormats, setDynamicFormats] = useState(() => {
+    if (type === "en-ligne")  return offresFromLS(OFFRES_EN_LIGNE_KEY);
+    if (type === "domicile")  return offresFromLS(OFFRES_DOMICILE_KEY);
+    return null;
+  });
+
+  // ── Aperçu dynamique (en-ligne / domicile) ───────────────────────────────
+  const [dynamicApercu, setDynamicApercu] = useState(() => apercuFromLS(type));
+
+  const centreOverride=type==="cabinet"?loadCabinetCourse(selectedCentreKey):null;
+  const selectedCentre=centresList.find(c=>c.key===selectedCentreKey)||null;
+  const formatsOverride = dynamicFormats ? { formats: dynamicFormats } : {};
+  const apercuOverride = dynamicApercu ? {
+    ...(dynamicApercu.description  ? { description:     dynamicApercu.description }  : {}),
+    ...(dynamicApercu.advantages?.length ? { advantages: dynamicApercu.advantages }  : {}),
+    ...(dynamicApercu.whatYouLearn?.length ? { whatYouLearn: dynamicApercu.whatYouLearn } : {}),
+    ...(dynamicApercu.includes?.length ? { includes: dynamicApercu.includes }         : {}),
+    ...(dynamicApercu.requirements?.length ? { requirements: dynamicApercu.requirements } : {}),
+    ...(dynamicApercu.targetAudience?.length ? { targetAudience: dynamicApercu.targetAudience } : {}),
+    ...(dynamicApercu.faq?.length ? { faq: dynamicApercu.faq }                        : {}),
+  } : {};
+  const course=rawCourse?{...MOCK_COURSE,...rawCourse,...(centreOverride||{}),...formatsOverride,...apercuOverride}:{...MOCK_COURSE,...(centreOverride||{}),...formatsOverride,...apercuOverride};
+
+  useEffect(() => {
+    if (type !== "en-ligne" && type !== "domicile") return;
+    const sbKey = type === "en-ligne" ? "offres_en_ligne" : "offres_domicile";
+    const lsKey = type === "en-ligne" ? OFFRES_EN_LIGNE_KEY : OFFRES_DOMICILE_KEY;
+    supabase
+      .from("plateforme_config")
+      .select("valeur")
+      .eq("key", sbKey)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem(lsKey, JSON.stringify(data.valeur));
+          const f = offresFromLS(lsKey);
+          if (f) setDynamicFormats(f);
+        }
+      });
+    const onStorage = (e) => {
+      if (e.key === lsKey) { const f = offresFromLS(lsKey); if (f) setDynamicFormats(f); }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [type]); // eslint-disable-line
+
+  useEffect(() => {
+    if (type !== "en-ligne" && type !== "domicile") return;
+    // Sync depuis Supabase (dashboard sur port différent — localStorage non partagé)
+    supabase.from("plateforme_config").select("valeur").eq("key","course_apercu_config").maybeSingle()
+      .then(({data,error})=>{
+        if(!error && data?.valeur && typeof data.valeur==="object"){
+          localStorage.setItem(COURSE_APERCU_KEY, JSON.stringify(data.valeur));
+          setDynamicApercu(apercuFromLS(type));
+        }
+      });
+    const onStorage = (e) => {
+      if (e.key === COURSE_APERCU_KEY) setDynamicApercu(apercuFromLS(type));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [type]); // eslint-disable-line
+
   const[activeTab,setActiveTab]=useState("apercu");
   const[openSections,setOpenSections]=useState({0:true});
   const[showAllCurr,setShowAllCurr]=useState(false);
@@ -88,13 +269,55 @@ const CourseDetail=()=>{
   const[mobileOp,setMobileOp]=useState(null);
   const[successMsg,setSuccessMsg]=useState(false);
   const[hovCard,setHovCard]=useState(null);
+  const[selectedFormat,setSelectedFormat]=useState(null);
+
+  // ── Reset UI quand le type de cours change (pas au montage initial) ──
+  useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return; }
+    setActiveTab("apercu");
+    setSelectedFormat(null);
+    setModalOpen(false);
+    setSuccessMsg(false);
+    setHovCard(null);
+    setInscForm({nom:"",email:"",tel:"",mobileNum:""});
+    setInscErreur("");
+    // Les données cabinet (centresList, assistantes…) sont gérées par leurs propres effects
+    setDynamicFormats(
+      type === "en-ligne" ? offresFromLS(OFFRES_EN_LIGNE_KEY) :
+      type === "domicile" ? offresFromLS(OFFRES_DOMICILE_KEY) : null
+    );
+  }, [type]); // eslint-disable-line
   const[devisOpen,setDevisOpen]=useState(false);
   const[devisSuccess,setDevisSuccess]=useState(false);
   const[devisForm,setDevisForm]=useState({nom:"",email:"",tel:"",entreprise:"",participants:"1",message:""});
   const[inscForm,setInscForm]=useState({nom:"",email:"",tel:"",mobileNum:""});
   const[inscErreur,setInscErreur]=useState("");
   const[inscLoading,setInscLoading]=useState(false);
+  const[sbUser,setSbUser]=useState(null);
   const heroRef=useRef(null);
+
+  const prefillForm=(u)=>{
+    const m=u?.user_metadata||{};
+    setInscForm(p=>({
+      ...p,
+      nom: m.full_name||m.nom||m.prenom||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:`${m.first_name||""} ${m.last_name||""}`.trim())||p.nom||"",
+      email: u.email||m.email||p.email||"",
+      tel: m.telephone||m.phone||m.tel||p.tel||"",
+    }));
+  };
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{
+      setSbUser(session?.user||null);
+      if(session?.user) prefillForm(session.user);
+    });
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,session)=>{
+      setSbUser(session?.user||null);
+      if(session?.user) prefillForm(session.user);
+    });
+    return()=>subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   useEffect(()=>{
     const h=()=>setSidebarSticky(window.scrollY>(heroRef.current?.offsetHeight||500)-80);
@@ -138,7 +361,11 @@ const CourseDetail=()=>{
     }
   }, []);
 
-  const TABS=[{id:"apercu",label:"Aperçu"},{id:"contenu",label:"Contenu du cours"},{id:"formules",label:"Formules & Tarifs"},{id:"avis",label:`Avis (${course.testimonials?.length||0})`},{id:"faq",label:"FAQ"}];
+  const TABS=[{id:"apercu",label:"Aperçu"},
+    // {id:"contenu",label:"Contenu du cours"},
+    {id:"formules",label:"Formules & Tarifs"},
+    {id:"avis",label:`Avis (${course.testimonials?.length||0})`},
+    {id:"faq",label:"FAQ"}];
   const toggleSection=i=>setOpenSections(p=>({...p,[i]:!p[i]}));
   const totalSessions=course.curriculum?.reduce((a,s)=>a+s.sessions.length,0)||0;
   const visibleCurr=showAllCurr?course.curriculum:course.curriculum?.slice(0,4);
@@ -150,7 +377,7 @@ const CourseDetail=()=>{
         nom_complet:inscForm.nom,
         email:inscForm.email,
         telephone:inscForm.tel,
-        offre_titre:course.title,
+        offre_titre:selectedFormat ? `${course.title} — ${selectedFormat.name} (${selectedFormat.price})` : course.title,
         mode_paiement:payMethod==="mobile"?`Mobile Money ${mobileOp||""} — ${inscForm.mobileNum}`:"Carte bancaire",
         statut:"en_attente",
       });
@@ -181,8 +408,14 @@ const CourseDetail=()=>{
               <span style={S.bLink} onClick={()=>navigate(-1)}>Cours</span><span style={S.bSep}>/</span>
               <span style={{color:"#e2e8f0"}}>{course.title}</span>
             </div>
-            <h1 className="course-detail-hero-title" style={S.heroTitle}>{course.title}</h1>
-            <p style={S.heroSub}>{course.subtitle}</p>
+            <h1 className="course-detail-hero-title" style={S.heroTitle}>
+              {type==="cabinet"&&selectedCentre?selectedCentre.name:course.title}
+            </h1>
+            <p style={S.heroSub}>
+              {type==="cabinet"&&selectedCentre
+                ?(selectedCentre.subtitle||`Cours en cabinet · ${selectedCentre.ville}`)
+                :course.subtitle}
+            </p>
             <div style={S.heroMeta}>
               <span style={S.heroBadge}>⭐ BESTSELLER</span>
               <span style={S.heroRating}>{course.rating}</span>
@@ -198,6 +431,41 @@ const CourseDetail=()=>{
           </div>
         </div>
       </div>
+
+      {/* SÉLECTEUR DE CENTRE (type cabinet uniquement) */}
+      {type==="cabinet"&&centresList.length>0&&(
+        <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"14px 0"}}>
+          <div style={{maxWidth:1180,margin:"0 auto",padding:"0 24px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#475569",whiteSpace:"nowrap",flexShrink:0}}>📍 Choisissez votre centre :</span>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {centresList.map(c=>(
+                  <button key={c.key} onClick={()=>setSelectedCentreKey(c.key)}
+                    style={{
+                      padding:"7px 16px",borderRadius:999,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .2s",
+                      border:`2px solid ${selectedCentreKey===c.key?c.color:"#e2e8f0"}`,
+                      background:selectedCentreKey===c.key?c.color+"22":"#f8fafc",
+                      color:selectedCentreKey===c.key?"#0f172a":"#64748b",
+                      boxShadow:selectedCentreKey===c.key?`0 0 0 3px ${c.color}33`:"none",
+                    }}
+                  >
+                    <span style={{display:"inline-block",width:9,height:9,borderRadius:"50%",background:c.color,marginRight:6,verticalAlign:"middle"}}/>
+                    {c.name}
+                    {c.ville&&c.ville!=="Abidjan"&&<span style={{fontSize:11,fontWeight:500,color:"#94a3b8",marginLeft:4}}>({c.ville})</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {selectedCentre&&(
+              <div style={{marginTop:10,display:"flex",gap:16,flexWrap:"wrap",fontSize:12,color:"#64748b"}}>
+                {selectedCentre.addr&&<span>📌 {selectedCentre.addr}</span>}
+                {selectedCentre.horaires&&<span>🕐 {selectedCentre.horaires}</span>}
+                {selectedCentre.telephone&&<a href={`tel:${selectedCentre.telephone}`} style={{color:"#0891b2",textDecoration:"none",fontWeight:600}}>📞 {selectedCentre.telephone}</a>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* TABS */}
       <div style={{...S.tabsBar,...(sidebarSticky?S.tabsSticky:{})}}>
@@ -242,7 +510,7 @@ const CourseDetail=()=>{
           )}
 
           {/* Contenu */}
-          {activeTab==="contenu"&&(
+          {/* {activeTab==="contenu"&&(
             <div style={{animation:"fadeUp .4s ease"}}>
               <section style={S.section}>
                 <h2 style={S.sH2}>Contenu du cours</h2>
@@ -277,7 +545,7 @@ const CourseDetail=()=>{
                 {!showAllCurr&&course.curriculum?.length>4&&<button style={S.showMoreBtn} onClick={()=>setShowAllCurr(true)}>Voir {course.curriculum.length-4} sections supplémentaires ↓</button>}
               </section>
             </div>
-          )}
+          )} */}
 
           {/* Formules */}
           {activeTab==="formules"&&(
@@ -286,18 +554,35 @@ const CourseDetail=()=>{
                 <h2 style={S.sH2}>Choisissez votre formule</h2>
                 <p style={S.currMeta}>Sans engagement · Changez ou annulez à tout moment</p>
                 <div className="course-detail-formats-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:20,marginBottom:28}}>
-                  {course.formats?.map((f,i)=>(
-                    <div key={i} style={{...S.formatCard,...(f.popular?{borderColor:"#dc2626",background:"#fef2f2"}:{}),...(hovCard===i?{transform:"translateY(-5px)",boxShadow:"0 16px 40px rgba(0,0,0,.1)"}:{})}} onMouseEnter={()=>setHovCard(i)} onMouseLeave={()=>setHovCard(null)}>
-                      {f.popular&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#dc2626",color:"#fff",borderRadius:999,padding:"3px 14px",fontSize:".68rem",fontWeight:800,whiteSpace:"nowrap"}}>⭐ Le plus choisi</div>}
+                  {course.formats?.map((f,i)=>{
+                    const isEntreprise=/entreprise/i.test(f.name||"");
+                    const isSelected = selectedFormat?.name===f.name && !isEntreprise;
+                    return(
+                    <div key={i}
+                      onClick={()=>{ if(isEntreprise){navigate("/parcours/entreprise");}else{setSelectedFormat(f);} }}
+                      style={{...S.formatCard,cursor:isEntreprise?"default":"pointer",...(isSelected?{borderColor:"#dc2626",background:"#fef2f2",boxShadow:"0 0 0 3px #dc262622"}:f.popular?{borderColor:"#dc2626",background:"#fef2f2"}:{}),...(isEntreprise?{borderColor:"#1e3a8a",background:"#f0f4ff"}:{}),...(hovCard===i&&!isSelected?{transform:"translateY(-5px)",boxShadow:"0 16px 40px rgba(0,0,0,.1)"}:{})}}
+                      onMouseEnter={()=>setHovCard(i)} onMouseLeave={()=>setHovCard(null)}>
+                      {isSelected&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#dc2626",color:"#fff",borderRadius:999,padding:"3px 14px",fontSize:".68rem",fontWeight:800,whiteSpace:"nowrap"}}>✓ Sélectionnée</div>}
+                      {!isSelected&&f.popular&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#dc2626",color:"#fff",borderRadius:999,padding:"3px 14px",fontSize:".68rem",fontWeight:800,whiteSpace:"nowrap"}}>⭐ Le plus choisi</div>}
+                      {isEntreprise&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#1e3a8a",color:"#fff",borderRadius:999,padding:"3px 14px",fontSize:".68rem",fontWeight:800,whiteSpace:"nowrap"}}>🏢 Entreprises</div>}
                       <h3 style={{fontFamily:FD,fontSize:"1.2rem",margin:"0 0 10px",fontWeight:400}}>{f.name}</h3>
                       <div style={{display:"flex",alignItems:"baseline",gap:2,marginBottom:10}}>
                         <span style={{fontFamily:FD,fontSize:"1.6rem",color:"#0f172a"}}>{f.price}</span>
-                        <span style={{fontSize:".82rem",color:"#64748b"}}> FCFA{f.duration}</span>
+                        <span style={{fontSize:".82rem",color:"#64748b"}}>{f.duration?" · "+f.duration:""}</span>
                       </div>
-                      <p style={{fontSize:".82rem",color:"#64748b",marginBottom:18,lineHeight:1.5}}>{f.details}</p>
-                      <button style={{width:"100%",padding:"10px",border:`1.5px solid ${f.popular?"transparent":"#dc2626"}`,borderRadius:999,background:f.popular?"#dc2626":"transparent",color:f.popular?"#fff":"#dc2626",fontFamily:FF,fontWeight:700,fontSize:".88rem",cursor:"pointer",transition:"all .2s"}} onClick={()=>setModalOpen(true)}>Choisir cette formule →</button>
+                      <p style={{fontSize:".82rem",color:"#64748b",marginBottom:f.brochure_url?10:0,lineHeight:1.5}}>{f.details}</p>
+                      {f.brochure_url && (
+                        <a href={f.brochure_url} download={f.brochure_nom || true} target="_blank" rel="noopener noreferrer"
+                          onClick={e=>e.stopPropagation()}
+                          style={{display:"flex",alignItems:"center",gap:6,background:"#eff6ff",border:"1.5px solid #bae6fd",borderRadius:8,padding:"8px 12px",marginTop:10,textDecoration:"none"}}>
+                          <span>📄</span>
+                          <span style={{fontSize:".82rem",fontWeight:700,color:"#0891b2",flex:1}}>{f.brochure_nom || "Télécharger la brochure"}</span>
+                          <span style={{fontSize:".72rem",fontWeight:700,color:"#94a3b8",background:"#f1f5f9",borderRadius:4,padding:"2px 7px"}}>PDF</span>
+                        </a>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:12,padding:"18px 20px",display:"flex",alignItems:"flex-start",gap:16,color:"#166534"}}>
                   <span style={{fontSize:"1.5rem"}}>🛡️</span>
@@ -374,14 +659,164 @@ const CourseDetail=()=>{
 
         {/* SIDEBAR */}
         <aside className="course-detail-sidebar" style={{...S.sidebar,...(sidebarSticky?{top:80}:{})}}>
+
+          {/* ── SIDEBAR CABINET (centre physique) ── */}
+          {type==="cabinet"&&selectedCentre?(()=>{
+            const offresActives=(selectedCentre.offres||[]).filter(o=>o.actif!==false);
+            const prixDepart=offresActives[0]?.prix;
+            return(
+              <div className="course-detail-side-card" style={S.sideCard}>
+
+                {/* Header centre coloré */}
+                <div style={{padding:"16px 18px",background:`linear-gradient(135deg,${selectedCentre.color}18,${selectedCentre.color}08)`,borderBottom:`3px solid ${selectedCentre.color}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:selectedCentre.color+"33",border:`2px solid ${selectedCentre.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📍</div>
+                    <div>
+                      <div style={{fontWeight:800,fontSize:".95rem",color:"#0f172a"}}>{selectedCentre.name}</div>
+                      <div style={{fontSize:".76rem",color:"#64748b"}}>{selectedCentre.addr||selectedCentre.ville}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Offre sélectionnée ou prix de départ */}
+                {selectedFormat ? (
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9"}}>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:".08em",marginBottom:6}}>FORMULE SÉLECTIONNÉE</div>
+                    <div style={{fontWeight:800,fontSize:".95rem",color:"#0f172a",marginBottom:4}}>{selectedFormat.name}</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:4}}>
+                      <span style={{fontFamily:FD,fontSize:"1.7rem",color:"#dc2626"}}>{selectedFormat.price}</span>
+                      {selectedFormat.duration&&<span style={{fontSize:".8rem",color:"#64748b"}}>· {selectedFormat.duration}</span>}
+                    </div>
+                    {selectedFormat.details&&<div style={{fontSize:".78rem",color:"#64748b",lineHeight:1.5}}>{selectedFormat.details}</div>}
+                  </div>
+                ) : prixDepart ? (
+                  <div style={{padding:"14px 18px 4px"}}>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:".08em",marginBottom:2}}>À PARTIR DE</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                      <span style={{fontFamily:FD,fontSize:"1.9rem",color:"#0f172a",fontWeight:400}}>{prixDepart}</span>
+                      {offresActives[0]?.duration&&<span style={{fontSize:".82rem",color:"#64748b"}}>/ {offresActives[0].duration}</span>}
+                    </div>
+                    <div style={{fontSize:".76rem",color:"#94a3b8",marginTop:4}}>← Sélectionnez une formule dans l'onglet "Formules & Tarifs"</div>
+                  </div>
+                ) : null}
+
+                {/* Bouton S'inscrire */}
+                <div style={{padding:"12px 18px 4px"}}>
+                  <button className="course-detail-btn-enroll"
+                    style={{...S.btnEnroll,opacity:selectedFormat?1:.55,pointerEvents:selectedFormat?"auto":"none"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"}
+                    onMouseLeave={e=>e.currentTarget.style.background="#dc2626"}
+                    onClick={()=>selectedFormat&&setModalOpen(true)}>
+                    {selectedFormat?`✍️ S'inscrire — ${selectedFormat.price}`:"Choisissez d'abord une formule"}
+                  </button>
+                </div>
+
+                {/* WhatsApp assistantes — style Navbar */}
+                <div style={{padding:"14px 18px",borderTop:"1px solid #f1f5f9"}}>
+                  <p style={{fontWeight:700,fontSize:".82rem",color:"#0f172a",margin:"0 0 10px"}}>
+                    💬 Parler à une assistante
+                  </p>
+                  {loadingAssistantes?(
+                    <div style={{textAlign:"center",padding:"16px 0",color:"#64748b",fontSize:".82rem"}}>
+                      <div style={{width:24,height:24,border:"3px solid #e2e8f0",borderTopColor:"#25d366",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 8px"}}/>
+                      Chargement…
+                    </div>
+                  ):sidebarAssistantes.length===0?(
+                    <p style={{fontSize:".78rem",color:"#94a3b8",textAlign:"center",margin:0}}>
+                      😔 Aucune assistante disponible pour ce centre.
+                    </p>
+                  ):(
+                    sidebarAssistantes.map((a,i)=>{
+                      const phoneRaw=(a.telephone||"").replace(/[\s+\-()]/g,"");
+                      const waMsg=encodeURIComponent(`Bonjour ${a.prenom||""}${a.nom?" "+a.nom:""}, je souhaite avoir des informations sur les cours d'anglais chez ${selectedCentre.name}.`);
+                      const ini=`${a.prenom?.[0]||""}${a.nom?.[0]||""}`.toUpperCase()||"A";
+                      return(
+                        <a key={a.id||i}
+                          href={phoneRaw?`https://wa.me/${phoneRaw}?text=${waMsg}`:"#"}
+                          target={phoneRaw?"_blank":undefined} rel="noopener noreferrer"
+                          style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,textDecoration:"none",marginBottom:8,transition:"background .15s",...(!phoneRaw?{opacity:.5,pointerEvents:"none"}:{})}}
+                          onMouseEnter={e=>e.currentTarget.style.background="#dcfce7"}
+                          onMouseLeave={e=>e.currentTarget.style.background="#f0fdf4"}>
+                          {/* Avatar */}
+                          {a.photo_url
+                            ?<img src={a.photo_url} alt={a.prenom} style={{width:40,height:40,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
+                            :<div style={{width:40,height:40,borderRadius:"50%",background:"linear-gradient(135deg,#1e3a8a,#0891b2)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:".88rem",flexShrink:0}}>{ini}</div>
+                          }
+                          {/* Infos */}
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:".84rem",color:"#0f172a"}}>{a.prenom} {a.nom}</div>
+                            <div style={{fontSize:".72rem",color:"#64748b",marginTop:1}}>{a.telephone||<em style={{color:"#94a3b8"}}>Non renseigné</em>}</div>
+                          </div>
+                          {/* Icône WhatsApp SVG */}
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+                            <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+                              <circle cx="16" cy="16" r="16" fill="#25d366"/>
+                              <path d="M23.5 19.9c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2 0-.4-.1-.5-.1-.2-.7-1.8-1-2.4-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.3 3.2c.2.2 2.2 3.4 5.3 4.7 2 .9 2.7.9 3.7.8.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z" fill="#fff"/>
+                            </svg>
+                            <span style={{fontSize:".62rem",color:"#22c55e",fontWeight:700}}>WhatsApp</span>
+                          </div>
+                        </a>
+                      );
+                    })
+                  )}
+                  {selectedCentre&&sidebarAssistantes.length>0&&(
+                    <p style={{fontSize:".68rem",color:"#94a3b8",margin:"8px 0 0",fontStyle:"italic",lineHeight:1.4}}>
+                      💬 Message pré-rempli : « Bonjour, je souhaite avoir des informations sur les cours d'anglais chez {selectedCentre.name}. »
+                    </p>
+                  )}
+                </div>
+
+                {/* Brochure PDF */}
+                {selectedCentre.brochure_url&&(
+                  <div style={{padding:"10px 18px",borderTop:"1px solid #f1f5f9"}}>
+                    <a href={selectedCentre.brochure_url} target="_blank" rel="noreferrer"
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,textDecoration:"none",color:"#0f172a",transition:"border-color .2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="#0891b2"} onMouseLeave={e=>e.currentTarget.style.borderColor="#e2e8f0"}>
+                      <span style={{fontSize:"1.2rem"}}>📄</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:".82rem"}}>Télécharger la brochure</div>
+                        <div style={{fontSize:".72rem",color:"#64748b"}}>{selectedCentre.brochure_nom||"brochure.pdf"}</div>
+                      </div>
+                      <span style={{color:"#0891b2",fontSize:".8rem",fontWeight:700}}>↓</span>
+                    </a>
+                  </div>
+                )}
+
+                {/* Infos pratiques */}
+                <div style={{padding:"12px 18px",borderTop:"1px solid #f1f5f9",display:"flex",flexDirection:"column",gap:8}}>
+                  {selectedCentre.horaires&&<div style={{display:"flex",gap:8,fontSize:".8rem",color:"#475569",alignItems:"flex-start"}}><span style={{flexShrink:0}}>🕐</span><span>{selectedCentre.horaires}</span></div>}
+                  {selectedCentre.telephone&&<a href={`tel:${selectedCentre.telephone}`} style={{display:"flex",gap:8,fontSize:".8rem",color:"#0891b2",fontWeight:700,textDecoration:"none",alignItems:"center"}}><span>📞</span><span>{selectedCentre.telephone}</span></a>}
+                  {selectedCentre.email&&<a href={`mailto:${selectedCentre.email}`} style={{display:"flex",gap:8,fontSize:".8rem",color:"#0891b2",textDecoration:"none",alignItems:"center"}}><span>✉️</span><span>{selectedCentre.email}</span></a>}
+                  {selectedCentre.maps_url&&<a href={selectedCentre.maps_url} target="_blank" rel="noreferrer" style={{display:"flex",gap:8,fontSize:".8rem",color:"#0891b2",fontWeight:700,textDecoration:"none",alignItems:"center"}}><span>🗺️</span><span>Voir sur Google Maps</span></a>}
+                </div>
+
+                <div className="course-detail-share-buttons" style={{padding:"12px 18px",display:"flex",gap:8,borderTop:"1px solid #f1f5f9"}}>
+                  {["🔗 Partager","🔖 Sauver"].map((l,i)=><button key={i} style={{flex:1,background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 4px",fontSize:".72rem",fontWeight:600,cursor:"pointer",color:"#475569"}}>{l}</button>)}
+                </div>
+              </div>
+            );
+          })():(
+
+          /* ── SIDEBAR GÉNÉRIQUE (cours en ligne, domicile, etc.) ── */
           <div className="course-detail-side-card" style={S.sideCard}>
-            <div className="timer-badge" style={{background:"#fef3c7",padding:"8px 14px",fontSize:".8rem",color:"#92400e",fontWeight:600,textAlign:"center",borderBottom:"1px solid #fde68a",wordBreak:"break-word"}}>⏱ Offre limitée · Se termine dans <strong>05:42:11</strong></div>
-            <div className="price-row" style={{padding:"16px 18px 10px",display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
-              <span style={{fontFamily:FD,fontSize:"1.9rem",color:"#0f172a"}}>{course.price}</span>
-              <span style={{fontSize:"1rem",color:"#94a3b8",textDecoration:"line-through"}}>{course.oldPrice}</span>
-              <span style={{background:"#fef2f2",color:"#dc2626",borderRadius:999,padding:"2px 10px",fontSize:".76rem",fontWeight:800}}>-{course.discount}</span>
-            </div>
-            <button className="course-detail-btn-enroll" style={S.btnEnroll} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={()=>setModalOpen(true)}>S'inscrire maintenant</button>
+            {selectedFormat ? (
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9"}}>
+                <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:".08em",marginBottom:6}}>FORMULE SÉLECTIONNÉE</div>
+                <div style={{fontWeight:800,fontSize:".95rem",color:"#0f172a",marginBottom:4}}>{selectedFormat.name}</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:4}}>
+                  <span style={{fontFamily:FD,fontSize:"1.7rem",color:"#dc2626"}}>{selectedFormat.price}</span>
+                  {selectedFormat.duration&&<span style={{fontSize:".8rem",color:"#64748b"}}>· {selectedFormat.duration}</span>}
+                </div>
+                {selectedFormat.details&&<div style={{fontSize:".78rem",color:"#64748b",lineHeight:1.5}}>{selectedFormat.details}</div>}
+              </div>
+            ) : (
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",textAlign:"center",color:"#94a3b8",fontSize:".82rem",lineHeight:1.5}}>
+                Cliquez sur une offre dans l'onglet<br/><strong style={{color:"#64748b"}}>"Formules & Tarifs"</strong> pour la sélectionner
+              </div>
+            )}
+            <button className="course-detail-btn-enroll" style={{...S.btnEnroll,opacity:selectedFormat?1:.55,pointerEvents:selectedFormat?"auto":"none"}} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={()=>selectedFormat&&setModalOpen(true)}>
+              {selectedFormat?"✍️ S'inscrire — "+selectedFormat.price:"Choisissez d'abord une formule"}
+            </button>
             <button className="course-detail-btn-quote" style={S.btnDevis} onMouseEnter={e=>{e.currentTarget.style.background="#1e3a8a";e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="#1e3a8a";}} onClick={()=>setDevisOpen(true)}>🏢 Devis entreprise</button>
             <p style={{textAlign:"center",fontSize:".76rem",color:"#64748b",padding:"0 18px 14px",margin:0}}>✓ Garantie satisfait ou remboursé 30 jours</p>
             <div style={{padding:"14px 18px",borderTop:"1px solid #f1f5f9"}}>
@@ -392,6 +827,7 @@ const CourseDetail=()=>{
               {["🔗 Partager","🎁 Offrir","🔖 Sauver"].map((l,i)=><button key={i} style={{flex:1,background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 4px",fontSize:".72rem",fontWeight:600,cursor:"pointer",color:"#475569"}}>{l}</button>)}
             </div>
           </div>
+          )}
         </aside>
       </div>
 
@@ -400,7 +836,26 @@ const CourseDetail=()=>{
         <div style={S.overlayBg} onClick={()=>setModalOpen(false)}>
           <div style={S.payModal} onClick={e=>e.stopPropagation()}>
             <button style={S.payClose} onClick={()=>setModalOpen(false)}>✕</button>
-            {successMsg?(
+            {/* ── Auth gate ── */}
+            {!sbUser?(
+              <div style={{textAlign:"center",padding:"20px 0 10px"}}>
+                <div style={{fontSize:"3rem",marginBottom:12}}>🔐</div>
+                <h3 style={{fontSize:"1.2rem",fontWeight:800,margin:"0 0 8px",color:"#0f172a"}}>Connexion requise</h3>
+                <p style={{color:"#64748b",fontSize:".9rem",margin:"0 0 6px"}}>Vous devez être connecté pour finaliser votre inscription.</p>
+                {selectedFormat&&(
+                  <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 14px",margin:"14px 0",textAlign:"left"}}>
+                    <div style={{fontSize:".78rem",color:"#64748b"}}>Offre sélectionnée</div>
+                    <div style={{fontWeight:700,fontSize:".95rem",color:"#0f172a"}}>{selectedFormat.name}</div>
+                    <div style={{fontFamily:FD,fontSize:"1.2rem",color:"#dc2626"}}>{selectedFormat.price}</div>
+                  </div>
+                )}
+                <button onClick={()=>navigate("/mon-espace")}
+                  style={{width:"100%",padding:"13px",background:"#dc2626",color:"#fff",border:"none",borderRadius:999,fontWeight:800,fontSize:".95rem",cursor:"pointer",margin:"4px 0 10px"}}>
+                  🔑 Se connecter / S'inscrire
+                </button>
+                <p style={{fontSize:".74rem",color:"#94a3b8",margin:0}}>Votre sélection sera conservée à votre retour.</p>
+              </div>
+            ):successMsg?(
               <div style={{textAlign:"center",padding:"20px 0"}}>
                 <div style={{fontSize:"3rem",marginBottom:16}}>🎉</div>
                 <h3 style={{fontSize:"1.3rem",fontWeight:800,margin:"0 0 8px"}}>Inscription confirmée !</h3>
@@ -408,10 +863,18 @@ const CourseDetail=()=>{
               </div>
             ):(
               <>
+                {/* Bandeau profil connecté */}
+                <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                  <span style={{fontSize:"1rem"}}>✅</span>
+                  <span style={{fontSize:".8rem",color:"#166534",fontWeight:600}}>Connecté en tant que <strong>{sbUser.user_metadata?.full_name||sbUser.email}</strong></span>
+                </div>
                 <h2 style={S.payTitle}>Finaliser votre inscription</h2>
                 <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-                  <span style={{color:"#64748b",fontSize:".9rem"}}>Formation : <strong style={{color:"#0f172a"}}>{course.title}</strong></span>
-                  <span style={{fontFamily:FD,fontSize:"1.2rem",color:"#0f172a"}}>{course.price}</span>
+                  <div>
+                    <span style={{color:"#64748b",fontSize:".9rem"}}>Formation : <strong style={{color:"#0f172a"}}>{course.title}</strong></span>
+                    {selectedFormat&&<div style={{fontSize:".82rem",fontWeight:700,color:"#475569",marginTop:2}}>{selectedFormat.name}{selectedFormat.duration?" · "+selectedFormat.duration:""}</div>}
+                  </div>
+                  <span style={{fontFamily:FD,fontSize:"1.2rem",color:"#dc2626",flexShrink:0}}>{selectedFormat?.price||course.price}</span>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
                   <div><p style={S.payLabel}>Nom complet *</p><input style={S.payInput} value={inscForm.nom} onChange={e=>setInscForm(p=>({...p,nom:e.target.value}))} placeholder="Jean Kouamé"/></div>
@@ -445,7 +908,7 @@ const CourseDetail=()=>{
                   </div>
                 )}
                 {inscErreur&&<p style={{color:"#dc2626",fontSize:".82rem",textAlign:"center",margin:"0 0 10px"}}>{inscErreur}</p>}
-                <button style={{...S.payConfirmBtn,opacity:inscLoading?.7:1}} onClick={handlePay} disabled={inscLoading} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity=inscLoading?"1":".9"}>{inscLoading?"Envoi en cours...":"Confirmer et payer "+course.price}</button>
+                <button style={{...S.payConfirmBtn,opacity:inscLoading?.7:1}} onClick={handlePay} disabled={inscLoading} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity=inscLoading?"1":".9"}>{inscLoading?"Envoi en cours...":"Confirmer et payer "+(selectedFormat?.price||course.price)}</button>
                 <p style={{textAlign:"center",fontSize:".75rem",color:"#94a3b8",marginTop:10}}>✓ Remboursement 30 jours · ✓ Accès immédiat · ✓ Sans engagement</p>
               </>
             )}

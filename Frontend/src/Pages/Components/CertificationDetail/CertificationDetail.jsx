@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { certificationsData } from "../../../data/certificationsData";
 import Footer from "../../Footer/Footer";
 import { insertDemandeDevis, insertInscriptionAdulte } from "../../../services/formsService";
+import { supabase } from "../../../config/supabase";
 
 if (!document.querySelector("#certd-fonts")) {
   const l=document.createElement("link");l.id="certd-fonts";l.rel="stylesheet";
@@ -56,10 +57,43 @@ const FAQItem=({item})=>{
   );
 };
 
+function lireCertifLS(id) {
+  try {
+    const s = localStorage.getItem("bet_certifications_config");
+    if (s) { const cfg = JSON.parse(s); if (cfg[id?.toLowerCase()]) return cfg[id.toLowerCase()]; }
+  } catch {}
+  return null;
+}
+
 const CertificationDetail=()=>{
   const{certId}=useParams(); const navigate=useNavigate();
   const rawCert=certificationsData?.[certId?.toLowerCase()];
-  const cert=rawCert?{...MOCK[certId?.toLowerCase()]||MOCK.toeic,...rawCert}:(MOCK[certId?.toLowerCase()]||MOCK.toeic);
+  const baseKey=certId?.toLowerCase();
+
+  const buildCert=(lsData)=>{
+    const mock=MOCK[baseKey]||MOCK.toeic;
+    if(lsData) return {...mock,...(rawCert||{}),...lsData};
+    if(rawCert) return {...mock,...rawCert};
+    return mock;
+  };
+
+  const[cert,setCert]=useState(()=>buildCert(lireCertifLS(certId)));
+
+  useEffect(()=>{
+    // Sync depuis Supabase au montage (le dashboard admin est sur un port différent — localStorage non partagé)
+    supabase.from("plateforme_config").select("valeur").eq("key","certifications_config").maybeSingle()
+      .then(({data,error})=>{
+        if(!error && data?.valeur && typeof data.valeur==="object"){
+          localStorage.setItem("bet_certifications_config",JSON.stringify(data.valeur));
+          setCert(buildCert(lireCertifLS(certId)));
+        }
+      });
+    const onStorage=(e)=>{ if(e.key==="bet_certifications_config") setCert(buildCert(lireCertifLS(certId))); };
+    window.addEventListener("storage",onStorage);
+    return()=>window.removeEventListener("storage",onStorage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[certId]);
+
   const[activeTab,setActiveTab]=useState("apercu");
   const[stickyBar,setStickyBar]=useState(false);
   const[modalOpen,setModalOpen]=useState(false);
@@ -73,7 +107,31 @@ const CertificationDetail=()=>{
   const[inscForm,setInscForm]=useState({nom:"",email:"",tel:"",mobileNum:""});
   const[inscErreur,setInscErreur]=useState("");
   const[inscLoading,setInscLoading]=useState(false);
+  const[sbUser,setSbUser]=useState(null);
   const heroRef=useRef(null);
+
+  const prefillForm=(u)=>{
+    const m=u?.user_metadata||{};
+    setInscForm(p=>({
+      ...p,
+      nom: m.full_name||m.nom||m.prenom||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:`${m.first_name||""} ${m.last_name||""}`.trim())||p.nom||"",
+      email: u.email||m.email||p.email||"",
+      tel: m.telephone||m.phone||m.tel||p.tel||"",
+    }));
+  };
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{
+      setSbUser(session?.user||null);
+      if(session?.user) prefillForm(session.user);
+    });
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,session)=>{
+      setSbUser(session?.user||null);
+      if(session?.user) prefillForm(session.user);
+    });
+    return()=>subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   useEffect(()=>{const h=()=>setStickyBar(window.scrollY>(heroRef.current?.offsetHeight||400)-80);window.addEventListener("scroll",h);return()=>window.removeEventListener("scroll",h);},[]);
 
@@ -434,13 +492,35 @@ const CertificationDetail=()=>{
         <div style={S.overlayBg} onClick={()=>setModalOpen(false)}>
           <div className="cert-detail-pay-modal" style={S.payModal} onClick={e=>e.stopPropagation()}>
             <button style={S.payClose} onClick={()=>setModalOpen(false)}>✕</button>
-            {success?(
+            {/* ── Auth gate ── */}
+            {!sbUser?(
+              <div style={{textAlign:"center",padding:"20px 0 10px"}}>
+                <div style={{fontSize:"3rem",marginBottom:12}}>🔐</div>
+                <h3 style={{fontSize:"1.2rem",fontWeight:800,margin:"0 0 8px",color:"#0f172a"}}>Connexion requise</h3>
+                <p style={{color:"#64748b",fontSize:".9rem",margin:"0 0 6px"}}>Vous devez être connecté pour finaliser votre inscription.</p>
+                <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 14px",margin:"14px 0",textAlign:"left"}}>
+                  <div style={{fontSize:".78rem",color:"#64748b"}}>Préparation sélectionnée</div>
+                  <div style={{fontWeight:700,fontSize:".95rem",color:"#0f172a"}}>{cert.name} — {cert.fullName}</div>
+                  <div style={{fontFamily:FD,fontSize:"1.2rem",color:"#1e3a8a"}}>{cert.price}</div>
+                </div>
+                <button onClick={()=>navigate("/mon-espace")}
+                  style={{width:"100%",padding:"13px",background:"#1e3a8a",color:"#fff",border:"none",borderRadius:999,fontWeight:800,fontSize:".95rem",cursor:"pointer",margin:"4px 0 10px"}}>
+                  🔑 Se connecter / S'inscrire
+                </button>
+                <p style={{fontSize:".74rem",color:"#94a3b8",margin:0}}>Votre sélection sera conservée à votre retour.</p>
+              </div>
+            ):success?(
               <div style={{textAlign:"center",padding:"20px 0"}}>
                 <div style={{fontSize:"3rem",marginBottom:16}}>🎉</div>
                 <h3 style={{fontSize:"1.3rem",fontWeight:800,margin:"0 0 8px"}}>Inscription confirmée !</h3>
                 <p style={{color:"#64748b",fontSize:".9rem"}}>Votre coach vous contactera sous 24h. Bienvenue chez BET !</p>
               </div>
             ):<>
+              {/* Bandeau profil connecté */}
+              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                <span style={{fontSize:"1rem"}}>✅</span>
+                <span style={{fontSize:".8rem",color:"#166534",fontWeight:600}}>Connecté en tant que <strong>{sbUser.user_metadata?.full_name||sbUser.email}</strong></span>
+              </div>
               <h2 style={S.payTitle}>Inscription à la préparation {cert.name}</h2>
               <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:12,flexWrap:"wrap"}}>
                 <span style={{color:"#64748b",fontSize:".88rem"}}>Formation : <strong style={{color:"#0f172a"}}>{cert.name} — {cert.fullName}</strong></span>
