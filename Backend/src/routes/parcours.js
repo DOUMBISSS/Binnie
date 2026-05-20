@@ -97,6 +97,27 @@ router.get("/assistantes-ligne", async (req, res) => {
   }
 });
 
+// ── GET /api/parcours/assistantes-pa ─────────────────────────
+// Retourne les assistantes de profil "pa" (Pedagogical Advisor)
+// utilisé par le formulaire domicile pour auto-assigner le prospect
+router.get("/assistantes-pa", async (req, res) => {
+  try {
+    const { data: assistantes, error } = await supabase
+      .from("assistantes")
+      .select("id, nom, prenom, email, telephone, photo_url")
+      .eq("actif", true)
+      .eq("profil", "pa")
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const enriched = await mergeAvatarUrls(assistantes || []);
+    res.json({ assistantes: enriched });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/parcours/assistantes-presentiel/:centreId ───────
 // ?liste=true → retourne toutes les assistantes disponibles (pour affichage liste)
 // Sans paramètre  → retourne 1 assistante via rotation (comportement ParcoursModal)
@@ -188,6 +209,44 @@ router.get("/centres", async (req, res) => {
   }
 });
 
+// ── GET /api/parcours/mon-assignation?email=xxx ──────────────
+// Récupère la dernière assignation d'un prospect (public, par email)
+router.get("/mon-assignation", async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: "email requis" });
+  try {
+    const { data, error } = await supabase
+      .from("assignations_parcours")
+      .select("id, type_cours, type_coaching, statut, created_at, source, assistantes(id, nom, prenom, telephone, photo_url), centres(id, nom)")
+      .ilike("prospect_email", email.trim())
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return res.json({ assignation: null });
+
+    res.json({
+      assignation: {
+        assignation_id:    data.id,
+        assistante_id:     data.assistantes?.id,
+        assistante_prenom: data.assistantes?.prenom,
+        assistante_nom:    data.assistantes?.nom,
+        assistante_photo:  data.assistantes?.photo_url || null,
+        assistante_tel:    data.assistantes?.telephone || null,
+        type_cours:        data.type_cours,
+        type_coaching:     data.type_coaching || null,
+        centre_id:         data.centres?.id || null,
+        centre_nom:        data.centres?.nom || null,
+        date:              data.created_at,
+        source:            data.source || null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/parcours/assignation ───────────────────────────
 // Crée une assignation prospect → assistante
 router.post("/assignation", async (req, res) => {
@@ -200,6 +259,7 @@ router.post("/assignation", async (req, res) => {
       type_cours,
       type_coaching,
       centre_id,
+      source,
     } = req.body;
 
     if (!assistante_id || !prospect_nom || !type_cours) {
@@ -235,6 +295,7 @@ router.post("/assignation", async (req, res) => {
         type_cours,
         type_coaching: type_coaching || null,
         centre_id: centre_id || null,
+        source: source || null,
         statut: "en_attente",
       })
       .select()
@@ -242,7 +303,22 @@ router.post("/assignation", async (req, res) => {
 
     if (insErr) throw insErr;
 
-    res.status(201).json({ assignation, assistante });
+    // Retrouver l'ID utilisateurs de l'assistante (pour lier le test de niveau)
+    let utilisateurId = null;
+    if (assistante.email) {
+      const { data: u } = await supabase
+        .from("utilisateurs")
+        .select("id")
+        .eq("email", assistante.email)
+        .eq("role", "commercial")
+        .maybeSingle();
+      utilisateurId = u?.id || null;
+    }
+
+    res.status(201).json({
+      assignation,
+      assistante: { ...assistante, utilisateur_id: utilisateurId },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -257,7 +333,7 @@ router.get("/assignations/recentes", authenticateAdmin, async (req, res) => {
 
     let query = supabase
       .from("assignations_parcours")
-      .select("id, prospect_nom, prospect_email, prospect_telephone, type_cours, type_coaching, statut, created_at, assistantes(nom, prenom)")
+      .select("id, prospect_nom, prospect_email, prospect_telephone, type_cours, type_coaching, statut, source, created_at, assistantes(nom, prenom)")
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -283,13 +359,14 @@ router.get("/assignations/recentes", authenticateAdmin, async (req, res) => {
 });
 
 // ── GET /api/parcours/assignations ───────────────────────────
-// Super admin / admin / responsable → toutes les assignations
+// Super admin / admin / responsable + PA → toutes les assignations (avec filtre type_cours)
 // Commercial → uniquement celles de son assistante (par email)
 router.get("/assignations", authenticateAdmin, async (req, res) => {
   try {
     const { statut, type_cours } = req.query;
-    const ROLES_GLOBAUX = ["super_admin", "admin", "responsable", "gestionnaire", "manager"];
+    const ROLES_GLOBAUX = ["super_admin", "admin", "responsable", "gestionnaire", "manager", "pedagogical_advisor"];
     const isGlobal = ROLES_GLOBAUX.includes(req.role);
+    const isPa = req.role === "pedagogical_advisor";
 
     let assistanteId = null;
     if (!isGlobal) {
@@ -307,14 +384,16 @@ router.get("/assignations", authenticateAdmin, async (req, res) => {
       assistanteId = ass.id;
     }
 
-    const BASE_SELECT  = "id, prospect_nom, prospect_email, prospect_telephone, type_cours, type_coaching, centre_id, statut, statut_paiement, mode_paiement, created_at, assistantes(id, nom, prenom, telephone), centres(nom)";
-    const FULL_SELECT  = BASE_SELECT.replace("created_at,", "documents_dossier, suivi_demarrage, suivi_presences, created_at,");
+    const BASE_SELECT  = "id, prospect_nom, prospect_email, prospect_telephone, type_cours, type_coaching, centre_id, statut, statut_paiement, mode_paiement, source, created_at, assistantes(id, nom, prenom, telephone), centres(nom)";
+    const FULL_SELECT  = BASE_SELECT.replace("created_at,", "documents_dossier, suivi_demarrage, suivi_presences, plan_paiement, created_at,");
 
     const buildQuery = (select) => {
       let q = supabase.from("assignations_parcours").select(select).order("created_at", { ascending: false });
       if (assistanteId) q = q.eq("assistante_id", assistanteId);
       if (statut     && statut     !== "tous") q = q.eq("statut",     statut);
-      if (type_cours && type_cours !== "tous") q = q.eq("type_cours", type_cours);
+      // PA voit uniquement les cours domicile, sauf filtre explicite différent
+      const tcFilter = isPa ? (type_cours && type_cours !== "tous" ? type_cours : "domicile") : (type_cours && type_cours !== "tous" ? type_cours : null);
+      if (tcFilter) q = q.eq("type_cours", tcFilter);
       return q;
     };
 
@@ -329,6 +408,7 @@ router.get("/assignations", authenticateAdmin, async (req, res) => {
       documents_dossier: a.documents_dossier ?? [],
       suivi_demarrage:   a.suivi_demarrage   ?? null,
       suivi_presences:   a.suivi_presences   ?? null,
+      plan_paiement:     a.plan_paiement     ?? null,
       assistante_nom: a.assistantes ? `${a.assistantes.prenom} ${a.assistantes.nom}` : "—",
       assistante_tel: a.assistantes?.telephone || null,
       centre_nom:     a.centres?.nom || null,
@@ -346,7 +426,7 @@ router.get("/assignations", authenticateAdmin, async (req, res) => {
 // Un commercial ne peut modifier que ses propres assignations
 router.patch("/assignations/:id", authenticateAdmin, async (req, res) => {
   try {
-    const ROLES_GLOBAUX = ["super_admin", "admin", "responsable", "gestionnaire", "manager"];
+    const ROLES_GLOBAUX = ["super_admin", "admin", "responsable", "gestionnaire", "manager", "pedagogical_advisor"];
     const isGlobal = ROLES_GLOBAUX.includes(req.role);
 
     let query = supabase.from("assignations_parcours").select("assistante_id").eq("id", req.params.id).single();
@@ -360,7 +440,7 @@ router.patch("/assignations/:id", authenticateAdmin, async (req, res) => {
       }
     }
 
-    const allowed = ["statut", "mode_paiement", "statut_paiement", "documents_dossier", "suivi_demarrage"];
+    const allowed = ["statut", "mode_paiement", "statut_paiement", "documents_dossier", "suivi_demarrage", "suivi_presences", "plan_paiement", "notes_coach"];
     const updates = {};
     for (const k of allowed) {
       if (req.body[k] !== undefined) updates[k] = req.body[k];

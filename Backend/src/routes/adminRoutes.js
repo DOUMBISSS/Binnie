@@ -862,6 +862,62 @@ router.get("/permissions-matrice", authenticateAdmin, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
+   GET /api/admin/catalogue-offres
+   Retourne toutes les offres actives (en ligne + centres + certifs)
+   depuis plateforme_config, groupées par catégorie avec prix parsé
+══════════════════════════════════════════════════════════════ */
+router.get("/catalogue-offres", authenticateAdmin, async (req, res) => {
+  try {
+    // Lecture des 3 clés en parallèle
+    const [{ data: dEL }, { data: dCM }, { data: dCF }] = await Promise.all([
+      supabase.from("plateforme_config").select("valeur").eq("key", "offres_en_ligne").maybeSingle(),
+      supabase.from("plateforme_config").select("valeur").eq("key", "centres_master").maybeSingle(),
+      supabase.from("plateforme_config").select("valeur").eq("key", "certifications_config").maybeSingle(),
+    ]);
+
+    // Parseur de prix "30 000 F/mois" / "390 000 FCFA" → number
+    const parsePrix = (s) => {
+      if (!s || typeof s !== "string") return 0;
+      const m = s.replace(/\s/g, "").match(/\d+/);
+      return m ? parseInt(m[0], 10) : 0;
+    };
+
+    // ── En ligne ──────────────────────────────────────────────
+    const offresEnLigne = (Array.isArray(dEL?.valeur) ? dEL.valeur : [])
+      .filter(o => o.actif !== false)
+      .map(o => ({ id: o.id, label: o.label, prix_str: o.prix || "Sur devis", prix_num: parsePrix(o.prix), categorie: "en_ligne", icon: o.icon || "💻" }));
+
+    // ── Centres — dédoublonner par id d'offre ─────────────────
+    const seenCentre = new Set();
+    const offrescentres = [];
+    const centres = Array.isArray(dCM?.valeur) ? dCM.valeur : [];
+    for (const c of centres) {
+      if (!c.actif) continue;
+      for (const o of (c.offres || [])) {
+        if (o.actif === false || seenCentre.has(o.id)) continue;
+        seenCentre.add(o.id);
+        offrescentres.push({ id: o.id, label: o.label, prix_str: o.prix || "Sur devis", prix_num: parsePrix(o.prix), categorie: "presentiel", icon: o.icon || "🏢" });
+      }
+    }
+
+    // ── Certifications ────────────────────────────────────────
+    const certifMap = dCF?.valeur || {};
+    const offresertifs = Object.entries(certifMap).map(([k, v]) => ({
+      id:       `certif_${k}`,
+      label:    v.name || k.toUpperCase(),
+      prix_str: v.price || "Sur devis",
+      prix_num: parsePrix(v.price),
+      categorie:"certification",
+      icon:     "📜",
+    }));
+
+    res.json({ offres: [...offresEnLigne, ...offrescentres, ...offresertifs] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
    GET /api/admin/diagnostic?email=xxx&secret=yyy
    Diagnostique l'état du compte pour un email donné
    (auth.users + utilisateurs + profils_admin + app_metadata)

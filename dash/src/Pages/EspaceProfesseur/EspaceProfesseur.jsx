@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CONSTANTES BET
@@ -357,6 +358,19 @@ const fmtDateCourt = (d) => d ? new Date(d).toLocaleDateString("fr-FR",{ weekday
 ═══════════════════════════════════════════════════════ */
 const EMOJIS_COURS = ["📚","💼","🏆","📊","🎯","✏️","🌐","🎓","📖","🔬","💡","🗣️"];
 const COLORS_COURS = ["#2563eb","#059669","#7c3aed","#d97706","#dc2626","#0891b2","#db2777","#16a34a","#9333ea","#ea580c"];
+
+const MES_HONORAIRES_SEANCES = [
+  { id:1, date:"2025-12-09", cours:"Anglais Pro B2",       duree:2, statut:"validee",  tarif_heure:8000, notes:"Cours normal" },
+  { id:2, date:"2025-12-07", cours:"Business English B2",  duree:1.5, statut:"validee",tarif_heure:8000, notes:"" },
+  { id:3, date:"2025-12-05", cours:"Préparation TOEIC",    duree:2, statut:"validee",  tarif_heure:10000,notes:"Séance intensive" },
+  { id:4, date:"2025-12-03", cours:"Anglais Pro B2",       duree:2, statut:"validee",  tarif_heure:8000, notes:"" },
+  { id:5, date:"2025-12-01", cours:"Business English B2",  duree:1.5, statut:"validee",tarif_heure:8000, notes:"" },
+  { id:6, date:"2025-11-28", cours:"Préparation TOEIC",    duree:2, statut:"en_attente",tarif_heure:10000,notes:"" },
+  { id:7, date:"2025-11-26", cours:"Anglais Pro B2",       duree:2, statut:"validee",  tarif_heure:8000, notes:"" },
+  { id:8, date:"2025-11-24", cours:"Business English B2",  duree:1.5, statut:"validee",tarif_heure:8000, notes:"" },
+  { id:9, date:"2025-11-22", cours:"Préparation TOEIC",    duree:2, statut:"validee",  tarif_heure:10000,notes:"" },
+  { id:10,date:"2025-11-20", cours:"Anglais Pro B2",       duree:2, statut:"en_attente",tarif_heure:8000, notes:"En cours de validation" },
+];
 
 export default function EspaceProfesseur() {
   const navigate = useNavigate();
@@ -872,7 +886,9 @@ const messagesFiltres = useMemo(() => {
     { key:"analytics",       label:"Analytiques",       icon:"📊", count:null },
     { key:"notifs",          label:"Notifications",     icon:"🔔", count:notifications.filter(n=>n.statut==="envoye").length||null },
     { key:"messages",        label:"Messages",          icon:"💬", count:msgNonLus||null, danger:msgNonLus>0 },
+    { key:"honoraires",      label:"Honoraires",         icon:"💵", count:null },
     { key:"profil",          label:"Mon profil",        icon:"👤", count:null },
+    { key:"notifs_live",     label:"Notifs live",       icon:"🔔", count:null },
   ];
 
   /* ══════════════════════════════════════════════════
@@ -968,6 +984,7 @@ const messagesFiltres = useMemo(() => {
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12, marginBottom:24 }}>
                   <StatCard label="Séances aujourd'hui" value={seances.filter(s=>s.date==="2025-12-09").length||"0"} color={BET} icon="📅" sub="prochaine : Jeu 12/12" onClick={()=>setActiveTab("planning")} />
                   <StatCard label="Étudiants total"      value={etudiants.length}   color="#7c3aed" icon="👥" sub={`${stats.enDanger} à surveiller`} onClick={()=>setActiveTab("etudiants")} />
+                  <StatCard label="Taux de présence" value={`${stats.tauxAssidMoyen}%`} color={stats.tauxAssidMoyen>=75?"#059669":"#d97706"} icon="📊" sub="assiduité moyenne" onClick={()=>setActiveTab("presences")} />
                   <StatCard label="Eval. à corriger"     value={evaluations.filter(e=>e.statut==="a_venir").length} color="#d97706" icon="📝" onClick={()=>setActiveTab("evaluations")} />
                   <StatCard label="Messages non lus"     value={msgNonLus}          color={msgNonLus>0?"#ef4444":"#9ca3af"} icon="💬" onClick={()=>setActiveTab("messages")} />
                   <StatCard label="Ressources partagées" value={ressources.filter(r=>r.partage).length} color="#059669" icon="📂" onClick={()=>setActiveTab("ressources")} />
@@ -2107,9 +2124,127 @@ const messagesFiltres = useMemo(() => {
                 </div>
               </div>
             )}
+
+            {/* ── ONGLET HONORAIRES ── */}
+            {activeTab==="honoraires" && (() => {
+              const seancesValidees   = MES_HONORAIRES_SEANCES.filter(s=>s.statut==="validee");
+              const seancesAttente    = MES_HONORAIRES_SEANCES.filter(s=>s.statut==="en_attente");
+              const totalValide       = seancesValidees.reduce((s,se)=>s+(se.duree*se.tarif_heure),0);
+              const totalAttente      = seancesAttente.reduce((s,se)=>s+(se.duree*se.tarif_heure),0);
+              const totalHeures       = MES_HONORAIRES_SEANCES.reduce((s,se)=>s+se.duree,0);
+              const heuresValidees    = seancesValidees.reduce((s,se)=>s+se.duree,0);
+
+              const formatMoney = (v) => new Intl.NumberFormat("fr-FR").format(v) + " FCFA";
+
+              return (
+                <div>
+                  <div style={tabHeader}>
+                    <div>
+                      <h2 style={tabTitle}>💵 Suivi des honoraires</h2>
+                      <p style={tabSubtitle}>Détail de vos séances validées et montants calculés</p>
+                    </div>
+                  </div>
+
+                  {/* KPIs */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+                    <div style={{ background:"linear-gradient(135deg,#059669,#10b981)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>MONTANT VALIDÉ</div>
+                      <div style={{ fontSize:22, fontWeight:800, margin:"6px 0 2px" }}>{formatMoney(totalValide)}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>{seancesValidees.length} séances validées</div>
+                    </div>
+                    <div style={{ background:"linear-gradient(135deg,#d97706,#f59e0b)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>EN ATTENTE</div>
+                      <div style={{ fontSize:22, fontWeight:800, margin:"6px 0 2px" }}>{formatMoney(totalAttente)}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>{seancesAttente.length} séance(s) à valider</div>
+                    </div>
+                    <div style={{ background:"linear-gradient(135deg,#0891b2,#0e7490)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>HEURES EFFECTUÉES</div>
+                      <div style={{ fontSize:22, fontWeight:800, margin:"6px 0 2px" }}>{totalHeures}h</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>{heuresValidees}h validées</div>
+                    </div>
+                    <div style={{ background:"linear-gradient(135deg,#7c3aed,#8b5cf6)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>TOTAL PÉRIODE</div>
+                      <div style={{ fontSize:22, fontWeight:800, margin:"6px 0 2px" }}>{formatMoney(totalValide + totalAttente)}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>Toutes séances confondues</div>
+                    </div>
+                  </div>
+
+                  {/* Barre de progression encaissement */}
+                  <div style={{ background:"#f8fafc", borderRadius:14, padding:16, marginBottom:20, border:"1px solid #e5e7eb" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:"#0f172a" }}>Progression de validation</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:"#059669" }}>{Math.round((seancesValidees.length/MES_HONORAIRES_SEANCES.length)*100)}%</span>
+                    </div>
+                    <div style={{ background:"#e5e7eb", borderRadius:99, height:10, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.round((seancesValidees.length/MES_HONORAIRES_SEANCES.length)*100)}%`, background:"linear-gradient(90deg,#059669,#10b981)", borderRadius:99, transition:"width .5s" }} />
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:11, color:"#9ca3af" }}>
+                      <span>{seancesValidees.length} séances validées</span>
+                      <span>{MES_HONORAIRES_SEANCES.length} séances total</span>
+                    </div>
+                  </div>
+
+                  {/* Tableau des séances */}
+                  <div style={{ background:"#fff", borderRadius:14, border:"1px solid #e5e7eb", overflow:"hidden" }}>
+                    <div style={{ padding:"14px 18px", borderBottom:"1px solid #e5e7eb", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>Détail des séances</span>
+                      <span style={{ fontSize:12, color:"#9ca3af" }}>{MES_HONORAIRES_SEANCES.length} séances</span>
+                    </div>
+                    <div style={{ overflowX:"auto" }}>
+                      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                        <thead>
+                          <tr style={{ background:"#f8fafc" }}>
+                            {["Date","Cours","Durée","Tarif/h","Montant","Statut","Notes"].map(h=>(
+                              <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#9ca3af", borderBottom:"1px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {MES_HONORAIRES_SEANCES.map(s => (
+                            <tr key={s.id} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                              <td style={{ padding:"10px 14px", fontWeight:600, color:"#0f172a", whiteSpace:"nowrap" }}>
+                                {new Date(s.date).toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})}
+                              </td>
+                              <td style={{ padding:"10px 14px", color:"#475569" }}>{s.cours}</td>
+                              <td style={{ padding:"10px 14px", fontWeight:700, color:"#0f172a" }}>{s.duree}h</td>
+                              <td style={{ padding:"10px 14px", color:"#475569" }}>{new Intl.NumberFormat("fr-FR").format(s.tarif_heure)} F</td>
+                              <td style={{ padding:"10px 14px", fontWeight:800, color:"#059669" }}>{new Intl.NumberFormat("fr-FR").format(s.duree * s.tarif_heure)} F</td>
+                              <td style={{ padding:"10px 14px" }}>
+                                <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                                  background: s.statut==="validee" ? "#d1fae5" : "#fef9c3",
+                                  color:      s.statut==="validee" ? "#065f46" : "#854d0e" }}>
+                                  {s.statut==="validee" ? "✅ Validée" : "⏳ En attente"}
+                                </span>
+                              </td>
+                              <td style={{ padding:"10px 14px", fontSize:11, color:"#9ca3af" }}>{s.notes || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background:"#f8fafc", borderTop:"2px solid #e5e7eb" }}>
+                            <td colSpan={2} style={{ padding:"12px 14px", fontWeight:700, fontSize:13, color:"#0f172a" }}>TOTAL</td>
+                            <td style={{ padding:"12px 14px", fontWeight:800 }}>{totalHeures}h</td>
+                            <td style={{ padding:"12px 14px" }}>—</td>
+                            <td style={{ padding:"12px 14px", fontWeight:800, color:"#059669", fontSize:14 }}>{formatMoney(totalValide + totalAttente)}</td>
+                            <td colSpan={2} style={{ padding:"12px 14px" }} />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ════════ NOTIFS LIVE ════════ */}
+            {activeTab==="notifs_live" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={MON_PROFIL_REEL?.id} accentColor="#0891b2" />
+              </div>
+            )}
+
           </div>
         </div>
-
 
         {/* ══ MODAL MODULE BUILDER ══ */}
         {showModuleBuilder&&editingModuleContent&&(
@@ -2775,6 +2910,8 @@ const messagesFiltres = useMemo(() => {
             <select value={newMsgForm.destinataire} onChange={e=>setNewMsgForm(f=>({...f,destinataire:e.target.value,etudiantId:""}))} style={inputSt}>
               <option value="etudiant">👤 Un étudiant</option>
               <option value="responsable">🎓 Responsable pédagogique</option>
+              <option value="superviseur">🔍 Superviseur</option>
+              <option value="onboarding">🎯 Assistant Onboarding</option>
             </select>
             {newMsgForm.destinataire==="etudiant"&&(
               <>

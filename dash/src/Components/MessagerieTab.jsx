@@ -160,7 +160,7 @@ export default function MessagerieTab({ accentColor = BET_COLOR }) {
         <div>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>💬 Messagerie interne</h2>
           <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9ca3af" }}>
-            Échanges en temps réel entre tous les profils BET · Firebase Firestore
+            Échanges en temps réel entre les membres de votre centre · Firebase Firestore
           </p>
         </div>
         <button

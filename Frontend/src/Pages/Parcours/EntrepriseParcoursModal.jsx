@@ -61,7 +61,6 @@ const STEPS = [
   { id:3, label:"Format & rythme",    icon:"📅" },
   { id:4, label:"Options",            icon:"⚙️" },
   { id:5, label:"Devis estimatif",    icon:"📊" },
-  { id:6, label:"Votre assistante",   icon:"👩‍💼" },
 ];
 
 // ── Composants UI ─────────────────────────────────────────
@@ -121,9 +120,7 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
   const [avecRapport,      setAvecRapport]      = useState(true);
   const [budgetMax,        setBudgetMax]        = useState("");
 
-  // Assistante Corporate
-  const [assistantes,      setAssistantes]      = useState([]);
-  const [loadingAssist,    setLoadingAssist]    = useState(false);
+  // Assistante Corporate (auto-assignée)
   const [assistante,       setAssistante]       = useState(null);
   const [submitting,       setSubmitting]       = useState(false);
   const [erreur,           setErreur]           = useState("");
@@ -147,17 +144,6 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
     return { heuresTotal:Math.round(heuresTotal), nbReel, prixFormation, prixCertifs, prixSupport, prixRapport, sousTotal, tva, total, prixParPers:nbReel>0?total/nbReel:0, format, rythme, groupe };
   }, [formatId, rythmeId, groupeId, dureeWeeks, nbParticipants, certifsChoisis, avecSupportExtra, avecRapport]);
 
-  // Charger les assistantes quand on arrive à l'étape 6
-  useEffect(() => {
-    if (step !== 6) return;
-    setLoadingAssist(true);
-    fetch(`${API}/api/parcours/assistantes-ligne?profil=b2b`)
-      .then(r => r.json())
-      .then(d => { setAssistantes(d.assistantes || []); })
-      .catch(() => setAssistantes([]))
-      .finally(() => setLoadingAssist(false));
-  }, [step]);
-
   // Reset quand modal se ferme
   useEffect(() => {
     if (!isOpen) {
@@ -180,7 +166,6 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
   };
 
   const handleSubmit = async () => {
-    if (!assistante) { setErreur("Veuillez choisir une assistante Corporate"); return; }
     setSubmitting(true); setErreur("");
     try {
       // 1. Sauvegarder le simulateur
@@ -206,19 +191,30 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
         montant_estime:  Math.round(devis.total),
       });
 
-      // 2. Créer l'assignation avec l'assistante Corporate
-      await fetch(`${API}/api/parcours/assignation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assistante_id:       assistante.id,
-          prospect_nom:        entreprise.nomContact.trim() || entreprise.nom.trim(),
-          prospect_email:      entreprise.emailContact.trim(),
-          prospect_telephone:  entreprise.tel.trim() || null,
-          type_cours:          formatId === "presentiel" ? "presentiel" : "en_ligne",
-          type_coaching:       groupeId === "individuel" ? "prive" : "groupe",
-        }),
-      });
+      // 2. Récupérer l'assistante corporate dédiée (profil=b2b)
+      let corpAssistante = null;
+      try {
+        const r = await fetch(`${API}/api/parcours/assistantes-ligne?profil=b2b`);
+        const d = await r.json();
+        corpAssistante = (d.assistantes || [])[0] || null;
+      } catch { /* on continue même sans assistante */ }
+
+      // 3. Créer l'assignation avec l'assistante Corporate
+      if (corpAssistante) {
+        await fetch(`${API}/api/parcours/assignation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assistante_id:       corpAssistante.id,
+            prospect_nom:        entreprise.nomContact.trim() || entreprise.nom.trim(),
+            prospect_email:      entreprise.emailContact.trim(),
+            prospect_telephone:  entreprise.tel.trim() || null,
+            type_cours:          formatId === "presentiel" ? "presentiel" : "en_ligne",
+            type_coaching:       groupeId === "individuel" ? "prive" : "groupe",
+          }),
+        });
+        setAssistante(corpAssistante);
+      }
 
       setDone(true);
     } catch (e) {
@@ -450,54 +446,16 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* ── ÉTAPE 6 : Choisir assistante Corporate ── */}
-          {step===6 && (
-            <div>
-              <h3 style={titleSt}>👩‍💼 Votre assistante Corporate</h3>
-              <p style={subSt}>Choisissez l'assistante BET qui sera votre interlocutrice dédiée pour votre programme entreprise.</p>
-              {loadingAssist && (
-                <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement des assistantes…</div>
-              )}
-              {!loadingAssist && assistantes.length === 0 && (
-                <div style={{ padding:"20px", background:"#fef3c7", borderRadius:10, border:"1px solid #fcd34d", fontSize:13, color:"#92400e", textAlign:"center" }}>
-                  ⚠️ Aucune assistante disponible pour le moment. Nos équipes vous contacteront directement.
-                </div>
-              )}
-              {!loadingAssist && assistantes.length > 0 && (
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {assistantes.map(a => {
-                    const sel = assistante?.id === a.id;
-                    const initiales = `${a.prenom?.[0]||""}${a.nom?.[0]||""}`.toUpperCase() || "AS";
-                    return (
-                      <div key={a.id} onClick={()=>setAssistante(a)} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 18px", borderRadius:12, border:`2px solid ${sel?BET_BLUE:"#e5e7eb"}`, background:sel?"#eef2ff":"#fff", cursor:"pointer", transition:"all .2s" }}>
-                        {a.photo_url
-                          ? <img src={a.photo_url} alt="" style={{ width:50, height:50, borderRadius:"50%", objectFit:"cover", flexShrink:0, border:`2px solid ${sel?BET_BLUE:"#e5e7eb"}` }} />
-                          : <div style={{ width:50, height:50, borderRadius:"50%", background:sel?BET_BLUE:"#e5e7eb", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:16, color:sel?"#fff":"#6b7280", flexShrink:0 }}>{initiales}</div>
-                        }
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:800, fontSize:14, color:sel?BET_BLUE:"#0f172a" }}>{a.prenom} {a.nom}</div>
-                          {a.email && <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>{a.email}</div>}
-                          {a.telephone && <div style={{ fontSize:12, color:"#9ca3af", marginTop:1 }}>📞 {a.telephone}</div>}
-                        </div>
-                        <div style={{ width:22, height:22, borderRadius:"50%", border:`2px solid ${sel?BET_BLUE:"#d1d5db"}`, background:sel?BET_BLUE:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                          {sel && <div style={{ width:8, height:8, borderRadius:"50%", background:"#fff" }} />}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {erreur && <div style={{ marginTop:12, padding:"8px 12px", background:"#fee2e2", borderRadius:8, fontSize:12, color:"#b91c1c" }}>⚠️ {erreur}</div>}
-            </div>
-          )}
-
           {/* ── CONFIRMATION ── */}
           {done && (
             <div style={{ textAlign:"center", padding:"40px 20px" }}>
               <div style={{ fontSize:56, marginBottom:16 }}>🎉</div>
               <h2 style={{ fontSize:22, fontWeight:800, color:"#0f172a", marginBottom:8 }}>Demande enregistrée !</h2>
               <p style={{ fontSize:14, color:"#6b7280", lineHeight:1.7, maxWidth:440, margin:"0 auto 20px" }}>
-                Votre programme a été transmis à <strong>{assistante?.prenom} {assistante?.nom}</strong> — votre assistante Corporate BET. Elle vous contactera sous <strong>24h</strong> à l'adresse <strong>{entreprise.emailContact}</strong>.
+                {assistante
+                  ? <>Votre programme a été transmis à <strong>{assistante.prenom} {assistante.nom}</strong> — votre conseillère Corporate BET. Elle vous contactera sous <strong>24h</strong> à l'adresse <strong>{entreprise.emailContact}</strong>.</>
+                  : <>Votre demande a bien été enregistrée. Notre équipe Corporate vous contactera sous <strong>24h</strong> à l'adresse <strong>{entreprise.emailContact}</strong>.</>
+                }
               </p>
               <div style={{ display:"inline-flex", flexDirection:"column", gap:8, background:"#f0f4ff", borderRadius:12, padding:"16px 24px", marginBottom:24, textAlign:"left" }}>
                 {[
@@ -505,7 +463,7 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
                   ["Contact", entreprise.nomContact||entreprise.emailContact],
                   ["Programme", `${devis.nbReel} participant(s) · ${devis.heuresTotal}h · ${dureeWeeks} semaines`],
                   ["Estimation", fmtPrix(devis.total)],
-                  ["Assistante", `${assistante?.prenom} ${assistante?.nom}`],
+                  ...(assistante ? [["Conseillère", `${assistante.prenom} ${assistante.nom}`]] : []),
                 ].map(([l,v])=>(
                   <div key={l} style={{ display:"flex", gap:10, fontSize:13 }}>
                     <span style={{ color:"#9ca3af", minWidth:90 }}>{l}</span>
@@ -522,12 +480,12 @@ export default function EntrepriseParcoursModal({ isOpen, onClose }) {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:28, paddingTop:20, borderTop:"1px solid #e5e7eb" }}>
               <button onClick={()=>setStep(s=>Math.max(1,s-1))} disabled={step===1} style={{ ...btnSecondary, opacity:step===1?0.4:1 }}>← Précédent</button>
               <span style={{ fontSize:12, color:"#9ca3af" }}>Étape {step} / {STEPS.length}</span>
-              {step < 6 ? (
+              {step < 5 ? (
                 <button onClick={()=>canNext()&&setStep(s=>s+1)} disabled={!canNext()} style={{ ...btnPrimary, opacity:canNext()?1:0.45 }}>
                   Suivant →
                 </button>
               ) : (
-                <button onClick={handleSubmit} disabled={submitting||!assistante} style={{ ...btnPrimary, opacity:submitting||!assistante?0.5:1 }}>
+                <button onClick={handleSubmit} disabled={submitting} style={{ ...btnPrimary, opacity:submitting?0.5:1 }}>
                   {submitting ? "Envoi…" : "✅ Confirmer"}
                 </button>
               )}

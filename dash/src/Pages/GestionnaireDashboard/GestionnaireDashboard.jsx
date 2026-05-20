@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CONSTANTES (chartre BET – version EspaceApprenant)
@@ -218,12 +219,13 @@ export default function GestionnaireDashboard() {
   };
 
   const tabs = [
-    { key: "dashboard", label: "Tableau de bord", icon: "📊" },
-    { key: "dossiers",  label: "Dossiers",        icon: "📂" },
-    { key: "paiements", label: "Paiements",       icon: "💳" },
-    { key: "requetes",  label: "Requêtes",        icon: "🕒" },
-    { key: "inscriptions", label: "Inscriptions", icon: "📝" },
-    { key: "exports",   label: "Exports & envois",icon: "📧" },
+    { key: "dashboard",     label: "Tableau de bord", icon: "📊" },
+    { key: "dossiers",      label: "Dossiers",        icon: "📂" },
+    { key: "paiements",     label: "Paiements",       icon: "💳" },
+    { key: "requetes",      label: "Requêtes",        icon: "🕒" },
+    { key: "inscriptions",  label: "Inscriptions",    icon: "📝" },
+    { key: "exports",       label: "Exports & envois",icon: "📧" },
+    { key: "notifications", label: "Notifications",   icon: "🔔", count: null },
   ];
 
   return (
@@ -453,6 +455,12 @@ export default function GestionnaireDashboard() {
             )}
 
             {/* EXPORTS & PLANIFICATION */}
+            {activeTab === "notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#dc2626" />
+              </div>
+            )}
+
             {activeTab === "exports" && (
               <div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>

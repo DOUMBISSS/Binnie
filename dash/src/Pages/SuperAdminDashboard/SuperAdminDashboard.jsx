@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
 import MessagerieTab from "../../Components/MessagerieTab";
+import NotificationsTab from "../../Components/NotificationsTab";
 import NotificationBell from "../../Components/NotificationBell";
 import { supabase } from "../../config/supabase";
 import "./temoignages.css";
@@ -100,6 +101,197 @@ const CoachPhotoCard = ({ coach, photoUrl, statut, hasChanges, uploading, saving
     </div>
   );
 };
+
+/* ═══════════════════════════════════════════════════════
+   PARTENAIRES MANAGER — composant autonome
+═══════════════════════════════════════════════════════ */
+function PartenairesManager({ apiUrl, authHeaders }) {
+  const [list,        setList]        = React.useState([]);
+  const [loading,     setLoading]     = React.useState(true);
+  const [saving,      setSaving]      = React.useState(false);
+  const [uploading,   setUploading]   = React.useState(false);
+  const [form,        setForm]        = React.useState({ nom:"", logo_url:"", site_web:"", ordre:0 });
+  const [editId,      setEditId]      = React.useState(null);
+  const [editVals,    setEditVals]    = React.useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/partenaires`, { headers: authHeaders() });
+      if (r.ok) { const d = await r.json(); setList(d); }
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  React.useEffect(() => { load(); }, []);
+
+  const uploadLogo = async (file, target) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const r = await fetch(`${apiUrl}/api/upload/image`, { method:"POST", headers:{ Authorization:`Bearer ${localStorage.getItem("admin_token")}` }, body:fd });
+      const d = await r.json();
+      const url = d.file?.url || d.url || d.publicUrl || d.path;
+      if (target === "form") setForm(p=>({...p, logo_url:url}));
+      else setEditVals(p=>({...p, logo_url:url}));
+    } catch { alert("Erreur upload"); }
+    finally { setUploading(false); }
+  };
+
+  const create = async () => {
+    if (!form.nom.trim() || !form.logo_url) { alert("Nom et logo requis"); return; }
+    setSaving(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/partenaires`, { method:"POST", headers:authHeaders(), body:JSON.stringify(form) });
+      if (r.ok) { setForm({ nom:"", logo_url:"", site_web:"", ordre:0 }); await load(); }
+    } catch {}
+    finally { setSaving(false); }
+  };
+
+  const update = async (id) => {
+    setSaving(true);
+    try {
+      await fetch(`${apiUrl}/api/partenaires/${id}`, { method:"PATCH", headers:authHeaders(), body:JSON.stringify(editVals) });
+      setEditId(null); setEditVals({});
+      await load();
+    } catch {}
+    finally { setSaving(false); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Supprimer ce partenaire ?")) return;
+    await fetch(`${apiUrl}/api/partenaires/${id}`, { method:"DELETE", headers:authHeaders() });
+    await load();
+  };
+
+  const toggle = async (id, actif) => {
+    await fetch(`${apiUrl}/api/partenaires/${id}`, { method:"PATCH", headers:authHeaders(), body:JSON.stringify({ actif:!actif }) });
+    await load();
+  };
+
+  const inputSt = { padding:"8px 10px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, outline:"none", width:"100%", boxSizing:"border-box" };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>🤝 Configuration Partenaires</h3>
+          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Logos affichés dans le carrousel partenaires de la page d'accueil</p>
+        </div>
+        <button onClick={load} style={{ padding:"8px 14px", background:"#e0f2fe", color:"#0369a1", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>🔄 Actualiser</button>
+      </div>
+
+      {/* Formulaire d'ajout */}
+      <div style={{ background:"#f8fafc", borderRadius:14, padding:18, border:"1.5px dashed #cbd5e1", marginBottom:24 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>➕ Ajouter un partenaire</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr auto", gap:10, alignItems:"end" }}>
+          <div>
+            <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:4 }}>Nom du partenaire *</label>
+            <input value={form.nom} onChange={e=>setForm(p=>({...p,nom:e.target.value}))} placeholder="Ex : GIZ" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:4 }}>Site web</label>
+            <input value={form.site_web} onChange={e=>setForm(p=>({...p,site_web:e.target.value}))} placeholder="https://..." style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:4 }}>Ordre d'affichage</label>
+            <input type="number" value={form.ordre} onChange={e=>setForm(p=>({...p,ordre:Number(e.target.value)}))} style={inputSt} />
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <label style={{ fontSize:11, fontWeight:700, color:"#64748b" }}>Logo *</label>
+            <label style={{ padding:"7px 12px", background:"#0891b2", color:"#fff", borderRadius:7, cursor:"pointer", fontSize:11, fontWeight:700, textAlign:"center", whiteSpace:"nowrap" }}>
+              {uploading ? "…" : "📁 Choisir"}
+              <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>e.target.files[0]&&uploadLogo(e.target.files[0],"form")} />
+            </label>
+          </div>
+        </div>
+        {form.logo_url && (
+          <div style={{ marginTop:10, display:"flex", alignItems:"center", gap:12 }}>
+            <img src={form.logo_url} alt="" style={{ height:40, maxWidth:120, objectFit:"contain", background:"#e2e8f0", borderRadius:6, padding:4 }} />
+            <span style={{ fontSize:11, color:"#64748b", wordBreak:"break-all" }}>{form.logo_url}</span>
+          </div>
+        )}
+        <button onClick={create} disabled={saving||uploading||!form.nom||!form.logo_url}
+          style={{ marginTop:14, padding:"9px 20px", background:"#0891b2", color:"#fff", border:"none", borderRadius:8, fontWeight:700, fontSize:13, cursor:"pointer", opacity:(saving||uploading||!form.nom||!form.logo_url)?0.6:1 }}>
+          {saving ? "Ajout…" : "➕ Ajouter le partenaire"}
+        </button>
+      </div>
+
+      {/* Liste */}
+      {loading ? (
+        <div style={{ textAlign:"center", padding:40, color:"#94a3b8" }}>⏳ Chargement…</div>
+      ) : list.length === 0 ? (
+        <div style={{ textAlign:"center", padding:32, color:"#94a3b8", fontSize:13 }}>Aucun partenaire ajouté pour l'instant.</div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+          {list.map(p => {
+            const isEditing = editId === p.id;
+            const ev = editVals;
+            return (
+              <div key={p.id} style={{ background:"#fff", borderRadius:14, border:"1.5px solid #e2e8f0", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ height:3, background:p.actif?"#22c55e":"#e2e8f0" }} />
+                <div style={{ padding:"14px 16px" }}>
+                  {/* Logo */}
+                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+                    <div style={{ width:64, height:40, display:"flex", alignItems:"center", justifyContent:"center", background:"#f8fafc", borderRadius:8, border:"1px solid #e2e8f0", flexShrink:0 }}>
+                      <img src={isEditing&&ev.logo_url!==undefined?ev.logo_url:p.logo_url} alt={p.nom}
+                        style={{ maxWidth:56, maxHeight:34, objectFit:"contain" }}
+                        onError={e=>{ e.currentTarget.parentElement.style.background="#e2e8f0"; e.currentTarget.style.display="none"; }} />
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      {isEditing ? (
+                        <input value={ev.nom!==undefined?ev.nom:p.nom} onChange={e=>setEditVals(v=>({...v,nom:e.target.value}))} style={{ ...inputSt, fontSize:13, fontWeight:700 }} />
+                      ) : (
+                        <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.nom}</div>
+                      )}
+                      <div style={{ fontSize:10, color:"#94a3b8", marginTop:2 }}>Ordre : {p.ordre}</div>
+                    </div>
+                    <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:p.actif?"#dcfce7":"#f3f4f6", color:p.actif?"#15803d":"#6b7280" }}>
+                      {p.actif?"Actif":"Inactif"}
+                    </span>
+                  </div>
+
+                  {isEditing && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
+                      <input value={ev.site_web!==undefined?ev.site_web:(p.site_web||"")} onChange={e=>setEditVals(v=>({...v,site_web:e.target.value}))} placeholder="Site web" style={inputSt} />
+                      <div style={{ display:"flex", gap:6 }}>
+                        <input type="number" value={ev.ordre!==undefined?ev.ordre:p.ordre} onChange={e=>setEditVals(v=>({...v,ordre:Number(e.target.value)}))} placeholder="Ordre" style={{...inputSt,width:80}} />
+                        <label style={{ flex:1, padding:"7px 10px", background:"#e0f2fe", color:"#0369a1", borderRadius:7, cursor:"pointer", fontSize:11, fontWeight:700, textAlign:"center" }}>
+                          {uploading?"…":"📁 Changer logo"}
+                          <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>e.target.files[0]&&uploadLogo(e.target.files[0],"edit")} />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {p.site_web && !isEditing && (
+                    <div style={{ fontSize:11, color:"#0891b2", marginBottom:10, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>🔗 {p.site_web}</div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {isEditing ? (
+                      <>
+                        <button onClick={()=>update(p.id)} disabled={saving} style={{ flex:1, padding:"6px 10px", background:"#22c55e", color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>{saving?"…":"✓ Enregistrer"}</button>
+                        <button onClick={()=>{setEditId(null);setEditVals({});}} style={{ padding:"6px 10px", background:"#e5e7eb", border:"none", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={()=>{setEditId(p.id);setEditVals({});}} style={{ flex:1, padding:"6px 10px", background:"#e0f2fe", color:"#0369a1", border:"none", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>✏️ Modifier</button>
+                        <button onClick={()=>toggle(p.id,p.actif)} style={{ padding:"6px 10px", background:p.actif?"#fef3c7":"#dcfce7", color:p.actif?"#d97706":"#16a34a", border:"none", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>{p.actif?"⏸":"▶"}</button>
+                        <button onClick={()=>remove(p.id)} style={{ padding:"6px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>🗑️</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════
    NEW COACH FORM — composant stable (hors render principal)
@@ -466,14 +658,6 @@ const SA_CA = {
   moyenPaiement:{ "Mobile Money":62,"Carte bancaire":28,"Virement":10 },
 };
 const SA_PROGRESSION = { moyenneProgression:69, resultatsParNiveau:{ A1:54, A2:63, B1:72, B2:80, C1:87, C2:94 }, assiduiteMoyenne:85, bulletinsGeneres:1870, certificatsDelivres:312 };
-const SA_REQUETES = [
-  { id:1, client:"Orange CI",   sujet:"Accès plateforme",   statut:"ouvert",   date:"2025-12-10", tempsTraitement:0,   categorie:"Technique" },
-  { id:2, client:"BNP Paribas", sujet:"Facture groupe",     statut:"en_cours", date:"2025-12-09", tempsTraitement:3.5, categorie:"Facturation" },
-  { id:3, client:"Nestlé CI",   sujet:"Certificat manquant",statut:"résolu",   date:"2025-12-05", tempsTraitement:8,   categorie:"Certification" },
-  { id:4, client:"MTN CI",      sujet:"Rapport assiduité",  statut:"ouvert",   date:"2025-12-10", tempsTraitement:0,   categorie:"Pédagogique" },
-  { id:5, client:"SIFCA",       sujet:"Accès formateur",    statut:"en_cours", date:"2025-12-08", tempsTraitement:6,   categorie:"Technique" },
-];
-const SA_TEMPS_MOYEN = 7.4;
 
 // ── Helpers stables pour le modal Certifications ──────────────────────────
 // Définis au niveau module (pas dans le rendu) pour éviter le re-montage à chaque frappe
@@ -662,7 +846,8 @@ export default function SuperAdminDashboard() {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [tempPasswords, setTempPasswords] = useState({}); // { [userId]: mdp }
-  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c" });
+  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", coach_photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0 });
+  const [inviteCoachPhotoUploading, setInviteCoachPhotoUploading] = useState(false);
   const [assistanteProfilFilter, setAssistanteProfilFilter] = useState("b2c"); // "b2c" | "b2b"
   const [editingUser, setEditingUser] = useState(null);
   const [userToRevoke, setUserToRevoke] = useState(null);
@@ -730,6 +915,36 @@ export default function SuperAdminDashboard() {
       toast.success("Planning enregistré ✓");
     } catch { toast.error("Erreur lors de l'enregistrement"); }
     finally { setAssistantesSaving(prev => ({ ...prev, [id]: false })); }
+  };
+
+  // ── Avis offres ──────────────────────────────────────────────────────────
+  const [avisOffres,      setAvisOffres]      = useState([]);
+  const [avisLoading,     setAvisLoading]     = useState(false);
+  const [avisFiltre,      setAvisFiltre]      = useState("tous"); // "tous"|"cours"|"certification"
+  const fetchAvisOffres = async () => {
+    setAvisLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/avis`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setAvisOffres(d.avis || []);
+    } catch { toast.error("Erreur chargement des avis"); }
+    finally { setAvisLoading(false); }
+  };
+  const toggleAvis = async (id, actif) => {
+    try {
+      await fetch(`${API_URL}/api/avis/${id}`, { method:"PATCH", headers:authHeaders(), body:JSON.stringify({actif}) });
+      setAvisOffres(prev => prev.map(a => a.id===id ? {...a,actif} : a));
+      toast.success(actif ? "Avis réactivé" : "Avis désactivé");
+    } catch { toast.error("Erreur"); }
+  };
+  const deleteAvis = async (id) => {
+    if (!window.confirm("Supprimer définitivement cet avis ?")) return;
+    try {
+      await fetch(`${API_URL}/api/avis/${id}`, { method:"DELETE", headers:authHeaders() });
+      setAvisOffres(prev => prev.filter(a => a.id !== id));
+      toast.success("Avis supprimé");
+    } catch { toast.error("Erreur"); }
   };
 
   const [temos, setTemos]                   = useState([]);
@@ -1131,6 +1346,17 @@ export default function SuperAdminDashboard() {
         scope,
         note: inviteForm.note,
       };
+      // Pour les coachs : inclure les infos spécifiques
+      if (inviteForm.role === "coach") {
+        payload.coach_info = {
+          photo_url:           inviteForm.coach_photo          || null,
+          matricule:           inviteForm.coach_matricule      || null,
+          filiere:             inviteForm.coach_filiere        || null,
+          lieu_habitation:     inviteForm.coach_lieu_habitation || null,
+          date_debut_bet:      inviteForm.coach_date_debut     || null,
+          nb_contrats_actifs:  inviteForm.coach_nb_contrats    || 0,
+        };
+      }
       // Pour les assistantes commerciales : inclure le planning
       if (inviteForm.role === "commercial") {
         payload.planning = {
@@ -1158,8 +1384,21 @@ export default function SuperAdminDashboard() {
       }
       await chargerUtilisateurs();
       setShowInviteModal(false);
-      setInviteForm({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"] });
+      setInviteForm({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", coach_photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0 });
     } catch { toast.error("Impossible de joindre le serveur"); }
+  };
+
+  const uploadInviteCoachPhoto = async (file) => {
+    setInviteCoachPhotoUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const r = await fetch(`${API_URL}/api/upload/image`, { method:"POST", headers:{ Authorization:`Bearer ${localStorage.getItem("admin_token")}` }, body:fd });
+      const d = await r.json();
+      const url = d.file?.url || d.url || "";
+      if (url) setInviteForm(p => ({ ...p, coach_photo: url }));
+      else toast.error("Upload échoué");
+    } catch { toast.error("Erreur upload photo"); }
+    finally { setInviteCoachPhotoUploading(false); }
   };
 
   const renvoyerAcces = async (userId) => {
@@ -1378,7 +1617,7 @@ export default function SuperAdminDashboard() {
     } catch(e) { console.error("Erreur chargement apprenants", e); }
     finally { setLoadingApprenants(false); }
   };
-  useEffect(() => { if (activeTab === "apprenants") fetchApprenants(); }, [activeTab]);
+  useEffect(() => { if (activeTab === "suivi_apprenants") fetchApprenants(); }, [activeTab]);
 
   // États pour les onglets Coachs & Apprenants
   const [selectedCoach,     setSelectedCoach]     = useState(null);
@@ -1393,8 +1632,12 @@ export default function SuperAdminDashboard() {
   // États Paiements
   const [paiements,        setPaiements]        = useState([]);
   const [loadingPaiements, setLoadingPaiements] = useState(false);
+  const [apprenantSubTab,  setApprenantSubTab]  = useState("liste");
   const [paiementPage,     setPaiementPage]     = useState(1);
-  const [paiementFiltre,   setPaiementFiltre]   = useState({ statut:"Tous", mode:"Tous", search:"" });
+  const [paiementFiltre,   setPaiementFiltre]   = useState({ statut:"Tous", mode:"Tous", search:"", dateDebut:"", dateFin:"" });
+  const [paiementModal,    setPaiementModal]    = useState(null);
+  const [caPeriode,        setCaPeriode]        = useState("annee"); // "semaine"|"mois"|"trimestre"|"annee"|"tout"
+  const [caAnnee,          setCaAnnee]          = useState(new Date().getFullYear());
   const PAIEMENTS_PER_PAGE = 25;
 
   const fetchPaiements = async () => {
@@ -1420,13 +1663,12 @@ export default function SuperAdminDashboard() {
     { key: "offres",        label: "Offres & Formations",    icon: "🎓" },
     { key: "ca",            label: "Chiffre d'affaires",     icon: "💰" },
     { key: "paiements",     label: "Paiements",              icon: "💳" },
-    { key: "support",       label: "Requêtes & Support",     icon: "🛠️" },
-    { key: "progression",   label: "Progression apprenants", icon: "📈" },
+    { key: "suivi_apprenants", label: "Apprenants", icon: "🎓", badge: apprenants.length || null },
     { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
-    { key: "apprenants",    label: "Apprenants",             icon: "🎓",  badge: apprenants.length || null },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
+    { key: "notifications", label: "Notifications",          icon: "🔔" },
   ];
 
   const permTabs = [
@@ -1437,9 +1679,9 @@ export default function SuperAdminDashboard() {
     // { key:"demandes", label:"Demandes d'accès", icon:"📬", badge:stats.enAttente, danger:stats.enAttente>0 },
   ];
 
-  const [platformSubTab, setPlatformSubTab] = useState("general");
+  const [platformSubTab, setPlatformSubTab] = useState("partenaires");
   const platformTabs = [
-    { key:"general",       label:"Paramètres généraux", icon:"⚙️" },
+    { key:"partenaires",   label:"Config. Partenaires",  icon:"🤝" },
     { key:"whatsapp",      label:"Messages WhatsApp",   icon:"💬" },
     { key:"coachs_photos", label:"Équipe Coachs",       icon:"👨‍🏫" },
     { key:"marquee",          label:"Marquee",             icon:"📢" },
@@ -1448,12 +1690,15 @@ export default function SuperAdminDashboard() {
     { key:"offres_domicile",  label:"Offres À domicile",   icon:"🏠" },
     { key:"certifications",   label:"Certifications",       icon:"🏆" },
     { key:"temoignages",      label:"Témoignages",          icon:"⭐", badge: temosPending||null, danger: temosPending>0 },
+    { key:"avis_offres",      label:"Avis offres",          icon:"💬", badge: avisOffres.filter(a=>!a.actif).length||null },
     { key:"boutique",         label:"Boutique",             icon:"🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
     { key:"blog_comments",    label:"Commentaires Blog",    icon:"💬", badge: blogComments.length || null },
   ];
   // useEffects dépendant de platformSubTab (déclarés après useState)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (activeTab === "platform" && platformSubTab === "temoignages") fetchTemos(); }, [activeTab, platformSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "avis_offres") fetchAvisOffres(); }, [activeTab, platformSubTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (activeTab === "platform" && platformSubTab === "blog_comments") fetchBlogComments(); }, [activeTab, platformSubTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1855,6 +2100,216 @@ export default function SuperAdminDashboard() {
   useEffect(() => { if (platformSubTab === "coachs_photos") fetchCoachs(); }, [platformSubTab, fetchCoachs]);
   useEffect(() => { if (platformSubTab === "marquee") fetchMarquee(); }, [platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Codes Promo ────────────────────────────────────────────────────────────
+  const PROMO_BLANK = { code:"", description:"", type_reduction:"pourcentage", valeur:"", applicable_a:["tous"], date_expiration:"", usage_max:"", actif:true };
+  const [codesPromo,       setCodesPromo]       = useState([]);
+  const [codesPromoLoading,setCodesPromoLoading] = useState(false);
+  const [promoForm,        setPromoForm]         = useState(PROMO_BLANK);
+  const [promoEditing,     setPromoEditing]      = useState(null); // id en édition
+  const [promoSaving,      setPromoSaving]       = useState(false);
+  const [promoShowForm,    setPromoShowForm]      = useState(false);
+
+  const fetchCodesPromo = useCallback(async () => {
+    setCodesPromoLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/codes-promo`, { headers: authHeaders() });
+      const d = await r.json();
+      setCodesPromo(d.codes || []);
+    } catch { toast.error("Erreur chargement codes promo"); }
+    finally { setCodesPromoLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (["centres","offres_en_ligne","offres_domicile","certifications"].includes(platformSubTab)) fetchCodesPromo();
+  }, [platformSubTab, fetchCodesPromo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const savePromoCode = async () => {
+    if (!promoForm.code.trim()) return toast.error("Le code est requis");
+    if (!promoForm.valeur || isNaN(Number(promoForm.valeur))) return toast.error("La valeur est invalide");
+    setPromoSaving(true);
+    try {
+      const payload = {
+        ...promoForm,
+        valeur:    Number(promoForm.valeur),
+        usage_max: promoForm.usage_max ? Number(promoForm.usage_max) : null,
+        date_expiration: promoForm.date_expiration || null,
+        applicable_a: promoForm.applicable_a.length ? promoForm.applicable_a : ["tous"],
+      };
+      const url    = promoEditing ? `${API_URL}/api/codes-promo/${promoEditing}` : `${API_URL}/api/codes-promo`;
+      const method = promoEditing ? "PUT" : "POST";
+      const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(payload) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      toast.success(promoEditing ? "Code mis à jour ✓" : "Code créé ✓");
+      setPromoForm(PROMO_BLANK);
+      setPromoEditing(null);
+      setPromoShowForm(false);
+      fetchCodesPromo();
+    } catch (e) { toast.error(e.message); }
+    finally { setPromoSaving(false); }
+  };
+
+  const deletePromoCode = async (id) => {
+    if (!window.confirm("Supprimer ce code promo ?")) return;
+    try {
+      const r = await fetch(`${API_URL}/api/codes-promo/${id}`, { method:"DELETE", headers: authHeaders() });
+      if (!r.ok) throw new Error();
+      toast.success("Code supprimé");
+      fetchCodesPromo();
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const togglePromoActif = async (code) => {
+    try {
+      const r = await fetch(`${API_URL}/api/codes-promo/${code.id}`, { method:"PUT", headers: authHeaders(), body: JSON.stringify({ actif: !code.actif }) });
+      if (!r.ok) throw new Error();
+      fetchCodesPromo();
+    } catch { toast.error("Erreur"); }
+  };
+
+  // ── Panneau codes promo intégré dans chaque onglet offre ───────────────────
+  const renderPromoPanel = (offreType, accentCol = BET_COLOR) => {
+    const filtered = codesPromo.filter(c => {
+      const a = c.applicable_a || ["tous"];
+      return a.includes("tous") || a.includes(offreType);
+    });
+    const formKey = `promo-actif-${offreType}`;
+    const isEditingThisTab = promoEditing && filtered.some(c => c.id === promoEditing);
+    const showForm = promoShowForm && (isEditingThisTab || (!promoEditing && promoForm._tab === offreType));
+
+    const openNew = () => {
+      setPromoForm({ ...PROMO_BLANK, applicable_a: [offreType], _tab: offreType });
+      setPromoEditing(null);
+      setPromoShowForm(true);
+    };
+    const openEdit = (c) => {
+      setPromoForm({ code:c.code, description:c.description||"", type_reduction:c.type_reduction, valeur:c.valeur, applicable_a:c.applicable_a||[offreType], date_expiration:c.date_expiration?c.date_expiration.slice(0,16):"", usage_max:c.usage_max||"", actif:c.actif, _tab:offreType });
+      setPromoEditing(c.id);
+      setPromoShowForm(true);
+    };
+    const closeForm = () => { setPromoShowForm(false); setPromoEditing(null); setPromoForm(PROMO_BLANK); };
+
+    return (
+      <div style={{ marginTop:32, borderTop:"1.5px dashed #e2e8f0", paddingTop:24 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+          <div>
+            <h4 style={{ margin:0, fontSize:14, fontWeight:700, color:"#0f172a" }}>🏷️ Codes Promo liés à cette offre</h4>
+            <p style={{ margin:"3px 0 0", fontSize:11, color:"#9ca3af" }}>Codes applicables à cet onglet · Expirables ou illimités</p>
+          </div>
+          <button onClick={openNew}
+            style={{ padding:"7px 15px", background:accentCol, color:"#fff", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+            ＋ Nouveau code
+          </button>
+        </div>
+
+        {showForm && (
+          <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:18, marginBottom:16 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>Code *</label>
+                <input value={promoForm.code} onChange={e => setPromoForm(p=>({...p,code:e.target.value.toUpperCase()}))}
+                  placeholder="Ex : BET2025"
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, fontFamily:"monospace", boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>Description</label>
+                <input value={promoForm.description} onChange={e => setPromoForm(p=>({...p,description:e.target.value}))}
+                  placeholder="Ex : Rentrée 2025"
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:10 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>Type</label>
+                <select value={promoForm.type_reduction} onChange={e => setPromoForm(p=>({...p,type_reduction:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, boxSizing:"border-box" }}>
+                  <option value="pourcentage">% Pourcentage</option>
+                  <option value="montant_fixe">FCFA Montant fixe</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>
+                  Valeur * {promoForm.type_reduction === "pourcentage" ? "(%)" : "(FCFA)"}
+                </label>
+                <input value={promoForm.valeur} onChange={e => setPromoForm(p=>({...p,valeur:e.target.value}))}
+                  type="number" min="0" placeholder={promoForm.type_reduction==="pourcentage"?"Ex : 20":"Ex : 50000"}
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>Expiration <span style={{ color:"#9ca3af",fontWeight:400 }}>(vide=illimité)</span></label>
+                <input value={promoForm.date_expiration} onChange={e => setPromoForm(p=>({...p,date_expiration:e.target.value}))}
+                  type="datetime-local"
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#374151", display:"block", marginBottom:3 }}>Utilisations max <span style={{ color:"#9ca3af",fontWeight:400 }}>(vide=illimité)</span></label>
+                <input value={promoForm.usage_max} onChange={e => setPromoForm(p=>({...p,usage_max:e.target.value}))}
+                  type="number" min="1" placeholder="Ex : 100"
+                  style={{ width:"100%", padding:"8px 11px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+              <input type="checkbox" id={formKey} checked={!!promoForm.actif} onChange={e=>setPromoForm(p=>({...p,actif:e.target.checked}))} style={{ width:14,height:14,accentColor:accentCol,cursor:"pointer" }} />
+              <label htmlFor={formKey} style={{ fontSize:12, fontWeight:600, color:"#374151", cursor:"pointer" }}>Code actif</label>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={closeForm} style={{ padding:"7px 16px", background:"#f1f5f9", border:"none", borderRadius:7, cursor:"pointer", fontWeight:600, fontSize:12, color:"#374151" }}>Annuler</button>
+              <button onClick={savePromoCode} disabled={promoSaving}
+                style={{ padding:"7px 18px", background:accentCol, color:"#fff", border:"none", borderRadius:7, cursor:"pointer", fontWeight:800, fontSize:12, opacity:promoSaving?.7:1 }}>
+                {promoSaving ? "⏳ Enregistrement…" : "💾 Enregistrer"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {codesPromoLoading ? (
+          <div style={{ padding:20, textAlign:"center", color:"#94a3b8", fontSize:12 }}>⏳ Chargement…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding:"18px 0", textAlign:"center", color:"#94a3b8", fontSize:12, border:"1.5px dashed #e2e8f0", borderRadius:10 }}>
+            Aucun code promo pour cette offre — cliquez sur "Nouveau code" pour en créer un.
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {filtered.map(c => {
+              const expired = c.date_expiration && new Date(c.date_expiration) < new Date();
+              const maxed   = c.usage_max != null && c.usage_count >= c.usage_max;
+              const valid   = c.actif && !expired && !maxed;
+              return (
+                <div key={c.id} style={{ background:"#fff", border:`1.5px solid ${valid?"#bae6fd":expired||maxed?"#fecaca":"#fde68a"}`, borderRadius:10, padding:"10px 14px", display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
+                      <span style={{ fontFamily:"monospace", fontWeight:900, fontSize:13, color:"#0f172a", background:"#f1f5f9", padding:"2px 9px", borderRadius:5, letterSpacing:1 }}>{c.code}</span>
+                      <span style={{ padding:"1px 8px", borderRadius:20, fontSize:10, fontWeight:700,
+                        background:valid?"#dcfce7":expired?"#fee2e2":maxed?"#fef3c7":"#fef3c7",
+                        color:valid?"#166534":expired?"#991b1b":maxed?"#92400e":"#92400e" }}>
+                        {valid?"✓ Actif":expired?"⏰ Expiré":maxed?"🚫 Épuisé":"⏸ Inactif"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize:11, color:"#475569" }}>
+                      <strong style={{ color:accentCol }}>
+                        {c.type_reduction==="pourcentage"?`-${c.valeur}%`:`-${Number(c.valeur).toLocaleString("fr-FR")} FCFA`}
+                      </strong>
+                      {c.description && <span style={{ marginLeft:6 }}>· {c.description}</span>}
+                      <span style={{ marginLeft:6, color:"#94a3b8" }}>· {c.usage_count||0} util.{c.usage_max?`/${c.usage_max}`:""}</span>
+                      {c.date_expiration && <span style={{ marginLeft:6, color:expired?"#ef4444":"#94a3b8" }}>· Exp. {new Date(c.date_expiration).toLocaleDateString("fr-FR")}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                    <button onClick={() => togglePromoActif(c)} style={{ padding:"5px 10px", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:10, background:c.actif?"#fee2e2":"#dcfce7", color:c.actif?"#991b1b":"#166534" }}>
+                      {c.actif?"Désactiver":"Activer"}
+                    </button>
+                    <button onClick={() => openEdit(c)} style={{ padding:"5px 10px", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:10, background:"#e0f2fe", color:"#0891b2" }}>✏️</button>
+                    <button onClick={() => deletePromoCode(c.id)} style={{ padding:"5px 10px", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:10, background:"#f1f5f9", color:"#ef4444" }}>🗑️</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const saveCoach = async (photo) => {
     const edits = coachsEdits[photo.id] || {};
     setCoachsSaving(p => ({ ...p, [photo.id]: true }));
@@ -2010,34 +2465,9 @@ export default function SuperAdminDashboard() {
                   })}
                 </div>
 
-                {/* ── Sous-onglet : Paramètres généraux ── */}
-                {platformSubTab === "general" && (
-                  <div>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
-                      <div><h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>⚙️ Paramètres généraux</h3></div>
-                      <button onClick={()=>toast.success("Sauvegarde effectuée")} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>💾 Sauvegarder</button>
-                    </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
-                        <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Modules actifs</h3>
-                        {MODULES.map(m => (
-                          <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                            <span>{m.icon} {m.label}</span>
-                            <ToggleSwitch on={true} onChange={()=>{}} color={BET_COLOR} />
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
-                        <h3 style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Paramètres de sécurité globaux</h3>
-                        <div style={{ marginBottom:12 }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>2FA obligatoire pour tous les admins</span><ToggleSwitch on={true} onChange={()=>{}} color={BET_RED} /></div>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Expiration des sessions (heures)</span><input type="number" defaultValue={8} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
-                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}><span>Rotation des mots de passe (jours)</span><input type="number" defaultValue={90} style={{ width:70, padding:4, borderRadius:4, border:"1px solid #e5e7eb" }} /></div>
-                        </div>
-                        <button onClick={()=>toast.success("Configuration mise à jour")} style={{ marginTop:10, ...btnPrimary, width:"100%" }}>Appliquer</button>
-                      </div>
-                    </div>
-                  </div>
+                {/* ── Sous-onglet : Configuration Partenaires ── */}
+                {platformSubTab === "partenaires" && (
+                  <PartenairesManager apiUrl={API_URL} authHeaders={authHeaders} />
                 )}
 
                 {/* ── Sous-onglet : Messages WhatsApp ── */}
@@ -2794,6 +3224,7 @@ export default function SuperAdminDashboard() {
                         </div>
                       );
                     })()}
+                  {renderPromoPanel("centres", BET_COLOR)}
                   </div>
                 )}
 
@@ -2911,6 +3342,7 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {renderPromoPanel("en_ligne", BET_COLOR)}
                     </div>
                   );
                 })()}
@@ -3036,6 +3468,7 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {renderPromoPanel("domicile", "#059669")}
                     </div>
                   );
                 })()}
@@ -3210,6 +3643,7 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {renderPromoPanel("certifications", "#1e3a8a")}
                     </div>
                   );
                 })()}
@@ -3509,6 +3943,13 @@ export default function SuperAdminDashboard() {
                           {/* Texte */}
                           <p className="temo-card__texte">« {t.texte} »</p>
 
+                          {/* Photo diplôme */}
+                          {t.photo_url && (
+                            <div style={{ marginBottom:10, borderRadius:8, overflow:"hidden", border:"1px solid #e5e7eb", maxHeight:110 }}>
+                              <img src={t.photo_url} alt="Diplôme" style={{ width:"100%", height:110, objectFit:"cover", display:"block" }} />
+                            </div>
+                          )}
+
                           {/* Motif rejet */}
                           {t.motif_rejet && <div className="temo-card__motif">💬 {t.motif_rejet}</div>}
 
@@ -3583,6 +4024,82 @@ export default function SuperAdminDashboard() {
               </div>
             );
               })()}
+            </div>
+          )}
+
+          {/* ══ AVIS OFFRES ══ */}
+          {platformSubTab === "avis_offres" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,.05)", padding:28, overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:22 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:17, fontWeight:800, color:"#0f172a" }}>💬 Avis sur les offres</h2>
+                  <p style={{ margin:"4px 0 0", fontSize:12, color:"#9ca3af" }}>
+                    {avisOffres.length} avis · {avisOffres.filter(a=>!a.actif).length} désactivé(s)
+                  </p>
+                </div>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {["tous","cours","certification"].map(f=>(
+                    <button key={f} onClick={()=>setAvisFiltre(f)}
+                      style={{ padding:"7px 16px", borderRadius:999, border:`1.5px solid ${avisFiltre===f?"#1e3a8a":"#e5e7eb"}`, background:avisFiltre===f?"#1e3a8a":"#fff", color:avisFiltre===f?"#fff":"#374151", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                      {f==="tous"?"Tous":`${f==="cours"?"Cours":"Certifications"} (${avisOffres.filter(a=>a.offre_type===f).length})`}
+                    </button>
+                  ))}
+                  <button onClick={fetchAvisOffres} style={{ padding:"7px 14px", borderRadius:8, border:"1.5px solid #e5e7eb", background:"#f8fafc", cursor:"pointer", fontWeight:700, fontSize:12, color:"#374151" }}>🔄 Actualiser</button>
+                </div>
+              </div>
+
+              {avisLoading && <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>Chargement…</div>}
+              {!avisLoading && avisOffres.length===0 && (
+                <div style={{ textAlign:"center", padding:"48px 24px", background:"#f8fafc", borderRadius:12, border:"1.5px dashed #e2e8f0" }}>
+                  <div style={{ fontSize:"2.5rem", marginBottom:12 }}>💬</div>
+                  <p style={{ color:"#64748b", fontSize:14, margin:0 }}>Aucun avis pour le moment.</p>
+                </div>
+              )}
+
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                {avisOffres
+                  .filter(a => avisFiltre==="tous" || a.offre_type===avisFiltre)
+                  .map(a => (
+                  <div key={a.id} style={{ border:`1.5px solid ${a.actif?"#e5e7eb":"#fecdd3"}`, borderRadius:12, padding:"16px 18px", background:a.actif?"#fff":"#fff7f7", display:"flex", gap:14, alignItems:"flex-start", flexWrap:"wrap" }}>
+                    {/* Avatar initiale */}
+                    <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#dc2626)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:16, flexShrink:0 }}>
+                      {(a.apprenant_nom||"?")[0].toUpperCase()}
+                    </div>
+                    {/* Contenu */}
+                    <div style={{ flex:1, minWidth:200 }}>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:4 }}>
+                        <span style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{a.apprenant_nom||"Apprenant BET"}</span>
+                        <span style={{ padding:"2px 10px", borderRadius:999, fontSize:11, fontWeight:700, background:a.offre_type==="cours"?"#dbeafe":"#ede9fe", color:a.offre_type==="cours"?"#1e40af":"#6d28d9" }}>
+                          {a.offre_type==="cours"?"📚 Cours":"🏆 Certification"}
+                        </span>
+                        <span style={{ padding:"2px 10px", borderRadius:999, fontSize:11, fontWeight:700, background:a.actif?"#dcfce7":"#fee2e2", color:a.actif?"#166534":"#991b1b" }}>
+                          {a.actif?"✅ Visible":"🚫 Désactivé"}
+                        </span>
+                        <span style={{ fontSize:11, color:"#9ca3af", marginLeft:"auto" }}>{new Date(a.created_at).toLocaleDateString("fr-FR")}</span>
+                      </div>
+                      {/* Étoiles */}
+                      <div style={{ marginBottom:6 }}>
+                        <span style={{ color:"#f59e0b", fontSize:16 }}>{"★".repeat(a.note)}</span>
+                        <span style={{ color:"#e5e7eb", fontSize:16 }}>{"★".repeat(5-a.note)}</span>
+                      </div>
+                      <p style={{ fontSize:13, color:"#374151", lineHeight:1.6, margin:"0 0 6px", fontStyle:"italic" }}>"{a.texte}"</p>
+                      <div style={{ fontSize:11, color:"#9ca3af" }}>✉️ {a.apprenant_email}</div>
+                    </div>
+                    {/* Actions */}
+                    <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+                      <button onClick={()=>toggleAvis(a.id, !a.actif)}
+                        style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${a.actif?"#fecdd3":"#bbf7d0"}`, background:a.actif?"#fee2e2":"#dcfce7", color:a.actif?"#991b1b":"#166534", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}>
+                        {a.actif?"🚫 Désactiver":"✅ Réactiver"}
+                      </button>
+                      <button onClick={()=>deleteAvis(a.id)}
+                        style={{ padding:"7px 14px", borderRadius:8, border:"1px solid #fecdd3", background:"#fff", color:"#dc2626", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                        🗑 Supprimer
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -4299,45 +4816,210 @@ export default function SuperAdminDashboard() {
             )}
 
             {/* ================= ONGLET CHIFFRE D'AFFAIRES ================= */}
-            {activeTab === "ca" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-                  <div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>💰 Chiffre d'affaires — Plateforme globale</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Suivi financier complet de toutes les structures</p></div>
-                  <button onClick={()=>toast.success("Export CA généré")} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export CA</button>
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:24 }}>
-                  <StatCard label="CA total annuel" value={formatMoney(SA_CA.total)} color="#059669" icon="💰" sub={`+${PLATEFORME_STATS.tauxCroissance}% vs N-1`} />
-                  <StatCard label="Paiements reçus" value={formatMoney(SA_CA.paiementsRecus)} color={BET_COLOR} icon="✅" />
-                  <StatCard label="Paiements en attente" value={formatMoney(SA_CA.paiementsAttente)} color="#d97706" icon="⏳" />
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-                  <div style={{ background:"#f8fafc", borderRadius:12, padding:16 }}>
-                    <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>CA par offre</div>
-                    {Object.entries(SA_CA.parOffre).map(([offre,val]) => (
-                      <div key={offre} style={{ marginBottom:10 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}><span>{offre}</span><strong style={{ color:"#059669" }}>{formatMoney(val)}</strong></div>
-                        <ProgressBar value={Math.round((val/SA_CA.total)*100)} color={BET_COLOR} />
+            {activeTab === "ca" && (() => {
+              const now = new Date();
+              const filtreCA = (p) => {
+                const d = p.date_paiement ? new Date(p.date_paiement) : null;
+                if (!d) return false;
+                if (caPeriode === "semaine") {
+                  const debut = new Date(now); debut.setDate(now.getDate() - 7);
+                  return d >= debut;
+                }
+                if (caPeriode === "mois") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+                if (caPeriode === "trimestre") {
+                  const trimestre = Math.floor(now.getMonth() / 3);
+                  return d.getFullYear() === now.getFullYear() && Math.floor(d.getMonth() / 3) === trimestre;
+                }
+                if (caPeriode === "annee") return d.getFullYear() === caAnnee;
+                return true; // "tout"
+              };
+
+              const pFiltered = paiements.filter(filtreCA);
+              const totalRecu     = pFiltered.reduce((s,p)=>s+(p.montant_recu||0),0);
+              const totalDu       = pFiltered.reduce((s,p)=>s+(p.montant_du||0),0);
+              const totalAttente  = pFiltered.filter(p=>p.statut==="en_attente").reduce((s,p)=>s+(p.montant_du||0),0);
+              const totalPartiel  = pFiltered.filter(p=>p.statut==="partiel").reduce((s,p)=>s+(p.montant_du||0)-(p.montant_recu||0),0);
+              const nbTransactions = pFiltered.length;
+              const nbPayes = pFiltered.filter(p=>p.statut==="paye").length;
+              const txEncaissement = totalDu > 0 ? Math.round((totalRecu/totalDu)*100) : 0;
+              const panierMoyen = nbTransactions > 0 ? Math.round(totalRecu / nbTransactions) : 0;
+
+              // CA par mois pour la période annuelle
+              const MOIS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+              const parMois = MOIS_FR.map((label, idx) => {
+                const val = paiements.filter(p => {
+                  const d = p.date_paiement ? new Date(p.date_paiement) : null;
+                  return d && d.getFullYear() === caAnnee && d.getMonth() === idx;
+                }).reduce((s,p)=>s+(p.montant_recu||0),0);
+                return { label, val };
+              });
+              const maxMois = Math.max(...parMois.map(m=>m.val), 1);
+
+              // CA par commercial
+              const parCommercial = {};
+              pFiltered.forEach(p => {
+                const nom = p.commercial_nom || "—";
+                if (!parCommercial[nom]) parCommercial[nom] = 0;
+                parCommercial[nom] += p.montant_recu || 0;
+              });
+              const topCommercials = Object.entries(parCommercial).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+              // CA par mode de paiement
+              const parMode = {};
+              pFiltered.forEach(p => {
+                const m = p.mode_paiement || "Autre";
+                if (!parMode[m]) parMode[m] = 0;
+                parMode[m] += p.montant_recu || 0;
+              });
+              const totalMode = Object.values(parMode).reduce((a,b)=>a+b,0);
+
+              const PERIODE_OPTIONS = [
+                { key:"semaine",   label:"7 derniers jours" },
+                { key:"mois",      label:"Ce mois" },
+                { key:"trimestre", label:"Ce trimestre" },
+                { key:"annee",     label:"Année" },
+                { key:"tout",      label:"Tout" },
+              ];
+
+              return (
+                <div>
+                  {/* Header + Filtres */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+                    <div>
+                      <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>💰 Chiffre d'affaires — Plateforme globale</h2>
+                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Suivi financier en temps réel de toutes les structures</p>
+                    </div>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", background:"#f1f5f9", borderRadius:10, padding:3, gap:2 }}>
+                        {PERIODE_OPTIONS.map(opt => (
+                          <button key={opt.key} onClick={()=>setCaPeriode(opt.key)}
+                            style={{ padding:"6px 12px", borderRadius:8, border:"none", fontSize:12, fontWeight:600, cursor:"pointer",
+                              background: caPeriode===opt.key ? "#fff" : "transparent",
+                              color:      caPeriode===opt.key ? "#0891b2" : "#64748b",
+                              boxShadow:  caPeriode===opt.key ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                              transition:"all .15s" }}>
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
-                    ))}
-                    <div style={{ marginTop:16 }}>
-                      <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Moyens de paiement</div>
-                      {Object.entries(SA_CA.moyenPaiement).map(([moyen,pct]) => <div key={moyen} style={{ marginBottom:8 }}><div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}><span>{moyen}</span><span style={{ fontWeight:700 }}>{pct}%</span></div><ProgressBar value={pct} color="#7c3aed" /></div>)}
+                      {caPeriode === "annee" && (
+                        <select value={caAnnee} onChange={e=>setCaAnnee(Number(e.target.value))}
+                          style={{ padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                          {[now.getFullYear()-1, now.getFullYear()].map(y=><option key={y} value={y}>{y}</option>)}
+                        </select>
+                      )}
                     </div>
                   </div>
-                  <div style={{ background:"#f8fafc", borderRadius:12, padding:16 }}>
-                    <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>CA par période (12 mois)</div>
-                    <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                      {Object.entries(SA_CA.parPeriode).map(([mois,val]) => (
-                        <div key={mois} style={{ flex:1, minWidth:70, textAlign:"center", background:"#fff", borderRadius:8, padding:"8px 4px", border:"1px solid #e5e7eb" }}>
-                          <div style={{ fontSize:10, color:"#9ca3af" }}>{mois}</div>
-                          <div style={{ fontSize:11, fontWeight:700, color:BET_COLOR }}>{(val/1000000).toFixed(1)}M</div>
-                        </div>
-                      ))}
+
+                  {/* KPIs */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+                    <div style={{ background:"linear-gradient(135deg,#059669,#10b981)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>TOTAL ENCAISSÉ</div>
+                      <div style={{ fontSize:24, fontWeight:800, margin:"6px 0 2px" }}>{formatMoney(totalRecu)}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>sur {formatMoney(totalDu)} dû</div>
                     </div>
+                    <div style={{ background:"linear-gradient(135deg,#0891b2,#0e7490)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>TRANSACTIONS</div>
+                      <div style={{ fontSize:24, fontWeight:800, margin:"6px 0 2px" }}>{nbTransactions}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>{nbPayes} soldées</div>
+                    </div>
+                    <div style={{ background:"linear-gradient(135deg,#d97706,#f59e0b)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>EN ATTENTE</div>
+                      <div style={{ fontSize:24, fontWeight:800, margin:"6px 0 2px" }}>{formatMoney(totalAttente + totalPartiel)}</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>à encaisser</div>
+                    </div>
+                    <div style={{ background:"linear-gradient(135deg,#7c3aed,#8b5cf6)", borderRadius:14, padding:"16px 18px", color:"#fff" }}>
+                      <div style={{ fontSize:11, opacity:0.8, fontWeight:600, letterSpacing:"0.05em" }}>TX ENCAISSEMENT</div>
+                      <div style={{ fontSize:24, fontWeight:800, margin:"6px 0 2px" }}>{txEncaissement}%</div>
+                      <div style={{ fontSize:11, opacity:0.75 }}>Panier moy. {formatMoney(panierMoyen)}</div>
+                    </div>
+                  </div>
+
+                  {/* Barre d'encaissement globale */}
+                  <div style={{ background:"#f8fafc", borderRadius:14, padding:16, marginBottom:20, border:"1px solid #e5e7eb" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:"#0f172a" }}>Taux d'encaissement global</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:txEncaissement>=80?"#059669":txEncaissement>=50?"#d97706":"#dc2626" }}>{txEncaissement}%</span>
+                    </div>
+                    <div style={{ background:"#e5e7eb", borderRadius:99, height:10, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${txEncaissement}%`, background:`linear-gradient(90deg,${txEncaissement>=80?"#059669":txEncaissement>=50?"#d97706":"#dc2626"},${txEncaissement>=80?"#10b981":txEncaissement>=50?"#f59e0b":"#ef4444"})`, borderRadius:99, transition:"width .5s" }} />
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:11, color:"#9ca3af" }}>
+                      <span>{formatMoney(totalRecu)} reçus</span>
+                      <span>{formatMoney(totalDu)} total dû</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:20 }}>
+                    {/* Histogramme mensuel */}
+                    <div style={{ background:"#f8fafc", borderRadius:14, padding:16, border:"1px solid #e5e7eb" }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:"#0f172a", marginBottom:14 }}>📊 Évolution mensuelle {caAnnee}</div>
+                      <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:120 }}>
+                        {parMois.map(({label,val}) => (
+                          <div key={label} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                            <div style={{ fontSize:9, color:"#94a3b8", fontWeight:600 }}>{val>0?(val/1000).toFixed(0)+"k":""}</div>
+                            <div style={{ width:"100%", background: val>0?"#0891b2":"#e5e7eb", borderRadius:"4px 4px 0 0", height:`${maxMois>0?Math.max((val/maxMois)*90,val>0?8:2):2}px`, transition:"height .3s", minHeight:2 }} />
+                            <div style={{ fontSize:9, color:"#9ca3af", whiteSpace:"nowrap" }}>{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Modes de paiement */}
+                    <div style={{ background:"#f8fafc", borderRadius:14, padding:16, border:"1px solid #e5e7eb" }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:"#0f172a", marginBottom:14 }}>💳 Répartition par mode</div>
+                      {Object.keys(parMode).length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"30px 0", color:"#9ca3af", fontSize:12 }}>Aucune donnée sur la période</div>
+                      ) : (
+                        Object.entries(parMode).sort((a,b)=>b[1]-a[1]).map(([mode,val]) => {
+                          const pct = totalMode > 0 ? Math.round((val/totalMode)*100) : 0;
+                          return (
+                            <div key={mode} style={{ marginBottom:10 }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                                <span style={{ fontWeight:600, color:"#374151" }}>{mode}</span>
+                                <span style={{ fontWeight:700, color:"#0891b2" }}>{formatMoney(val)} <span style={{ color:"#9ca3af", fontWeight:400 }}>({pct}%)</span></span>
+                              </div>
+                              <div style={{ background:"#e5e7eb", borderRadius:99, height:6, overflow:"hidden" }}>
+                                <div style={{ height:"100%", width:`${pct}%`, background:"#0891b2", borderRadius:99 }} />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Top commerciaux */}
+                  <div style={{ background:"#f8fafc", borderRadius:14, padding:16, border:"1px solid #e5e7eb" }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:"#0f172a", marginBottom:14 }}>🏆 Classement commerciaux — Encaissements</div>
+                    {topCommercials.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"20px 0", color:"#9ca3af", fontSize:12 }}>Aucune donnée sur la période sélectionnée</div>
+                    ) : (
+                      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                        {topCommercials.map(([nom, val], idx) => {
+                          const pct = topCommercials[0][1] > 0 ? Math.round((val/topCommercials[0][1])*100) : 0;
+                          const medals = ["🥇","🥈","🥉"];
+                          return (
+                            <div key={nom} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", borderRadius:10, padding:"10px 14px", border:"1px solid #e5e7eb" }}>
+                              <span style={{ fontSize:18, flexShrink:0 }}>{medals[idx]||`#${idx+1}`}</span>
+                              <div style={{ flex:1 }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                                  <span style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{nom}</span>
+                                  <span style={{ fontWeight:800, fontSize:13, color:"#059669" }}>{formatMoney(val)}</span>
+                                </div>
+                                <div style={{ background:"#e5e7eb", borderRadius:99, height:5 }}>
+                                  <div style={{ height:"100%", width:`${pct}%`, background: idx===0?"#059669":idx===1?"#0891b2":"#8b5cf6", borderRadius:99 }} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ================= ONGLET PAIEMENTS ================= */}
             {activeTab === "paiements" && (() => {
@@ -4361,6 +5043,8 @@ export default function SuperAdminDashboard() {
                       !p.commercial_nom?.toLowerCase().includes(q) &&
                       !p.ref_transaction?.toLowerCase().includes(q)) return false;
                 }
+                if (paiementFiltre.dateDebut && p.date_paiement < paiementFiltre.dateDebut) return false;
+                if (paiementFiltre.dateFin   && p.date_paiement > paiementFiltre.dateFin)   return false;
                 return true;
               });
 
@@ -4389,9 +5073,10 @@ export default function SuperAdminDashboard() {
                 URL.revokeObjectURL(url);
               };
 
-              const hasFilter = paiementFiltre.statut!=="Tous"||paiementFiltre.mode!=="Tous"||paiementFiltre.search;
+              const hasFilter = paiementFiltre.statut!=="Tous"||paiementFiltre.mode!=="Tous"||paiementFiltre.search||paiementFiltre.dateDebut||paiementFiltre.dateFin;
 
               return (
+                <>
                 <div>
                   {/* Header */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
@@ -4428,9 +5113,19 @@ export default function SuperAdminDashboard() {
                         style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
                         {modes.map(m=><option key={m} value={m}>{m==="Tous"?"Tous modes":m}</option>)}
                       </select>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <span style={{ fontSize:12, color:"#64748b", whiteSpace:"nowrap" }}>Du</span>
+                        <input type="date" value={paiementFiltre.dateDebut}
+                          onChange={e=>{ setPaiementFiltre(p=>({...p,dateDebut:e.target.value})); setPaiementPage(1); }}
+                          style={{ padding:"8px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, cursor:"pointer", background:"#fff" }} />
+                        <span style={{ fontSize:12, color:"#64748b" }}>au</span>
+                        <input type="date" value={paiementFiltre.dateFin}
+                          onChange={e=>{ setPaiementFiltre(p=>({...p,dateFin:e.target.value})); setPaiementPage(1); }}
+                          style={{ padding:"8px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, cursor:"pointer", background:"#fff" }} />
+                      </div>
                       <span style={{ fontSize:12, color:"#9ca3af", marginLeft:"auto" }}>{filtres.length} résultat(s)</span>
                       {hasFilter && (
-                        <button onClick={()=>{ setPaiementFiltre({statut:"Tous",mode:"Tous",search:""}); setPaiementPage(1); }}
+                        <button onClick={()=>{ setPaiementFiltre({statut:"Tous",mode:"Tous",search:"",dateDebut:"",dateFin:""}); setPaiementPage(1); }}
                           style={{ padding:"6px 12px", background:"#fee2e2", color:BET_RED, border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>✕ Réinitialiser</button>
                       )}
                     </div>
@@ -4462,7 +5157,8 @@ export default function SuperAdminDashboard() {
                               const initiales = (p.client||"?").split(" ").map(x=>x[0]||"").join("").slice(0,2).toUpperCase();
                               const solde = (p.montant_du||0) - (p.montant_recu||0);
                               return (
-                                <tr key={p.id} style={{ borderBottom:"1px solid #f1f5f9", background:"#fff" }}>
+                                <tr key={p.id} onClick={()=>setPaiementModal(p)} style={{ borderBottom:"1px solid #f1f5f9", background:"#fff", cursor:"pointer", transition:"background .15s" }}
+                                  onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
                                   <td style={{ padding:"10px 12px" }}>
                                     <div style={{ display:"flex", alignItems:"center", gap:9 }}>
                                       <div style={{ width:32, height:32, borderRadius:"50%", background:"#8b5cf620", color:"#8b5cf6", fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
@@ -4523,13 +5219,113 @@ export default function SuperAdminDashboard() {
                     </>
                   )}
                 </div>
+
+                {/* ── Modal détail paiement ── */}
+                {paiementModal && (() => {
+                  const pm = paiementModal;
+                  const STATUT_PAI_M = {
+                    paye:       { label:"✅ Payé",       bg:"#d1fae5", color:"#065f46" },
+                    en_attente: { label:"⏳ En attente", bg:"#fef9c3", color:"#854d0e" },
+                    partiel:    { label:"⚡ Partiel",    bg:"#fff7ed", color:"#92400e" },
+                    refuse:     { label:"❌ Refusé",     bg:"#fee2e2", color:"#dc2626" },
+                    rembourse:  { label:"↩ Remboursé",  bg:"#f3e8ff", color:"#7c3aed" },
+                  };
+                  const st = STATUT_PAI_M[pm.statut] || { label:pm.statut||"—", bg:"#f3f4f6", color:"#374151" };
+                  const solde = (pm.montant_du||0) - (pm.montant_recu||0);
+                  const initiales = (pm.client||"?").split(" ").map(x=>x[0]||"").join("").slice(0,2).toUpperCase();
+                  return (
+                    <div onClick={()=>setPaiementModal(null)} style={{ position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+                      <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:18, width:"100%", maxWidth:560, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 25px 60px rgba(0,0,0,0.25)" }}>
+                        {/* Header */}
+                        <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#0891b2 100%)", borderRadius:"18px 18px 0 0", padding:"20px 24px", display:"flex", alignItems:"center", gap:14 }}>
+                          <div style={{ width:52, height:52, borderRadius:"50%", background:"rgba(255,255,255,0.15)", color:"#fff", fontWeight:800, fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontWeight:800, fontSize:17, color:"#fff" }}>{pm.client}</div>
+                            <div style={{ fontSize:12, color:"rgba(255,255,255,0.7)", marginTop:2 }}>{pm.email||"Aucun email"} · {pm.telephone||"—"}</div>
+                          </div>
+                          <span style={{ padding:"4px 12px", borderRadius:20, fontSize:12, fontWeight:700, background:st.bg, color:st.color }}>{st.label}</span>
+                          <button onClick={()=>setPaiementModal(null)} style={{ background:"rgba(255,255,255,0.15)", border:"none", borderRadius:"50%", width:32, height:32, color:"#fff", cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                        </div>
+                        {/* Body */}
+                        <div style={{ padding:"24px" }}>
+                          {/* Bloc financier */}
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+                            <div style={{ background:"#f0fdf4", borderRadius:12, padding:"14px 16px", textAlign:"center", border:"1px solid #bbf7d0" }}>
+                              <div style={{ fontSize:11, color:"#16a34a", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Montant reçu</div>
+                              <div style={{ fontSize:22, fontWeight:800, color:"#15803d", marginTop:4 }}>{formatMoney(pm.montant_recu||0)}</div>
+                            </div>
+                            <div style={{ background:"#fefce8", borderRadius:12, padding:"14px 16px", textAlign:"center", border:"1px solid #fde68a" }}>
+                              <div style={{ fontSize:11, color:"#b45309", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Montant dû</div>
+                              <div style={{ fontSize:22, fontWeight:800, color:"#92400e", marginTop:4 }}>{formatMoney(pm.montant_du||0)}</div>
+                            </div>
+                            <div style={{ background: solde===0?"#f0fdf4":solde>0?"#fff7ed":"#f8fafc", borderRadius:12, padding:"14px 16px", textAlign:"center", border:`1px solid ${solde===0?"#bbf7d0":solde>0?"#fed7aa":"#e5e7eb"}` }}>
+                              <div style={{ fontSize:11, color: solde===0?"#16a34a":solde>0?"#c2410c":"#475569", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Solde</div>
+                              <div style={{ fontSize:22, fontWeight:800, color: solde===0?"#15803d":solde>0?"#ea580c":"#64748b", marginTop:4 }}>{solde===0?"Soldé":solde>0?`-${formatMoney(solde)}`:`+${formatMoney(Math.abs(solde))}`}</div>
+                            </div>
+                          </div>
+
+                          {/* Infos détail */}
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+                            {[
+                              ["📋 Inscription",     pm.inscription||"—"],
+                              ["💳 Mode de paiement", pm.mode_paiement||"—"],
+                              ["📅 Date",            pm.date_paiement ? new Date(pm.date_paiement).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"}) : "—"],
+                              ["🔖 Réf. transaction", pm.ref_transaction||"—"],
+                              ["👤 Commercial(e)",   pm.commercial_nom||"—"],
+                              ["🏷️ ID paiement",     pm.id?.slice(0,8)+"…"||"—"],
+                              ["📧 Email",           pm.email||"—"],
+                              ["📞 Téléphone",       pm.telephone||"—"],
+                            ].map(([label,val])=>(
+                              <div key={label} style={{ background:"#f8fafc", borderRadius:10, padding:"10px 14px" }}>
+                                <div style={{ fontSize:11, color:"#9ca3af", marginBottom:3 }}>{label}</div>
+                                <div style={{ fontSize:13, fontWeight:600, color:"#0f172a", wordBreak:"break-all" }}>{val}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Notes */}
+                          {pm.notes && (
+                            <div style={{ background:"#fefce8", borderRadius:10, padding:"12px 14px", marginBottom:16, border:"1px solid #fde68a" }}>
+                              <div style={{ fontSize:11, color:"#92400e", fontWeight:600, marginBottom:4 }}>📝 Notes</div>
+                              <div style={{ fontSize:13, color:"#78350f" }}>{pm.notes}</div>
+                            </div>
+                          )}
+
+                          {/* Preuve image */}
+                          {pm.preuve_image && (
+                            <div style={{ marginBottom:16 }}>
+                              <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:8 }}>🖼️ Preuve de paiement</div>
+                              <img src={pm.preuve_image} alt="Preuve" style={{ maxWidth:"100%", borderRadius:10, border:"1px solid #e5e7eb" }} onError={e=>{e.currentTarget.style.display="none";}} />
+                            </div>
+                          )}
+
+                          <button onClick={()=>setPaiementModal(null)} style={{ width:"100%", padding:12, background:"#f1f5f9", border:"none", borderRadius:10, fontSize:14, fontWeight:600, color:"#374151", cursor:"pointer" }}>Fermer</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                </>
               );
             })()}
 
 
-            {/* ================= ONGLET PROGRESSION APPRENANTS ================= */}
-            {activeTab === "progression" && (
+            {/* ================= ONGLET APPRENANTS & PROGRESSION ================= */}
+            {activeTab === "suivi_apprenants" && apprenantSubTab === "progression" && (
               <div>
+                {/* Sous-onglets */}
+                <div style={{ display:"flex", gap:4, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+                  {[{ key:"liste", label:"🎓 Liste apprenants" }, { key:"progression", label:"📈 Progression" }].map(st => (
+                    <button key={st.key} onClick={()=>setApprenantSubTab(st.key)}
+                      style={{ padding:"7px 16px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:"pointer",
+                        background: apprenantSubTab===st.key ? "#fff" : "transparent",
+                        color:      apprenantSubTab===st.key ? "#0891b2" : "#64748b",
+                        boxShadow:  apprenantSubTab===st.key ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                        transition:"all .15s" }}>
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                   <div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>📈 Progression des apprenants — Vue globale</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Indicateurs pédagogiques de l'ensemble de la plateforme</p></div>
                 </div>
@@ -4564,56 +5360,6 @@ export default function SuperAdminDashboard() {
                       </div>
                     ))}
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* ================= ONGLET REQUÊTES & SUPPORT ================= */}
-            {activeTab === "support" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-                  <div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🛠️ Requêtes & Support — Toutes les structures</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Suivi global des demandes clients et temps de traitement</p></div>
-                  <button onClick={()=>toast.success("Export des requêtes effectué")} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export requêtes</button>
-                </div>
-                <div style={{ display:"flex", gap:12, marginBottom:20 }}>
-                  <StatCard label="Requêtes ouvertes" value={SA_REQUETES.filter(r=>r.statut==="ouvert").length} color={BET_RED} icon="🔴" />
-                  <StatCard label="En cours" value={SA_REQUETES.filter(r=>r.statut==="en_cours").length} color="#f59e0b" icon="🟡" />
-                  <StatCard label="Résolues" value={SA_REQUETES.filter(r=>r.statut==="résolu").length} color="#22c55e" icon="🟢" />
-                  <StatCard label="Temps moyen traitement" value={`${SA_TEMPS_MOYEN} h`} color="#7c3aed" icon="⏱️" />
-                </div>
-                <div style={{ overflowX:"auto", marginBottom:16 }}>
-                  <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                    <thead><tr style={{ background:"#f9fafb", fontSize:12, color:"#6b7280" }}>
-                      <th style={{ padding:10, textAlign:"left" }}>Client</th>
-                      <th style={{ padding:10, textAlign:"left" }}>Sujet</th>
-                      <th style={{ padding:10 }}>Catégorie</th>
-                      <th style={{ padding:10 }}>Statut</th>
-                      <th style={{ padding:10 }}>Date</th>
-                      <th style={{ padding:10 }}>Traitement (h)</th>
-                    </tr></thead>
-                    <tbody>
-                      {SA_REQUETES.map(r => (
-                        <tr key={r.id} style={{ borderTop:"1px solid #e5e7eb", fontSize:12 }}>
-                          <td style={{ padding:8 }}><strong>{r.client}</strong></td>
-                          <td style={{ padding:8 }}>{r.sujet}</td>
-                          <td style={{ padding:8 }}><span style={{ padding:"2px 8px", borderRadius:8, background:"#f3f4f6", fontSize:11 }}>{r.categorie}</span></td>
-                          <td style={{ padding:8 }}>
-                            <span style={{ padding:"2px 8px", borderRadius:10, fontWeight:700, fontSize:11, background:r.statut==="ouvert"?"#fee2e2":r.statut==="en_cours"?"#fef3c7":"#dcfce7", color:r.statut==="ouvert"?"#dc2626":r.statut==="en_cours"?"#92400e":"#166534" }}>
-                              {r.statut}
-                            </span>
-                          </td>
-                          <td style={{ padding:8, color:"#6b7280" }}>{formatDate(r.date)}</td>
-                          <td style={{ padding:8, fontWeight:600 }}>{r.tempsTraitement || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ background:"#f8fafc", borderRadius:12, padding:14, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
-                  {["Technique","Facturation","Certification","Pédagogique"].map(cat => {
-                    const count = SA_REQUETES.filter(r=>r.categorie===cat).length;
-                    return <div key={cat} style={{ background:"#fff", borderRadius:8, padding:"10px 12px", border:"1px solid #e5e7eb", textAlign:"center" }}><div style={{ fontSize:11, color:"#9ca3af" }}>{cat}</div><div style={{ fontSize:20, fontWeight:800, color:BET_COLOR }}>{count}</div></div>;
-                  })}
                 </div>
               </div>
             )}
@@ -4777,8 +5523,8 @@ export default function SuperAdminDashboard() {
               );
             })()}
 
-            {/* ================= ONGLET APPRENANTS ================= */}
-            {activeTab === "apprenants" && (() => {
+            {/* ================= ONGLET APPRENANTS — liste ================= */}
+            {activeTab === "suivi_apprenants" && apprenantSubTab === "liste" && (() => {
               const STATUT_LABEL = { nouveau:"Nouveau", contacte:"Contacté", en_cours:"En cours", converti:"Converti", annule:"Annulé", termine:"Terminé" };
               const STATUT_STYLE = {
                 nouveau:  { bg:"#eff6ff", color:BET_COLOR },
@@ -4829,6 +5575,19 @@ export default function SuperAdminDashboard() {
 
               return (
                 <div>
+                  {/* Sous-onglets */}
+                  <div style={{ display:"flex", gap:4, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+                    {[{ key:"liste", label:"🎓 Liste apprenants" }, { key:"progression", label:"📈 Progression" }].map(st => (
+                      <button key={st.key} onClick={()=>setApprenantSubTab(st.key)}
+                        style={{ padding:"7px 16px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:"pointer",
+                          background: apprenantSubTab===st.key ? "#fff" : "transparent",
+                          color:      apprenantSubTab===st.key ? "#0891b2" : "#64748b",
+                          boxShadow:  apprenantSubTab===st.key ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                          transition:"all .15s" }}>
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
                   {/* Header */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                     <div>
@@ -5273,6 +6032,82 @@ export default function SuperAdminDashboard() {
               </div>
             )}
 
+            {/* ── Section Coach ── */}
+            {inviteForm.role === "coach" && (
+              <div style={{ marginBottom:14, padding:"16px 18px", borderRadius:12, background:"#eef2ff", border:"2px solid #c7d2fe" }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"#3730a3", marginBottom:14, display:"flex", alignItems:"center", gap:6 }}>
+                  🎓 Profil coach
+                </div>
+
+                {/* Photo */}
+                <div style={{ marginBottom:14, display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ width:72, height:72, borderRadius:12, overflow:"hidden", background:"#e0e7ff", border:"2px solid #c7d2fe", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    {inviteForm.coach_photo
+                      ? <img src={inviteForm.coach_photo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                      : <span style={{ fontSize:28, color:"#6366f1" }}>👤</span>
+                    }
+                  </div>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginBottom:6 }}>Photo du coach</div>
+                    <label style={{ padding:"7px 14px", background:inviteCoachPhotoUploading?"#e0e7ff":"#6366f1", color:"#fff", borderRadius:7, fontSize:12, fontWeight:600, cursor:inviteCoachPhotoUploading?"not-allowed":"pointer", display:"inline-block" }}>
+                      {inviteCoachPhotoUploading ? "⏳ Upload…" : "📷 Choisir une photo"}
+                      <input type="file" accept="image/*" style={{ display:"none" }} disabled={inviteCoachPhotoUploading}
+                        onChange={e => { if (e.target.files?.[0]) uploadInviteCoachPhoto(e.target.files[0]); }} />
+                    </label>
+                    {inviteForm.coach_photo && (
+                      <button onClick={()=>setInviteForm(p=>({...p,coach_photo:""}))}
+                        style={{ marginLeft:8, padding:"6px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, fontSize:11, cursor:"pointer", fontWeight:600 }}>
+                        ✕ Retirer
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Matricule + Filière */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  <div>
+                    <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Matricule</label>
+                    <input value={inviteForm.coach_matricule} onChange={e=>setInviteForm(p=>({...p,coach_matricule:e.target.value}))}
+                      style={{ padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:13, width:"100%", boxSizing:"border-box" }}
+                      placeholder="EX : BET-C-001" />
+                  </div>
+                  <div>
+                    <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Filière / Spécialité</label>
+                    <select value={inviteForm.coach_filiere} onChange={e=>setInviteForm(p=>({...p,coach_filiere:e.target.value}))}
+                      style={{ padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:13, width:"100%", background:"#fff", boxSizing:"border-box" }}>
+                      <option value="">— Choisir —</option>
+                      {["Anglais Général","Anglais Business","Préparation TOEIC","Préparation IELTS","Préparation TOEFL","Anglais Enfants","Prise de parole","Traduction","Autre"].map(f=>(
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Lieu d'habitation + Date début */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  <div>
+                    <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Lieu d'habitation</label>
+                    <input value={inviteForm.coach_lieu_habitation} onChange={e=>setInviteForm(p=>({...p,coach_lieu_habitation:e.target.value}))}
+                      style={{ padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:13, width:"100%", boxSizing:"border-box" }}
+                      placeholder="Ex : Cocody, Abidjan" />
+                  </div>
+                  <div>
+                    <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Date de début à BET</label>
+                    <input type="date" value={inviteForm.coach_date_debut} onChange={e=>setInviteForm(p=>({...p,coach_date_debut:e.target.value}))}
+                      style={{ padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:13, width:"100%", boxSizing:"border-box" }} />
+                  </div>
+                </div>
+
+                {/* Nb contrats actifs */}
+                <div>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Nombre de contrats actifs</label>
+                  <input type="number" min={0} value={inviteForm.coach_nb_contrats}
+                    onChange={e=>setInviteForm(p=>({...p,coach_nb_contrats:parseInt(e.target.value)||0}))}
+                    style={{ width:100, padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:14, fontWeight:700, textAlign:"center" }} />
+                </div>
+              </div>
+            )}
+
             {/* Note */}
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Note interne (optionnel)</label>
             <textarea value={inviteForm.note} onChange={e=>setInviteForm({...inviteForm,note:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%", minHeight:52, resize:"vertical", marginBottom:14 }} placeholder="Note visible uniquement par les admins…"/>
@@ -5544,6 +6379,14 @@ export default function SuperAdminDashboard() {
           {activeTab === "messages" && (
             <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
               <MessagerieTab />
+            </div>
+          )}
+          {activeTab === "notifications" && (
+            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+              <NotificationsTab
+                userId={JSON.parse(localStorage.getItem("admin_profil") || "null")?.id}
+                accentColor="#0f172a"
+              />
             </div>
           )}
           {activeTab === "messages_old_DISABLED" && (

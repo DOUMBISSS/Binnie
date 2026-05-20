@@ -21,10 +21,13 @@ import centresRouter      from "./routes/centres.js";
 import blogRouter         from "./routes/blog.js";
 import temoignagesRouter  from "./routes/temoignages.js";
 import equipePhotosRouter from "./routes/equipePhotos.js";
+import partenairesRouter  from "./routes/partenaires.js";
 import boutiqueRouter     from "./routes/boutique.js";
 import parcoursRouter     from "./routes/parcours.js";
 import corporateRouter    from "./routes/corporate.js";
 import marqueeRouter      from "./routes/marquee.js";
+import codesPromoRouter   from "./routes/codesPromo.js";
+import avisRouter         from "./routes/avis.js";
 
 const app = express();
 
@@ -66,9 +69,12 @@ app.use("/api/centres",   centresRouter);
 app.use("/api/blog",         blogRouter);
 app.use("/api/temoignages",  temoignagesRouter);
 app.use("/api/equipe-photos", equipePhotosRouter);
+app.use("/api/partenaires",  partenairesRouter);
 app.use("/api/boutique",     boutiqueRouter);
 app.use("/api/parcours",     parcoursRouter);
 app.use("/api/corporate",   corporateRouter);
-app.use("/api/marquee",     marqueeRouter);
+app.use("/api/marquee",      marqueeRouter);
+app.use("/api/codes-promo",  codesPromoRouter);
+app.use("/api/avis",         avisRouter);
 
 export default app;

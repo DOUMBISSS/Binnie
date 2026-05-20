@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CHARTE BET
@@ -351,7 +352,8 @@ export default function DataCollectorDashboard() {
     { key:"prospects",  label:"Prospects",           icon:"🎯", badge: prospects.filter(p=>p.statut==="à_relancer").length },
     { key:"import",     label:"Import fichiers",     icon:"📥" },
     { key:"qualite",    label:"Qualité des données", icon:"✅" },
-    { key:"historique", label:"Historique",          icon:"🕐" },
+    { key:"historique",    label:"Historique",     icon:"🕐" },
+    { key:"notifications", label:"Notifications",  icon:"🔔" },
   ];
 
   return (
@@ -909,6 +911,13 @@ export default function DataCollectorDashboard() {
                 </div>
               </div>
             )}
+            {/* ══════ NOTIFICATIONS ══════ */}
+            {activeTab==="notifications" && (
+              <div style={{ padding:"24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#0891b2" />
+              </div>
+            )}
+
           </div>
         </div>
       </div>

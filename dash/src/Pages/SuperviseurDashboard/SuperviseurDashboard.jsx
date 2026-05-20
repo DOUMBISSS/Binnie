@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 const PRIMARY_COLOR   = "#b45309";
 const PRIMARY_LIGHT   = "#fffbeb";
@@ -164,11 +165,12 @@ export default function SuperviseurDashboard() {
   const selectSt = { padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, background:"#fff", fontFamily:FF };
 
   const TABS = [
-    { key:"dashboard",  label:"Tableau de bord",    icon:"📊" },
-    { key:"assiduite",  label:"Assiduité apprenants",icon:"📅", badge:stats.alertes },
-    { key:"horaires",   label:"Horaires coaches",    icon:"⏱️", badge:stats.coachsPb },
-    { key:"qualite",    label:"Rapports qualité",    icon:"⭐", badge:stats.evalFaibles },
-    { key:"incidents",  label:"Alertes & escalades", icon:"🚨", badge:stats.incidentsOuverts },
+    { key:"dashboard",     label:"Tableau de bord",    icon:"📊" },
+    { key:"assiduite",     label:"Assiduité apprenants",icon:"📅", badge:stats.alertes },
+    { key:"horaires",      label:"Horaires coaches",    icon:"⏱️", badge:stats.coachsPb },
+    { key:"qualite",       label:"Rapports qualité",    icon:"⭐", badge:stats.evalFaibles },
+    { key:"incidents",     label:"Alertes & escalades", icon:"🚨", badge:stats.incidentsOuverts },
+    { key:"notifications", label:"Notifications",       icon:"🔔", count: null },
   ];
 
   const assidColor = (pct) => pct>=90?"#16a34a":pct>=70?"#d97706":"#dc2626";
@@ -496,6 +498,12 @@ export default function SuperviseurDashboard() {
             )}
 
             {/* ══════ INCIDENTS ══════ */}
+            {activeTab==="notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#b45309" />
+              </div>
+            )}
+
             {activeTab==="incidents" && (
               <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>

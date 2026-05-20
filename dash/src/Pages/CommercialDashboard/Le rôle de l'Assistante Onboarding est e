@@ -205,7 +205,6 @@ je voulais que l'assistante ajoute quelques choses comme une note ou remarque (A
 
 ou s'il refuse par exemple on mettra refusé dans l'onglet "Prospects parcours" ?? et tout cela disparaitra de l'onglet 
 
-mais dans le cadre ou le prospect pâie directement c'est qu'il est daccord donc validation 
 
 
 est-ce supabase pourra supporter tout ces fichiers alors qu'on a cloudinary pour stocker tout nos fichiers ???
@@ -258,8 +257,6 @@ etape 4 : Style de coaching (privé ou groupe)
 etape 5 : Paiement ( mobile money , Carte bancaire , Espèces)
 
 
-changement pour assistantes en ligne , elle n'ont pas de centre attribué donc on peut les mettre non assigné 
-
 
 ajouter des photos aux differents profils des users qui seront afficher sur les dashboards et le site web (differents parcours ou l'ont affichera les assistantes) 
 
@@ -289,3 +286,27 @@ FAQ — paires question/réponse
 Saving writes to localStorage["bet_course_apercu_config"] and syncs to Supabase (course_apercu_config).
 
 CourseDetail.jsx — reads bet_course_apercu_config on 
+
+
+ Offre spéciale · Se termine dans 23:14:05 pour les certifications ajouté une expiration de promo au modal de config dans superAdmin comme indqiué sur la page certificationDetail . 
+
+ mais est-ce possible d'appliquer des offres promos sur les offres avec des codes promos expirables ou non  . et ces meme codes promo pourront etre appliqués aux montant pour le deduire du montant avant validation denpaiement  configurer depuis le superAdmin dashboard malgré 
+
+
+ est-ce possible d'intégrer des images soft dans les cards pour rendre plus attractives
+
+
+Toutes les offres sur la page parcours entreprise doivent etre redirigé vers l'assistante corporate . tous les formulaires doivent concernant les entreprises , les demandes de devis doivent etre redirigé vers l'assistante B2B****
+
+
+je veux configurer un mail central et un numero whatsapp qui sera pour le bouton whatsapp flottant et le footer avec la page contact
+
+
+dans "Mon espace " l'onglet Conseille et contact : lorsqu'il choisi son assistante elle doit etre notifié dans le dashboard de l'assiatnte concernée dans l'onglet "Prospect Parcours" pour une prise en charge meme si le prospect ne termine pas son parcours dans "Mon espace" et meme ailleurs . le but c'est que l'assistante le contact pour une prise en charge des l'instant il l'a choisi
+
+
+supposons que le prospect fasse le choix de l'offre et l'assistante depuis "Mon espace" comment la page de test de niveau et les differents parcours des autres pages s'adapte t il deja 
+
+
+voir le processus de l'ajout de la formation dans le modal de paiement et de finalisation directement vu que les formations et les couts sont disponibles donc faire un select du type de cours et choisir ainsi de suite .
+

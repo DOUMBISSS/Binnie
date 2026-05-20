@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+// useNavigate removed — auth redirect now via bet:openLoginModal event
 import { supabase } from "../../config/supabase";
+import PromosBanner from "../Components/PromosBanner/PromosBanner";
 
 const API           = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const LS_OFFRES_KEY = "bet_offres_en_ligne";
@@ -87,8 +88,6 @@ const primaryBtn = { width:"100%", padding:"13px 0", background:`linear-gradient
    Étape 3 : Succès
 ════════════════════════════════════════════════════════ */
 export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistante }) {
-  const navigate = useNavigate();
-
   const [sbUser,            setSbUser]        = useState(null);
   const [step,              setStep]          = useState(0);
   const [offres,            setOffres]        = useState([]);
@@ -105,16 +104,17 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
   const [mmOption,     setMmOption]     = useState(null);
   const [submitting,   setSubmitting]   = useState(false);
 
-  /* ── Session Supabase ── */
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSbUser(session?.user || null);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setSbUser(session?.user || null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  /* Code promo */
+  const [codePromo,        setCodePromo]        = useState("");
+  const [codePromoApplied, setCodePromoApplied] = useState(null); // { code, type_reduction, valeur, description }
+  const [codePromoLoading, setCodePromoLoading] = useState(false);
+  const [codePromoError,   setCodePromoError]   = useState("");
+
+  /* Auth inline */
+  const [authTab,     setAuthTab]     = useState("login");
+  const [authFormCel, setAuthFormCel] = useState({ email:"", password:"", prenom:"", nom:"", telephone:"" });
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authErr,     setAuthErr]     = useState("");
 
   const prefillForm = useCallback((u) => {
     if (!u) return;
@@ -124,6 +124,19 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
       : meta.full_name || u.email?.split("@")[0] || "";
     setForm({ nom, email: u.email || "", telephone: meta.telephone || "" });
   }, []);
+
+  /* ── Session Supabase ── */
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSbUser(session?.user || null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      const u = session?.user || null;
+      setSbUser(u);
+      if (u) { prefillForm(u); setAuthErr(""); }
+    });
+    return () => subscription.unsubscribe();
+  }, [prefillForm]);
 
   /* ── Chargement à l'ouverture ── */
   useEffect(() => {
@@ -136,6 +149,10 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     setFormErrors({});
     setModePaiement(null);
     setMmOption(null);
+    setCodePromo(""); setCodePromoApplied(null); setCodePromoError("");
+    setAuthTab("login"); setAuthFormCel({ email:"", password:"", prenom:"", nom:"", telephone:"" }); setAuthErr("");
+    // Pre-fill if user is already logged in
+    if (sbUser) prefillForm(sbUser);
     setOffres(lireOffresEnLigne());
 
     // Sync depuis Supabase (dashboard sur port différent — localStorage non partagé)
@@ -152,7 +169,7 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [isOpen]);
+  }, [isOpen, sbUser, prefillForm]);
 
   /* ── Charger assistantes à l'étape 1 ── */
   useEffect(() => {
@@ -175,6 +192,7 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     setFormErrors({});
     setModePaiement(null);
     setMmOption(null);
+    setCodePromo(""); setCodePromoApplied(null); setCodePromoError("");
     onClose();
   }, [onClose]);
 
@@ -188,11 +206,25 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     setErreur("");
     if (!sbUser) {
       setStep("authgate");
+      window.dispatchEvent(new CustomEvent("bet:openLoginModal", {
+        detail: {
+          returnUrl: window.location.pathname + window.location.search,
+          context: { type: "centres_en_ligne" }
+        }
+      }));
     } else {
       prefillForm(sbUser);
       setStep(2);
     }
   };
+
+  // Lorsque l'utilisateur se connecte depuis la modale ouverte sur auth gate, passer auto à l'étape 2
+  useEffect(() => {
+    if (step === "authgate" && sbUser) {
+      prefillForm(sbUser);
+      setStep(2);
+    }
+  }, [sbUser, step, prefillForm]);
 
   const validateForm = () => {
     const errs = {};
@@ -200,6 +232,26 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     if (!form.telephone.trim()) errs.telephone = "Numéro WhatsApp requis";
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
+  };
+
+  const validerCodePromo = async () => {
+    const code = codePromo.trim().toUpperCase();
+    if (!code) return;
+    setCodePromoLoading(true);
+    setCodePromoError("");
+    setCodePromoApplied(null);
+    try {
+      const token = localStorage.getItem("bet_token") || localStorage.getItem("admin_token") || "";
+      const r = await fetch(`${API}/api/codes-promo/valider`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ code, offre_type: "en_ligne" }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setCodePromoError(d.error || "Code invalide"); return; }
+      setCodePromoApplied(d);
+    } catch { setCodePromoError("Impossible de vérifier le code"); }
+    finally { setCodePromoLoading(false); }
   };
 
   const submitInscription = async () => {
@@ -220,6 +272,7 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
           mode_paiement:      modePaiement === "mobile_money"
                                 ? `mobile_money_${mmOption || "autre"}`
                                 : modePaiement || undefined,
+          code_promo:         codePromoApplied?.code || undefined,
         }),
       });
       const d = await r.json();
@@ -230,6 +283,37 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleAuthLogin = async () => {
+    if (!authFormCel.email || !authFormCel.password) return setAuthErr("Email et mot de passe requis.");
+    setAuthLoading(true); setAuthErr("");
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authFormCel.email, password: authFormCel.password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Email ou mot de passe incorrect");
+      await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+    } catch (err) { setAuthErr(err.message); }
+    finally { setAuthLoading(false); }
+  };
+
+  const handleAuthRegister = async () => {
+    if (!authFormCel.prenom || !authFormCel.nom || !authFormCel.email || !authFormCel.password) return setAuthErr("Tous les champs * sont requis.");
+    setAuthLoading(true); setAuthErr("");
+    try {
+      const res = await fetch(`${API}/api/auth/register`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nom: authFormCel.nom, prenom: authFormCel.prenom, email: authFormCel.email, telephone: authFormCel.telephone, password: authFormCel.password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur lors de l'inscription");
+      const { error } = await supabase.auth.signInWithPassword({ email: authFormCel.email, password: authFormCel.password });
+      if (error) throw new Error(error.message);
+    } catch (err) { setAuthErr(err.message); }
+    finally { setAuthLoading(false); }
   };
 
   if (!isOpen) return null;
@@ -275,6 +359,11 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
           ═══════════════════════════════════════════════ */}
           {step === 0 && (
             <div style={{ animation:"celFU .3s ease" }}>
+              <PromosBanner
+                offreType="en_ligne"
+                accentColor={BET_BLUE}
+                onApply={(code) => { setCodePromo(code); setCodePromoApplied(null); setCodePromoError(""); }}
+              />
               <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:20, lineHeight:1.6 }}>
                 Découvrez nos formules de cours en ligne. Apprenez où que vous soyez, à votre rythme, avec nos assistantes dédiées.
               </p>
@@ -465,18 +554,36 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
                 <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700, flexShrink:0 }}>✓ Sélectionnée</span>
               </div>
 
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                <button
-                  onClick={() => { handleClose(); navigate("/mon-espace"); }}
-                  style={{ ...primaryBtn, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-                  🔑 Se connecter / Créer mon espace →
-                </button>
-                <button
-                  onClick={() => setStep(1)}
-                  style={{ background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:".82rem", fontFamily:F, padding:"6px 0" }}>
-                  ← Choisir une autre assistante
-                </button>
+              {/* Tabs */}
+              <div style={{ display:"flex", borderRadius:10, overflow:"hidden", border:"1.5px solid #e2e8f0", marginBottom:16 }}>
+                {[["login","Se connecter"],["register","Créer un compte"]].map(([t,l]) => (
+                  <button key={t} onClick={() => setAuthTab(t)} style={{ flex:1, padding:"10px 0", border:"none", fontWeight:700, fontSize:".84rem", cursor:"pointer", background:authTab===t?BET_NAVY:"#fff", color:authTab===t?"#fff":"#374151", transition:"background .2s" }}>{l}</button>
+                ))}
               </div>
+              {authTab === "login" ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <input style={{ ...inputStyle }} type="email" placeholder="Email *" value={authFormCel.email} onChange={e=>setAuthFormCel(p=>({...p,email:e.target.value}))} />
+                  <input style={{ ...inputStyle }} type="password" placeholder="Mot de passe *" value={authFormCel.password} onChange={e=>setAuthFormCel(p=>({...p,password:e.target.value}))} />
+                </div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <input style={{ ...inputStyle }} placeholder="Prénom *" value={authFormCel.prenom} onChange={e=>setAuthFormCel(p=>({...p,prenom:e.target.value}))} />
+                    <input style={{ ...inputStyle }} placeholder="Nom *" value={authFormCel.nom} onChange={e=>setAuthFormCel(p=>({...p,nom:e.target.value}))} />
+                  </div>
+                  <input style={{ ...inputStyle }} type="email" placeholder="Email *" value={authFormCel.email} onChange={e=>setAuthFormCel(p=>({...p,email:e.target.value}))} />
+                  <input style={{ ...inputStyle }} placeholder="Téléphone" value={authFormCel.telephone} onChange={e=>setAuthFormCel(p=>({...p,telephone:e.target.value}))} />
+                  <input style={{ ...inputStyle }} type="password" placeholder="Mot de passe *" value={authFormCel.password} onChange={e=>setAuthFormCel(p=>({...p,password:e.target.value}))} />
+                </div>
+              )}
+              {authErr && <p style={{ fontSize:".78rem", margin:"8px 0 0", color:"#dc2626", textAlign:"center" }}>{authErr}</p>}
+              <button onClick={authTab==="login" ? handleAuthLogin : handleAuthRegister} disabled={authLoading}
+                style={{ width:"100%", marginTop:14, padding:"12px", background:BET_NAVY, color:"#fff", border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", opacity:authLoading?.7:1, fontFamily:F, fontSize:".9rem" }}>
+                {authLoading ? "Chargement…" : authTab==="login" ? "Se connecter" : "Créer mon compte"}
+              </button>
+              <button onClick={() => setStep(1)} style={{ width:"100%", marginTop:10, padding:"10px", background:"transparent", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:8, fontWeight:600, fontSize:".82rem", cursor:"pointer", fontFamily:F }}>
+                ← Choisir une autre assistante
+              </button>
             </div>
           )}
 
@@ -569,6 +676,37 @@ export default function CentresEnLigneModal({ isOpen, onClose, onSelectAssistant
                     placeholder="votre@email.com" type="email"
                     style={inputStyle} />
                 </div>
+              </div>
+
+              {/* Code promo */}
+              <div style={{ marginBottom:16 }}>
+                <p style={{ fontSize:".78rem", fontWeight:700, color:"#374151", marginBottom:8 }}>🏷️ Code promo <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnel)</span></p>
+                {codePromoApplied ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px" }}>
+                    <span style={{ fontSize:"1.1rem" }}>✅</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:".82rem", color:"#166534" }}>{codePromoApplied.code} appliqué !</div>
+                      <div style={{ fontSize:".72rem", color:"#166534" }}>
+                        Réduction : {codePromoApplied.type_reduction === "pourcentage" ? `-${codePromoApplied.valeur}%` : `-${Number(codePromoApplied.valeur).toLocaleString("fr-FR")} FCFA`}
+                        {codePromoApplied.description && <span> · {codePromoApplied.description}</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => { setCodePromoApplied(null); setCodePromo(""); setCodePromoError(""); }}
+                      style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:16, padding:0 }}>✕</button>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input value={codePromo} onChange={e => { setCodePromo(e.target.value.toUpperCase()); setCodePromoError(""); }}
+                      onKeyDown={e => e.key === "Enter" && validerCodePromo()}
+                      placeholder="Ex : BET2025"
+                      style={{ flex:1, padding:"10px 13px", border:`1.5px solid ${codePromoError?"#dc2626":"#e2e8f0"}`, borderRadius:9, fontSize:".82rem", fontFamily:"monospace", letterSpacing:1, outline:"none" }} />
+                    <button onClick={validerCodePromo} disabled={!codePromo.trim() || codePromoLoading}
+                      style={{ padding:"0 16px", background:BET_BLUE, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:".78rem", opacity:(!codePromo.trim()||codePromoLoading)?.5:1, whiteSpace:"nowrap" }}>
+                      {codePromoLoading ? "⏳" : "Appliquer"}
+                    </button>
+                  </div>
+                )}
+                {codePromoError && <p style={{ margin:"5px 0 0", fontSize:".72rem", color:"#dc2626" }}>{codePromoError}</p>}
               </div>
 
               {/* Mode de paiement */}

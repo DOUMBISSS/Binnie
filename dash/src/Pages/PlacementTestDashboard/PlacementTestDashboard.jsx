@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CHARTE COULEURS — Agent Placement Test
@@ -170,7 +171,8 @@ export default function PlacementTestDashboard() {
   const TABS = [
     { key:"file",      label:"File d'attente",  icon:"📥", badge:stats.enAttente },
     { key:"validés",   label:"Validés",          icon:"✅" },
-    { key:"rapports",  label:"Rapports",         icon:"📊" },
+    { key:"rapports",       label:"Rapports",       icon:"📊" },
+    { key:"notifications",  label:"Notifications",  icon:"🔔" },
   ];
 
   const selectSt = { padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, background:"#fff", fontFamily:FF };
@@ -434,6 +436,13 @@ export default function PlacementTestDashboard() {
                     })}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ══════ NOTIFICATIONS ══════ */}
+            {activeTab === "notifications" && (
+              <div style={{ padding:"24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#0891b2" />
               </div>
             )}
 

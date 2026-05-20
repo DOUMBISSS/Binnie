@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CHARTE COULEURS — Comptable / Trésorier
@@ -200,11 +201,12 @@ export default function ComptableDashboard() {
   };
 
   const TABS = [
-    { key:"dashboard",  label:"Tableau de bord",   icon:"📊" },
-    { key:"paiements",  label:"Paiements",          icon:"💳", badge: stats.impayés },
-    { key:"honoraires", label:"Honoraires coaches", icon:"💰", badge: stats.aPayerHon },
-    { key:"rapports",   label:"Rapports financiers",icon:"📈" },
-    { key:"exports",    label:"Exports comptables", icon:"📤" },
+    { key:"dashboard",     label:"Tableau de bord",   icon:"📊" },
+    { key:"paiements",     label:"Paiements",          icon:"💳", badge: stats.impayés },
+    { key:"honoraires",    label:"Honoraires coaches", icon:"💰", badge: stats.aPayerHon },
+    { key:"rapports",      label:"Rapports financiers",icon:"📈" },
+    { key:"exports",       label:"Exports comptables", icon:"📤" },
+    { key:"notifications", label:"Notifications",      icon:"🔔", count: null },
   ];
 
   const selectSt = { padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, background:"#fff", fontFamily:FF };
@@ -610,6 +612,12 @@ export default function ComptableDashboard() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {activeTab === "notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#d97706" />
               </div>
             )}
 

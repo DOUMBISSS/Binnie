@@ -84,7 +84,11 @@ const plansEnfant = [
 ];
 
 const NAV_DROPDOWNS = [
-  { key:"offres",         label:"Nos offres",     links:[{to:"/parcours/particulier",l:"Particuliers"},{to:"/parcours/entreprise",l:"Entreprises"},{to:"/parcours/enfant",l:"Enfants"}] },
+  { key:"offres",         label:"Nos offres",     links:[
+    // {to:"/parcours/particulier",l:"Particuliers"},
+    {to:"/parcours/entreprise",l:"Entreprises"},
+    // {to:"/parcours/enfant",l:"Enfants"},
+    {to:"/service/interpretariat",l:"Interprétariat"}] },
   { key:"cours",          label:"Nos cours",      links:[{to:"/cours/en-ligne",l:"Cours en ligne"},{to:"/cours/cabinet",l:"Cours aux cabinets"},{to:"/cours/domicile",l:"Cours à domicile"}] },
   { key:"certifications", label:"Certifications", links:[{to:"/certification/toeic",l:"TOEIC"},{to:"/certification/toefl",l:"TOEFL"},{to:"/certification/ielts",l:"IELTS"}] },
 ];
@@ -302,11 +306,13 @@ const Navbar = () => {
     const fullName = (meta.nom && meta.prenom)
       ? `${meta.nom} ${meta.prenom}`
       : meta.full_name || supaUser.email.split("@")[0];
+    const roleRaw = meta.role || "prospect";
+    const roleLabel = roleRaw === "apprenant" ? "Apprenant BET" : "Prospect";
     return {
       ...supaUser,
       name: fullName,
       avatar: meta.bet_avatar_url || null,
-      role: "Apprenant",
+      role: roleLabel,
     };
   };
 
@@ -341,6 +347,18 @@ const Navbar = () => {
         setUser(buildUser(session.user));
         syncProfile(session);
         setIsModalOpen(false);
+        // Redirige vers la page d'origine si l'user venait d'une auth gate (Google OAuth notamment)
+        const pending = sessionStorage.getItem("bet_pending_auth");
+        if (pending) {
+          try {
+            const { returnUrl, context } = JSON.parse(pending);
+            sessionStorage.removeItem("bet_pending_auth");
+            if (context && Object.keys(context).length) {
+              sessionStorage.setItem("bet_return_context", JSON.stringify(context));
+            }
+            navigate(returnUrl + (returnUrl.includes("?") ? "&" : "?") + "openPayment=1");
+          } catch {}
+        }
       } else if (event === "SIGNED_OUT") {
         setUser(null);
       } else if (event === "TOKEN_REFRESHED" && session?.user) {
@@ -350,8 +368,24 @@ const Navbar = () => {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // Ouvrir la modale de connexion à la demande d'une autre page (auth gate)
+    const handleOpenLogin = (e) => {
+      if (e.detail?.returnUrl) {
+        sessionStorage.setItem("bet_pending_auth", JSON.stringify({
+          returnUrl: e.detail.returnUrl,
+          context:   e.detail.context || {}
+        }));
+      }
+      setActiveTab("login");
+      setIsModalOpen(true);
+    };
+    window.addEventListener("bet:openLoginModal", handleOpenLogin);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("bet:openLoginModal", handleOpenLogin);
+    };
+  }, [navigate]);
 
   /* ── Connexion email/password ── */
   const handleLogin = async (e) => {
@@ -718,14 +752,14 @@ const Navbar = () => {
         {/* ── Ligne 1 : parcours ── */}
         <div className="parcours-group">
           <span className="parcours-label">Commencez votre parcours :</span>
-          <button className="parcours-btn parcours-btn--b2b" onClick={() => setShowEntrepriseModal(true)}>
-            <IcoBuild /> Je suis une entreprise
-          </button>
           <button className="parcours-btn parcours-btn--b2c" onClick={() => { setParcoursDefaultMode(null); setShowParcoursModal(true); }}>
             <IcoUser /> Je suis un particulier
           </button>
           <button className="parcours-btn parcours-btn--enfant" onClick={() => setShowEnfantModal(true)}>
             <IcoChild /> J'inscris mon enfant
+          </button>
+           <button className="parcours-btn parcours-btn--b2b" onClick={() => setShowEntrepriseModal(true)}>
+            <IcoBuild /> Je suis une entreprise
           </button>
           {/* <button
             className="parcours-btn"

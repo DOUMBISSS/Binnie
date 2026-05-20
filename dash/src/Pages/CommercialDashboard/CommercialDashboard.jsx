@@ -7,6 +7,7 @@ import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
 import { useProspectChatsUnread } from "../../hooks/useProspectChatsUnread";
 import ProspectChatPanel from "../../Components/ProspectChatPanel";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const authHeaders = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token")}` });
@@ -222,6 +223,54 @@ const INIT_NEWSLETTERS = [
     pieceJointe:"Objectifs_Q4_2025_Commercial.pdf",
   },
 ];
+
+/* ═══════════════════════════════════════════════════════
+   SOUS-COMPOSANTS PLAN PAIEMENT
+═══════════════════════════════════════════════════════ */
+
+// Picker inline pour modifier l'échéance d'une tranche
+function EcheancePicker({ tranche, onSave }) {
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal] = React.useState(tranche.date_echeance || "");
+  if (!editing) return (
+    <button onClick={() => setEditing(true)} title="Modifier l'échéance" style={{ background:"#e0f2fe", border:"1px solid #bae6fd", borderRadius:6, padding:"4px 8px", fontSize:12, cursor:"pointer" }}>📅</button>
+  );
+  return (
+    <div style={{ display:"flex", gap:4 }}>
+      <input type="date" value={val} onChange={e=>setVal(e.target.value)} style={{ padding:"3px 6px", border:"1.5px solid #0891b2", borderRadius:6, fontSize:11 }} />
+      <button onClick={async()=>{await onSave(val);setEditing(false);}} style={{ background:"#0891b2", color:"#fff", border:"none", borderRadius:6, padding:"4px 8px", fontSize:11, cursor:"pointer" }}>✓</button>
+      <button onClick={()=>setEditing(false)} style={{ background:"#e5e7eb", border:"none", borderRadius:6, padding:"4px 8px", fontSize:11, cursor:"pointer" }}>✕</button>
+    </div>
+  );
+}
+
+// Formulaire d'ajout d'une tranche
+function AddTrancheForm({ onAdd }) {
+  const [form, setForm] = React.useState({ label:"", montant:"", date_echeance:"" });
+  const [saving, setSaving] = React.useState(false);
+  const set = (k,v) => setForm(p=>({...p,[k]:v}));
+  const canSubmit = form.label.trim() && form.montant && form.date_echeance;
+  const handleAdd = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    await onAdd({ label:form.label.trim(), montant:Number(form.montant), date_echeance:form.date_echeance, notes:null });
+    setForm({ label:"", montant:"", date_echeance:"" });
+    setSaving(false);
+  };
+  return (
+    <div style={{ padding:"14px", background:"#f8fafc", borderRadius:10, border:"1.5px dashed #cbd5e1" }}>
+      <div style={{ fontSize:12, fontWeight:800, color:"#374151", marginBottom:10 }}>+ Ajouter une tranche</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+        <input placeholder="Label (ex: Acompte)" value={form.label} onChange={e=>set("label",e.target.value)} style={{ padding:"8px 10px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, outline:"none" }} />
+        <input type="number" placeholder="Montant (FCFA)" value={form.montant} onChange={e=>set("montant",e.target.value)} style={{ padding:"8px 10px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, outline:"none" }} />
+        <input type="date" value={form.date_echeance} onChange={e=>set("date_echeance",e.target.value)} style={{ padding:"8px 10px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, outline:"none" }} />
+      </div>
+      <button onClick={handleAdd} disabled={!canSubmit||saving} style={{ padding:"8px 18px", background:"#0891b2", color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:12, cursor:canSubmit?"pointer":"not-allowed", opacity:canSubmit?1:.5 }}>
+        {saving?"Ajout…":"+ Ajouter la tranche"}
+      </button>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════
    PAGE PRINCIPALE
@@ -458,7 +507,7 @@ export default function CommercialDashboard() {
     }
   };
 
-  useEffect(() => { fetchTests(); }, []);
+  useEffect(() => { fetchTests(); }, []); // eslint-disable-line
 
   const fetchMessages = async () => {
     setMessagesLoading(true);
@@ -480,22 +529,33 @@ export default function CommercialDashboard() {
   const [paiements, setPaiements]           = useState([]);
   const [, setPaiementsLoading] = useState(false);
 
-  const dbToLocal = (p) => ({
-    id:             p.id,
-    client:         p.client         || "",
-    email:          p.email          || "",
-    telephone:      p.telephone      || "",
-    inscription:    p.inscription    || "",
-    montantDu:      p.montant_du     || 0,
-    montantReçu:    p.montant_recu   || 0,
-    date:           p.date_paiement  || p.date || "",
-    mode:           p.mode_paiement  || p.mode || "Mobile Money",
-    statut:         p.statut         || "en_attente",
-    notes:          p.notes          || "",
-    refTransaction: p.ref_transaction|| "",
-    assignationId:  p.assignation_id || null,
-    preuveImage:    p.preuve_image   || null,
-  });
+  const dbToLocal = (p) => {
+    // Décoder offre::XXX||reste depuis inscription
+    const raw = p.inscription || "";
+    let offre = "", inscription = raw;
+    if (raw.startsWith("offre::")) {
+      const parts = raw.split("||");
+      offre = parts[0].replace("offre::", "");
+      inscription = parts.slice(1).join("||");
+    }
+    return {
+      id:             p.id,
+      client:         p.client         || "",
+      email:          p.email          || "",
+      telephone:      p.telephone      || "",
+      offre,
+      inscription,
+      montantDu:      p.montant_du     || 0,
+      montantReçu:    p.montant_recu   || 0,
+      date:           p.date_paiement  || p.date || "",
+      mode:           p.mode_paiement  || p.mode || "Mobile Money",
+      statut:         p.statut         || "en_attente",
+      notes:          p.notes          || "",
+      refTransaction: p.ref_transaction|| "",
+      assignationId:  p.assignation_id || null,
+      preuveImage:    p.preuve_image   || null,
+    };
+  };
 
   const fetchPaiements = async () => {
     setPaiementsLoading(true);
@@ -513,6 +573,15 @@ export default function CommercialDashboard() {
 
   useEffect(() => { fetchPaiements(); }, []);
 
+  // ── Catalogue offres (en ligne + centres + certifs) ──
+  const [catalogueOffres, setCatalogueOffres] = useState([]);
+  useEffect(() => {
+    fetch(`${API_URL}/api/admin/catalogue-offres`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : { offres: [] })
+      .then(d => { if (d.offres?.length) setCatalogueOffres(d.offres); })
+      .catch(() => {});
+  }, []);
+
   // ── Sondages acquisition (DB) ────────────────────────
   const [sondages, setSondages] = useState([]);
   const [sondageStats, setSondageStats] = useState({});
@@ -523,6 +592,9 @@ export default function CommercialDashboard() {
   const [assignFiltreType,    setAssignFiltreType]    = useState("tous");
   const [assignFiltreStatut,  setAssignFiltreStatut]  = useState("tous");
   const [chatAssignation,     setChatAssignation]     = useState(null); // assignation ouverte en chat
+  const [apprenantModal,      setApprenantModal]      = useState(null); // assignation ouverte dans la modale apprenant
+  const [apprenantTab,        setApprenantTab]        = useState("infos");
+  const [tranchePayTarget,    setTranchePayTarget]    = useState(null); // { assignationId, trancheId, plan, tranches }
 
   const fetchAssignations = async () => {
     setAssignationsLoading(true);
@@ -533,7 +605,21 @@ export default function CommercialDashboard() {
     finally { setAssignationsLoading(false); }
   };
 
-  useEffect(() => { fetchAssignations(); }, []);
+  useEffect(() => {
+    fetchAssignations();
+
+    // Recharge en temps réel dès qu'une nouvelle assignation OU un nouveau test arrive
+    const onNewAssignation = () => fetchAssignations();
+    const onNewTest        = () => { fetchTests(); fetchAssignations(); };
+
+    window.addEventListener("bet:assignation:new", onNewAssignation);
+    window.addEventListener("bet:test:new",        onNewTest);
+
+    return () => {
+      window.removeEventListener("bet:assignation:new", onNewAssignation);
+      window.removeEventListener("bet:test:new",        onNewTest);
+    };
+  }, []); // eslint-disable-line
 
   const updateStatutAssignation = async (id, statut) => {
     try {
@@ -555,6 +641,7 @@ export default function CommercialDashboard() {
       });
       if (!r.ok) throw new Error();
       setAssignations(prev => prev.map(a => a.id === assignationId ? { ...a, documents_dossier: docs } : a));
+      setApprenantModal(prev => prev?.id === assignationId ? { ...prev, documents_dossier: docs } : prev);
       toast.success("Documents mis à jour ✓");
       setShowDocDossierModal(false); setDocDossierTarget(null);
     } catch { toast.error("Erreur lors de la sauvegarde des documents"); }
@@ -568,9 +655,36 @@ export default function CommercialDashboard() {
       });
       if (!r.ok) throw new Error();
       setAssignations(prev => prev.map(a => a.id === assignationId ? { ...a, suivi_demarrage: suivi } : a));
+      setApprenantModal(prev => prev?.id === assignationId ? { ...prev, suivi_demarrage: suivi } : prev);
       toast.success("Suivi de démarrage enregistré ✓");
       setShowSuiviModal(false); setSuiviTarget(null);
     } catch { toast.error("Erreur lors de la sauvegarde du suivi"); }
+  };
+
+  const handleSavePresences = async (assignationId, suivi_presences) => {
+    try {
+      const r = await fetch(`${API_URL}/api/parcours/assignations/${assignationId}`, {
+        method: "PATCH", headers: authHeaders(),
+        body: JSON.stringify({ suivi_presences }),
+      });
+      if (!r.ok) throw new Error();
+      setAssignations(prev => prev.map(a => a.id === assignationId ? { ...a, suivi_presences } : a));
+      setApprenantModal(prev => prev?.id === assignationId ? { ...prev, suivi_presences } : prev);
+      toast.success("Présences enregistrées ✓");
+      setShowProgressionModal(false); setProgressionTarget(null);
+    } catch { toast.error("Erreur lors de la sauvegarde des présences"); }
+  };
+
+  const handleSavePlanPaiement = async (assignationId, plan_paiement) => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    const token = localStorage.getItem("bet_token") || localStorage.getItem("admin_token") || "";
+    await fetch(`${API}/api/parcours/assignations/${assignationId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plan_paiement }),
+    });
+    setAssignations(prev => prev.map(a => a.id === assignationId ? { ...a, plan_paiement } : a));
+    setApprenantModal(prev => prev?.id === assignationId ? { ...prev, plan_paiement } : prev);
   };
 
 
@@ -652,9 +766,6 @@ export default function CommercialDashboard() {
   // ── Alertes calculées ────────────────────────────────
   const alertes = useMemo(() => {
     const list = [];
-    devis.filter(d => d.statut === "envoyé" && isExpired(d.validite)).forEach(d =>
-      list.push({ type:"warning", msg:`Devis expiré — ${d.client}`, tab:"devis" })
-    );
     leads.filter(l => l.statut === "qualifié").forEach(l =>
       list.push({ type:"info", msg:`Lead à traiter — ${l.client}`, tab:"leads" })
     );
@@ -668,7 +779,7 @@ export default function CommercialDashboard() {
       list.push({ type:"info", msg:`Nouveau message — ${m.nom} : ${m.sujet || "sans sujet"}`, tab:"clients" })
     );
     return list;
-  }, [devis, leads, paiements, tests]);
+  }, [leads, paiements, tests]);
 
   const totalNonLu = 0; // géré par MessagerieTab (Firebase)
 
@@ -793,7 +904,8 @@ export default function CommercialDashboard() {
         client:          p.client,
         email:           p.email          || "",
         telephone:       p.telephone      || "",
-        inscription:     p.inscription    || "",
+        offre:           p.offre          || "",
+        inscription:     p.offre ? `${p.offre}${p.inscription ? " · " + p.inscription : ""}` : (p.inscription || ""),
         montant_du:      p.montantDu      || 0,
         montant_recu:    p.montantReçu    || 0,
         date_paiement:   p.date,
@@ -819,6 +931,16 @@ export default function CommercialDashboard() {
         toast.success("Paiement enregistré ✓");
       }
       await fetchPaiements();
+      // Si ce paiement correspond à une tranche → la marquer comme payée
+      if (tranchePayTarget) {
+        const { assignationId, trancheId, plan: tp, tranches: tt } = tranchePayTarget;
+        const newTranches = tt.map(tr => tr.id === trancheId
+          ? { ...tr, statut: "payé", date_paiement_effectif: p.date || new Date().toISOString().slice(0, 10) }
+          : tr
+        );
+        await handleSavePlanPaiement(assignationId, { ...tp, tranches: newTranches });
+        setTranchePayTarget(null);
+      }
     } catch {
       toast.error("Erreur lors de l'enregistrement du paiement");
     }
@@ -851,7 +973,22 @@ export default function CommercialDashboard() {
     };
     setInscriptions(prev => [newInsc, ...prev]);
 
-    // 2. Marquer l'assignation comme convertie
+    // 2. Fusionner les docs du formulaire dans documents_dossier de l'assignation
+    if (formData.documents?.length > 0) {
+      const existingDocs = a.documents_dossier || [];
+      const mergedDocs   = [...existingDocs, ...formData.documents];
+      try {
+        const r = await fetch(`${API_URL}/api/parcours/assignations/${a.id}`, {
+          method: "PATCH", headers: authHeaders(),
+          body: JSON.stringify({ documents_dossier: mergedDocs }),
+        });
+        if (r.ok) {
+          setAssignations(prev => prev.map(ass => ass.id === a.id ? { ...ass, documents_dossier: mergedDocs } : ass));
+        }
+      } catch { /* non bloquant */ }
+    }
+
+    // 3. Marquer l'assignation comme convertie
     await updateStatutAssignation(a.id, "converti");
 
     setShowFinalisationModal(false);
@@ -1057,9 +1194,13 @@ export default function CommercialDashboard() {
     toast.success(`Reçu ${num} généré`);
   };
 
-  // ── Télécharger document (simulation) ───────────────
+  // ── Télécharger / ouvrir document ───────────────────
   const telechargerDocument = (doc, client) => {
-    const content = `DOCUMENT : ${doc.nom}\nClient : ${client}\nDate : ${new Date().toLocaleDateString("fr-FR")}\n\n[Contenu du document — en production, ce fichier serait le document réel uploadé]`;
+    if (doc.url) {
+      window.open(doc.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const content = `DOCUMENT : ${doc.nom}\nClient : ${client}\nDate : ${new Date().toLocaleDateString("fr-FR")}\n\n[Fichier non encore uploadé]`;
     const blob = new Blob([content], { type:"text/plain;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1116,7 +1257,6 @@ export default function CommercialDashboard() {
       { key:"assignations",  label:"Prospects parcours",icon:"🎯", badge: (assignations.filter(a => a.statut === "en_attente").length + clientMessages.filter(m=>m.statut==="nouveau").length) || null },
       { key:"tests",         label:"Tests reçus",       icon:"📝", badge: tests.filter(t=>t.statut==="nouveau").length },
       { key:"leads",         label:"Leads",             icon:"👥" },
-      { key:"devis",         label:"Devis",             icon:"📄" },
       { key:"inscriptions",  label:"Inscriptions",      icon:"✅" },
       { key:"dossiers",      label:"Dossiers",          icon:"📁", badge: dossiers.filter(d=>d.statut==="reçu"||d.statut==="en_étude").length },
       { key:"sondages",      label:"Sondages",          icon:"🎯", badge: sondages.length },
@@ -1132,11 +1272,11 @@ export default function CommercialDashboard() {
     ...(hasB2C ? [
       { key:"newsletters", label:"Newsletters", icon:"📰", badge: newsletters.filter(n=>!n.lu).length },
     ] : []),
+    { key:"notifications", label:"Notifications", icon:"🔔", count: null },
   ];
 
   const currentExportData = () => {
     if (activeTab === "leads")        return filteredLeads;
-    if (activeTab === "devis")        return filteredDevis;
     if (activeTab === "inscriptions") return filteredInscriptions;
     if (activeTab === "tests")        return filteredTests;
     if (activeTab === "paiements")    return paiements;
@@ -1271,7 +1411,7 @@ export default function CommercialDashboard() {
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
                   <StatCard label="Tests reçus" value={tests.length} color="#0891b2" icon="📝" sub={`${tests.filter(t=>t.statut==="nouveau").length} nouveau(x)`} onClick={() => setActiveTab("tests")} />
                   <StatCard label="Leads actifs" value={leads.filter(l=>l.statut!=="perdu").length} color="#6366f1" icon="👥" sub="en cours de traitement" onClick={() => setActiveTab("leads")} />
-                  <StatCard label="Devis en attente" value={devis.filter(d=>d.statut==="envoyé").length} color="#f59e0b" icon="📄" sub="réponse attendue" onClick={() => setActiveTab("devis")} />
+                  <StatCard label="Inscriptions" value={inscriptions.length} color="#f59e0b" icon="✅" sub="dossiers en cours" onClick={() => setActiveTab("inscriptions")} />
                   <StatCard label="CA encaissé" value={Number(caPaiements).toLocaleString("fr-FR")+" F"} color="#22c55e" icon="💰" sub="paiements confirmés" onClick={() => setActiveTab("paiements")} />
                 </div>
 
@@ -1282,7 +1422,6 @@ export default function CommercialDashboard() {
                     {[
                       { label:"Tests reçus",   count:tests.length,         color:"#0891b2", bg:"#e0f2fe" },
                       { label:"Leads",          count:leads.length,         color:"#6366f1", bg:"#ede9fe" },
-                      { label:"Devis",          count:devis.length,         color:"#f59e0b", bg:"#fef3c7" },
                       { label:"Inscriptions",   count:inscriptions.length,  color:"#22c55e", bg:"#dcfce7" },
                       { label:"Paiements reçus",count:paiements.filter(p=>p.statut==="reçu").length, color:"#14b8a6", bg:"#ccfbf1" },
                     ].map((step, i, arr) => (
@@ -1333,10 +1472,9 @@ export default function CommercialDashboard() {
                     {[
                       ["1","📥","Test reçu","Le prospect a soumis son test depuis le site web","#0891b2"],
                       ["2","📞","Contacter","Appelez dans les 24h pour présenter les offres adaptées à son niveau","#6366f1"],
-                      ["3","📄","Créer devis","Convertissez en Lead → générez un devis personnalisé","#f59e0b"],
-                      ["4","✅","Inscription","Validez l'inscription et collectez le dossier complet","#22c55e"],
-                      ["5","💳","Paiement","Enregistrez le paiement et générez le reçu","#14b8a6"],
-                      ["6","🎓","→ Apprenant","Transférez le dossier au Responsable Pédagogique","#8b5cf6"],
+                      ["3","✅","Inscription","Validez l'inscription et collectez le dossier complet","#22c55e"],
+                      ["4","💳","Paiement","Enregistrez le paiement et générez le reçu","#14b8a6"],
+                      ["5","🎓","→ Apprenant","Transférez le dossier au Responsable Pédagogique","#8b5cf6"],
                     ].map((s,i,arr)=>(
                       <React.Fragment key={s[0]}>
                         <div style={{ flex:1, textAlign:"center", padding:"8px 4px" }}>
@@ -1486,9 +1624,6 @@ export default function CommercialDashboard() {
                           <td style={td}>{formatDate(l.date)}</td>
                           <td style={td}><span style={{ fontWeight:700 }}>{formatMoney(l.montantPotentiel)}</span></td>
                           <td style={td}>
-                            {l.statut !== "converti" && (
-                              <button onClick={() => convertirLeadEnDevis(l)} style={{ ...btnIconEdit, marginRight:4, background:"#fef3c7", color:"#92400e", borderColor:"#f59e0b40" }}>📄 Devis</button>
-                            )}
                             <button onClick={() => { setEditingItem(l); setShowLeadModal(true); }} style={btnIconEdit}>✏️</button>
                             <button onClick={() => handleDeleteLead(l.id)} style={{ ...btnIconEdit, marginLeft:4, color:"#dc2626", background:"#fee2e2", borderColor:"#ef444440" }}>🗑️</button>
                           </td>
@@ -1500,43 +1635,6 @@ export default function CommercialDashboard() {
               </div>
             )}
 
-            {/* ══ DEVIS ══ */}
-            {activeTab === "devis" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:16 }}>
-                  <button onClick={() => { setEditingItem(null); setShowDevisModal(true); }} style={btnPrimary}>+ Nouveau devis</button>
-                </div>
-                <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                  <thead><tr style={{ background:"#f9fafb", fontSize:11 }}>
-                    <th style={th}>Client</th><th style={th}>Offre</th><th style={th}>Montant</th><th style={th}>Date</th><th style={th}>Validité</th><th style={th}>Statut</th><th style={th}>Actions</th>
-                  </tr></thead>
-                  <tbody>
-                    {filteredDevis.map(d => {
-                      const expired = d.statut === "envoyé" && isExpired(d.validite);
-                      const statutKey = expired ? "expiré" : d.statut;
-                      const st = STATUT_DEVIS[statutKey] || {};
-                      return (
-                        <tr key={d.id} style={{ borderTop:"1px solid #e5e7eb", fontSize:12, background:expired?"#fff7ed":"transparent" }}>
-                          <td style={td}><div style={{ fontWeight:600 }}>{d.client}</div></td>
-                          <td style={td}>{d.offre || "–"}</td>
-                          <td style={td}><span style={{ fontWeight:700 }}>{formatMoney(d.montant)}</span></td>
-                          <td style={td}>{formatDate(d.date)}</td>
-                          <td style={td}>{formatDate(d.validite)}</td>
-                          <td style={td}><Badge {...st} label={st.label||d.statut} /></td>
-                          <td style={td}>
-                            {(d.statut === "envoyé" || d.statut === "relancé") && (
-                              <button onClick={() => relancerDevis(d)} style={{ ...btnIconEdit, marginRight:4, background:"#fef3c7", color:"#92400e", borderColor:"#f59e0b40" }}>📧 Relancer</button>
-                            )}
-                            <button onClick={() => { setEditingItem(d); setShowDevisModal(true); }} style={btnIconEdit}>✏️</button>
-                            <button onClick={() => handleDeleteDevis(d.id)} style={{ ...btnIconEdit, marginLeft:4, color:"#dc2626", background:"#fee2e2", borderColor:"#ef444440" }}>🗑️</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
 
             {/* ══ INSCRIPTIONS ══ */}
             {activeTab === "inscriptions" && (
@@ -2692,7 +2790,20 @@ export default function CommercialDashboard() {
                                 <span style={{ background:"#f8fafc", color:"#475569", borderRadius:999, padding:"2px 10px", fontSize:11 }}>
                                   👤 {a.assistante_nom}
                                 </span>
+                                {a.source === "test_niveau" && !testProspect && (
+                                  <span style={{ background:"#fef3c7", color:"#92400e", borderRadius:999, padding:"2px 10px", fontSize:11, fontWeight:700 }}>
+                                    🧪 Test en cours…
+                                  </span>
+                                )}
                               </div>
+
+                              {/* ── Prospect venu via test de niveau, test non encore soumis ── */}
+                              {a.source === "test_niveau" && !testProspect && (
+                                <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"8px 12px", background:"#fff7ed", borderRadius:8, border:"1px solid #fed7aa", flexWrap:"wrap" }}>
+                                  <span style={{ fontSize:11, fontWeight:700, color:"#c2410c" }}>⏳ En attente du test de niveau</span>
+                                  <span style={{ fontSize:10, color:"#94a3b8", marginLeft:"auto" }}>Contactez ce prospect pour le relancer</span>
+                                </div>
+                              )}
 
                               {/* ── Bandeaux test de niveau ── */}
                               {testProspect ? (() => {
@@ -2941,10 +3052,10 @@ export default function CommercialDashboard() {
 
                   {/* ── KPI ── */}
                   {(() => {
-                    const appAvecStats = apprenants.filter(a => Number(progressionNotes[a.id]?.seances) > 0);
-                    const totalSeances   = appAvecStats.reduce((s,a) => s + Number(progressionNotes[a.id]?.seances  ||0), 0);
-                    const totalPresences = appAvecStats.reduce((s,a) => s + Number(progressionNotes[a.id]?.presences||0), 0);
-                    const totalAbsences  = appAvecStats.reduce((s,a) => s + Number(progressionNotes[a.id]?.absences ||0), 0);
+                    const appAvecStats = apprenants.filter(a => (a.suivi_presences?.seances_effectuees || 0) > 0);
+                    const totalSeances   = appAvecStats.reduce((s,a) => s + (a.suivi_presences?.seances_effectuees||0), 0);
+                    const totalPresences = appAvecStats.reduce((s,a) => s + (a.suivi_presences?.presences||0), 0);
+                    const totalAbsences  = appAvecStats.reduce((s,a) => s + (a.suivi_presences?.absences ||0), 0);
                     const tauxPartGlobal = totalSeances > 0 ? Math.round((totalPresences / totalSeances) * 100) : null;
                     const tauxAbsGlobal  = totalSeances > 0 ? Math.round((totalAbsences  / totalSeances) * 100) : null;
                     return (
@@ -3026,206 +3137,125 @@ export default function CommercialDashboard() {
                         const totalReçu = pmts.reduce((s,p)=>s+(p.montantReçu||0),0);
                         const totalDu   = pmts.reduce((s,p)=>s+(p.montantDu  ||0),0);
                         const reste     = totalDu - totalReçu;
-                        const lastPmt   = pmts[0];
                         const niveauColor = NIVEAU_COLOR[testProspect?.niveau] || "#6b7280";
                         const modeLabel = a.type_cours === "en_ligne" ? "En ligne" : `Présentiel${a.centre_nom ? " · "+a.centre_nom : ""}`;
                         const coachLabel = a.type_coaching === "groupe" ? "Groupe" : a.type_coaching === "prive" ? "Privé" : "—";
 
+                        // Plan paiement
+                        const plan = a.plan_paiement || {};
+                        const tranches = plan.tranches || [];
+                        const today = new Date(); today.setHours(0,0,0,0);
+                        const hasAlertePmt = tranches.some(t => {
+                          if (t.statut !== "en_attente") return false;
+                          const d = new Date(t.date_echeance); d.setHours(0,0,0,0);
+                          return d < today;
+                        });
+                        const hasAlertePmtCritique = tranches.some(t => {
+                          if (t.statut !== "en_attente") return false;
+                          const d = new Date(t.date_echeance); d.setHours(0,0,0,0);
+                          return Math.ceil((today - d) / 86400000) > 7;
+                        });
+                        const tranches_paye = tranches.filter(t => t.statut === "payé").reduce((s,t) => s + (t.montant || 0), 0);
+                        const tranches_total = tranches.reduce((s,t) => s + (t.montant || 0), 0);
+                        const pctTranches = tranches_total > 0 ? Math.round((tranches_paye / tranches_total) * 100) : 0;
+
+                        // Assiduité
+                        const sp = a.suivi_presences || {};
+                        const sessions = sp.sessions || [];
+                        const seances = sp.seances_effectuees || sessions.length || 0;
+                        const presences = sp.presences || 0;
+                        const tauxParticipation = seances > 0 ? Math.round((presences / seances) * 100) : null;
+                        const now2 = new Date();
+                        const monday = new Date(now2); monday.setDate(now2.getDate() - ((now2.getDay() + 6) % 7)); monday.setHours(0,0,0,0);
+                        const absWeek = sessions.filter(s => new Date(s.date) >= monday && s.statut === "absent").length;
+                        const alertSemaine = absWeek > 2;
+                        const sortedSess = [...sessions].sort((x,y) => x.date.localeCompare(y.date));
+                        let consec = 0, maxConsec = 0;
+                        for (const s of sortedSess) {
+                          if (s.statut === "absent") { consec++; if (consec > maxConsec) maxConsec = consec; }
+                          else consec = 0;
+                        }
+                        const alertConsecutif = maxConsec >= 3;
+                        const hasAlerteAss = alertSemaine || alertConsecutif;
+
                         return (
-                          <div key={a.id} style={{ background:"#fff", borderRadius:14, border:"1.5px solid #e2e8f0", overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.05)", transition:"box-shadow .2s" }}>
+                          <div key={a.id}
+                            onClick={() => { setApprenantModal(a); setApprenantTab("infos"); }}
+                            style={{ cursor:"pointer", background:"#fff", borderRadius:14, border:`1.5px solid ${
+                              plan?.acces_bloque ? "#fca5a5" :
+                              hasAlertePmt ? "#fed7aa" :
+                              hasAlerteAss ? "#fde68a" :
+                              "#e2e8f0"
+                            }`, overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.05)", transition:"all .2s" }}
+                            onMouseEnter={e => e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,0.10)"}
+                            onMouseLeave={e => e.currentTarget.style.boxShadow="0 1px 6px rgba(0,0,0,0.05)"}
+                          >
+                            {/* Top status bar */}
+                            <div style={{ height:3, background:
+                              plan?.acces_bloque ? "#ef4444" :
+                              hasAlertePmtCritique ? "#dc2626" :
+                              hasAlertePmt ? "#f97316" :
+                              hasAlerteAss ? "#eab308" :
+                              "#22c55e"
+                            }} />
 
-                            {/* ── Header coloré ── */}
-                            <div style={{ background:"linear-gradient(135deg,#0f172a,#0891b2)", padding:"16px 18px", display:"flex", alignItems:"center", gap:14 }}>
-                              <div style={{ width:46, height:46, borderRadius:"50%", background:"rgba(255,255,255,0.18)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:16, color:"#fff", flexShrink:0, border:"2px solid rgba(255,255,255,0.3)" }}>
-                                {initiales}
-                              </div>
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontSize:14, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_nom || "—"}</div>
-                                {a.prospect_email && <div style={{ fontSize:11, color:"rgba(255,255,255,0.65)", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_email}</div>}
-                                {a.prospect_telephone && <div style={{ fontSize:11, color:"rgba(255,255,255,0.65)", marginTop:1 }}>📞 {a.prospect_telephone}</div>}
-                              </div>
-                              <span style={{ background:"#22c55e", color:"#fff", borderRadius:999, fontSize:10, fontWeight:800, padding:"3px 10px", whiteSpace:"nowrap", flexShrink:0 }}>✓ Apprenant</span>
-                            </div>
-
-                            <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:10 }}>
-
-                              {/* ── Parcours ── */}
-                              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                                <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:999, background:"#e0f2fe", color:"#0369a1" }}>{modeLabel}</span>
-                                <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:999, background:"#f3e8ff", color:"#7c3aed" }}>👥 {coachLabel}</span>
-                                {a.assistante_nom && <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:999, background:"#f0fdf4", color:"#15803d" }}>👩‍💼 {a.assistante_nom}</span>}
-                              </div>
-
-                              {/* ── Test de niveau ── */}
-                              {testProspect ? (
-                                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 11px", background:"#f0fdf4", borderRadius:8, border:"1px solid #bbf7d0" }}>
-                                  <span style={{ fontSize:11, fontWeight:700, color:"#15803d" }}>📝 Niveau</span>
-                                  <span style={{ fontWeight:800, fontSize:13, color:"#fff", background: niveauColor, borderRadius:999, padding:"1px 10px" }}>{testProspect.niveau}</span>
-                                  <span style={{ fontSize:11, color:"#64748b" }}>{testProspect.score}%</span>
-                                  <button
-                                    onClick={() => { setSelectedTest(testProspect); setShowTestDetailModal(true); }}
-                                    style={{ marginLeft:"auto", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:6, border:"1px solid #16a34a40", background:"#dcfce7", color:"#15803d", cursor:"pointer" }}
-                                  >Voir →</button>
+                            <div style={{ padding:"14px 16px" }}>
+                              {/* Row 1: avatar + name + alert icons */}
+                              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
+                                <div style={{ width:44, height:44, borderRadius:"50%", background:"linear-gradient(135deg,#0f172a,#0891b2)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:15, color:"#fff", flexShrink:0 }}>
+                                  {initiales}
                                 </div>
-                              ) : (
-                                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 11px", background:"#fafafa", borderRadius:8, border:"1px dashed #e2e8f0" }}>
-                                  <span style={{ fontSize:11, color:"#94a3b8" }}>⏳ Test non effectué</span>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_nom || "—"}</div>
+                                  {a.prospect_email && <div style={{ fontSize:11, color:"#64748b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_email}</div>}
                                 </div>
-                              )}
+                                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+                                  {plan?.acces_bloque && <span title="Accès bloqué" style={{ fontSize:16 }}>🔒</span>}
+                                  {hasAlertePmt && <span title="Retard de paiement" style={{ fontSize:15 }}>💳</span>}
+                                  {(alertSemaine || alertConsecutif) && <span title="Alerte assiduité" style={{ fontSize:15 }}>⚠️</span>}
+                                </div>
+                              </div>
 
-                              {/* ── Paiements ── */}
-                              {pmts.length === 0 ? (
-                                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 11px", background:"#fafafa", borderRadius:8, border:"1px dashed #e2e8f0" }}>
-                                  <span style={{ fontSize:11, color:"#94a3b8" }}>💳 Aucun paiement</span>
-                                  <button
-                                    onClick={() => {
-                                      const typeLabel = a.type_coaching === "groupe" ? "Coaching groupe" : a.type_coaching === "prive" ? "Coaching privé" : "Formation";
-                                      setEditingItem({ client:a.prospect_nom||"", email:a.prospect_email||"", telephone:a.prospect_telephone||"", inscription:`Parcours BET · ${modeLabel} · ${typeLabel}`, montantDu:0, montantReçu:0, date:new Date().toISOString().slice(0,10), mode:"Mobile Money", statut:"en_attente", notes:"", refTransaction:"", assignationId:a.id });
-                                      setShowPaiementModal(true);
-                                    }}
-                                    style={{ marginLeft:"auto", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:6, border:"1px solid #fde68a", background:"#fffbeb", color:"#d97706", cursor:"pointer" }}
-                                  >+ Ajouter</button>
-                                </div>
-                              ) : (
-                                <div style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", overflow:"hidden" }}>
-                                  {/* barre statut */}
-                                  <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 12px", background: reste<=0?"#dcfce7":totalReçu>0?"#e0f2fe":"#fef3c7", borderBottom:"1px solid #e2e8f0" }}>
-                                    <span style={{ fontSize:11, fontWeight:700, color: reste<=0?"#15803d":totalReçu>0?"#0369a1":"#d97706" }}>
-                                      {reste<=0 ? "✅ Paiement complet" : totalReçu>0 ? "🔄 Paiement partiel" : "⏳ En attente"}
-                                    </span>
-                                    {lastPmt?.mode && <span style={{ fontSize:10, color:"#64748b", marginLeft:4 }}>· {lastPmt.mode}</span>}
-                                    {pmts.length > 1 && <span style={{ marginLeft:"auto", fontSize:10, color:"#94a3b8" }}>{pmts.length} versements</span>}
+                              {/* Row 2: badges */}
+                              <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
+                                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#e0f2fe", color:"#0369a1" }}>{modeLabel}</span>
+                                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f3e8ff", color:"#7c3aed" }}>👥 {coachLabel}</span>
+                                {testProspect && <span style={{ fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:999, color:"#fff", background:niveauColor }}>{testProspect.niveau}</span>}
+                                {a.assistante_nom && a.assistante_nom !== "—" && <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f0fdf4", color:"#15803d" }}>👩‍💼 {a.assistante_nom}</span>}
+                              </div>
+
+                              {/* Row 3: paiement summary */}
+                              {tranches.length > 0 ? (
+                                <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                                  <div style={{ flex:1, height:5, borderRadius:999, background:"#e5e7eb", overflow:"hidden" }}>
+                                    <div style={{ height:"100%", borderRadius:999, background: pctTranches >= 100 ? "#22c55e" : pctTranches > 0 ? "#0891b2" : "#e5e7eb", width:`${Math.min(100,pctTranches)}%`, transition:"width .4s" }} />
                                   </div>
-                                  {/* montants */}
-                                  <div style={{ display:"flex", padding:"8px 12px", gap:0 }}>
-                                    <div style={{ flex:1, textAlign:"center", borderRight:"1px solid #e2e8f0" }}>
-                                      <div style={{ fontSize:10, color:"#94a3b8" }}>Dû</div>
-                                      <div style={{ fontSize:12, fontWeight:800, color:"#0f172a" }}>{Number(totalDu).toLocaleString("fr-FR")} F</div>
-                                    </div>
-                                    <div style={{ flex:1, textAlign:"center", borderRight:"1px solid #e2e8f0" }}>
-                                      <div style={{ fontSize:10, color:"#94a3b8" }}>Reçu</div>
-                                      <div style={{ fontSize:12, fontWeight:800, color:"#22c55e" }}>{Number(totalReçu).toLocaleString("fr-FR")} F</div>
-                                    </div>
-                                    <div style={{ flex:1, textAlign:"center" }}>
-                                      <div style={{ fontSize:10, color:"#94a3b8" }}>Reste</div>
-                                      <div style={{ fontSize:12, fontWeight:800, color:reste>0?"#ef4444":"#22c55e" }}>{reste>0?Number(reste).toLocaleString("fr-FR")+" F":"–"}</div>
-                                    </div>
-                                  </div>
-                                  {/* ref */}
-                                  {lastPmt?.refTransaction && (
-                                    <div style={{ padding:"4px 12px 7px", borderTop:"1px solid #f1f5f9", fontSize:10 }}>
-                                      <span style={{ color:"#64748b" }}>🔖 </span>
-                                      <span style={{ fontWeight:700, color:"#0891b2", fontFamily:"monospace" }}>{lastPmt.refTransaction}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* ── Documents dossier ── */}
-                              <button
-                                onClick={() => { setDocDossierTarget(a); setShowDocDossierModal(true); }}
-                                style={{ width:"100%", textAlign:"left", background: docsApp.length > 0 ? "#faf5ff" : "#fafafa", borderRadius:8, border: docsApp.length > 0 ? "1px solid #e9d5ff" : "1px dashed #e2e8f0", padding:"7px 11px", cursor:"pointer" }}
-                              >
-                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: docsApp.length > 0 ? 5 : 0 }}>
-                                  <span style={{ fontSize:10, fontWeight:700, color: docsApp.length > 0 ? "#7c3aed" : "#94a3b8" }}>
-                                    📎 Documents dossier {docsApp.length > 0 ? `(${docsApp.length})` : ""}
-                                  </span>
-                                  <span style={{ fontSize:10, color:"#7c3aed", fontWeight:600 }}>
-                                    {docsApp.length > 0 ? "✏️ Gérer" : "+ Ajouter"}
+                                  <span style={{ fontSize:10, fontWeight:700, color: (tranches_total - tranches_paye) > 0 ? "#ef4444" : "#22c55e", whiteSpace:"nowrap" }}>
+                                    {(tranches_total - tranches_paye) > 0 ? `${Number(tranches_total - tranches_paye).toLocaleString("fr-FR")} F restants` : "✓ Soldé"}
                                   </span>
                                 </div>
-                                {docsApp.length > 0 && (
-                                  <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                                    {docsApp.map((doc, di) => (
-                                      <span key={di} style={{ fontSize:10, background:"#ede9fe", color:"#6d28d9", padding:"2px 8px", borderRadius:5, fontWeight:600 }}>
-                                        {DOC_TYPES.find(d=>d.key===doc.type)?.icon||"📎"} {doc.nom}
-                                      </span>
-                                    ))}
+                              ) : pmts.length > 0 ? (
+                                <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                                  <div style={{ flex:1, height:5, borderRadius:999, background:"#e5e7eb", overflow:"hidden" }}>
+                                    <div style={{ height:"100%", borderRadius:999, background: reste <= 0 ? "#22c55e" : totalReçu > 0 ? "#0891b2" : "#e5e7eb", width: totalDu > 0 ? `${Math.min(100,Math.round((totalReçu/totalDu)*100))}%` : "0%", transition:"width .4s" }} />
                                   </div>
-                                )}
-                              </button>
+                                  <span style={{ fontSize:10, fontWeight:700, color: reste > 0 ? "#ef4444" : "#22c55e", whiteSpace:"nowrap" }}>
+                                    {reste > 0 ? `${Number(reste).toLocaleString("fr-FR")} F restants` : "✓ Soldé"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize:10, color:"#94a3b8" }}>💳 Aucun paiement enregistré</div>
+                              )}
 
-                              {/* ── Assiduité ── */}
-                              {(() => {
-                                const p = progressionNotes[a.id] || {};
-                                const seances   = Number(p.seances)   || 0;
-                                const presences = Number(p.presences) || 0;
-                                const absences  = Number(p.absences)  || 0;
-                                if (seances === 0) return null;
-                                const tauxParticipation = Math.round((presences / seances) * 100);
-                                const tauxAbsenteisme   = Math.round((absences  / seances) * 100);
-                                return (
-                                  <div style={{ background:"#f0fdf4", borderRadius:8, border:"1px solid #bbf7d0", padding:"8px 11px" }}>
-                                    <div style={{ fontSize:10, fontWeight:800, color:"#15803d", marginBottom:7, textTransform:"uppercase", letterSpacing:".06em" }}>📊 Assiduité · {seances} séance{seances>1?"s":""}</div>
-                                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-                                      <div style={{ background:"#dcfce7", borderRadius:6, padding:"6px 8px", textAlign:"center" }}>
-                                        <div style={{ fontSize:9, color:"#15803d", fontWeight:600, marginBottom:2 }}>Participation</div>
-                                        <div style={{ fontSize:17, fontWeight:900, color: tauxParticipation >= 80 ? "#15803d" : tauxParticipation >= 60 ? "#d97706" : "#ef4444", lineHeight:1 }}>{tauxParticipation}%</div>
-                                      </div>
-                                      <div style={{ background:"#fee2e2", borderRadius:6, padding:"6px 8px", textAlign:"center" }}>
-                                        <div style={{ fontSize:9, color:"#b91c1c", fontWeight:600, marginBottom:2 }}>Absentéisme</div>
-                                        <div style={{ fontSize:17, fontWeight:900, color: tauxAbsenteisme <= 10 ? "#15803d" : tauxAbsenteisme <= 25 ? "#d97706" : "#ef4444", lineHeight:1 }}>{tauxAbsenteisme}%</div>
-                                      </div>
-                                    </div>
-                                    <div style={{ marginTop:6, height:5, background:"#e5e7eb", borderRadius:999, overflow:"hidden" }}>
-                                      <div style={{ height:"100%", borderRadius:999, width:`${tauxParticipation}%`, background: tauxParticipation>=80?"#22c55e":tauxParticipation>=60?"#f59e0b":"#ef4444", transition:"width .4s" }} />
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* ── Date conversion ── */}
-                              {a.updated_at && (
-                                <div style={{ fontSize:10, color:"#94a3b8" }}>
-                                  ✓ Converti le {new Date(a.updated_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" })}
+                              {/* Row 4: seances summary */}
+                              {seances > 0 && (
+                                <div style={{ marginTop:8, fontSize:10, color:"#64748b", display:"flex", gap:12 }}>
+                                  <span>📅 {seances} séance{seances>1?"s":""}</span>
+                                  <span style={{ color: tauxParticipation >= 80 ? "#15803d" : tauxParticipation >= 60 ? "#d97706" : "#ef4444", fontWeight:700 }}>✅ {tauxParticipation}%</span>
                                 </div>
                               )}
 
-                              {/* ── Actions ── */}
-                              <div style={{ display:"flex", gap:6, flexWrap:"wrap", paddingTop:4, borderTop:"1px solid #f1f5f9" }}>
-                                {/* Chat */}
-                                <button
-                                  onClick={() => setChatAssignation(chatAssignation?.id === a.id ? null : a)}
-                                  style={{ flex:1, position:"relative", background: chatAssignation?.id === a.id ? "#0f172a" : BET_COLOR, color:"#fff", border:"none", borderRadius:8, padding:"6px 8px", fontSize:11, fontWeight:700, cursor:"pointer" }}
-                                >
-                                  💬 {chatAssignation?.id === a.id ? "Fermer" : "Chat"}
-                                </button>
-                                {/* Paiements → ouvre la liste */}
-                                <button
-                                  onClick={() => { setPmtListTarget(a); setShowPmtListModal(true); }}
-                                  style={{ flex:1, background:"#fffbeb", color:"#d97706", border:"1px solid #fde68a", borderRadius:8, padding:"6px 8px", fontSize:11, fontWeight:700, cursor:"pointer", position:"relative" }}
-                                >
-                                  💳 Paiements
-                                  {pmts.length > 0 && <span style={{ marginLeft:4, background:"#d97706", color:"#fff", borderRadius:999, fontSize:9, padding:"0 5px", fontWeight:800 }}>{pmts.length}</span>}
-                                </button>
-                                {/* Progression */}
-                                <button
-                                  onClick={() => { setProgressionTarget(a); setShowProgressionModal(true); }}
-                                  style={{ flex:1, background:"#f3e8ff", color:"#7c3aed", border:"1px solid #ddd6fe", borderRadius:8, padding:"6px 8px", fontSize:11, fontWeight:700, cursor:"pointer" }}
-                                >📈 Progression</button>
-                                {/* Suivi démarrage */}
-                                {(() => {
-                                  const suivi = a.suivi_demarrage || {};
-                                  const steps = suivi.steps || [];
-                                  const done  = steps.filter(s => s.done).length;
-                                  const total = steps.length;
-                                  const allDone = total > 0 && done === total;
-                                  return (
-                                    <button
-                                      onClick={() => { setSuiviTarget(a); setShowSuiviModal(true); }}
-                                      style={{ flex:1, background: allDone ? "#dcfce7" : total > 0 ? "#fef9c3" : "#f0fdf4", color: allDone ? "#15803d" : total > 0 ? "#92400e" : "#15803d", border: allDone ? "1px solid #86efac" : total > 0 ? "1px solid #fde68a" : "1px solid #bbf7d0", borderRadius:8, padding:"6px 8px", fontSize:11, fontWeight:700, cursor:"pointer", position:"relative" }}
-                                    >
-                                      🚀 Suivi
-                                      {total > 0 && (
-                                        <span style={{ marginLeft:4, background: allDone ? "#15803d" : "#d97706", color:"#fff", borderRadius:999, fontSize:9, padding:"0 5px", fontWeight:800 }}>
-                                          {done}/{total}
-                                        </span>
-                                      )}
-                                    </button>
-                                  );
-                                })()}
-                              </div>
-
+                              <div style={{ marginTop:10, textAlign:"right", fontSize:10, color:"#0891b2", fontWeight:700 }}>Voir le dossier →</div>
                             </div>
                           </div>
                         );
@@ -3244,9 +3274,373 @@ export default function CommercialDashboard() {
               );
             })()}
 
+            {activeTab === "notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#0891b2" />
+              </div>
+            )}
+
           </div>
         </div>
       </div>
+
+      {/* ══ MODAL APPRENANT ══ */}
+      {apprenantModal && (() => {
+        const a = apprenantModal;
+        const initiales = (a.prospect_nom || "?").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
+        const pmts = paiements.filter(p => p.assignationId === a.id);
+        const totalReçu = pmts.reduce((s,p)=>s+(p.montantReçu||0),0);
+        const totalDu = pmts.reduce((s,p)=>s+(p.montantDu||0),0);
+        const testProspect = tests.find(t => t.email && a.prospect_email && t.email.toLowerCase() === a.prospect_email.toLowerCase());
+        const docsApp = a.documents_dossier || [];
+        const plan = a.plan_paiement || {};
+        const tranches = plan.tranches || [];
+        const accesBloque = plan.acces_bloque || false;
+        const modeLabel = a.type_cours === "en_ligne" ? "En ligne" : `Présentiel${a.centre_nom ? " · "+a.centre_nom : ""}`;
+        const coachLabel = a.type_coaching === "groupe" ? "Groupe" : a.type_coaching === "prive" ? "Privé" : "—";
+        const today = new Date(); today.setHours(0,0,0,0);
+        const sp = a.suivi_presences || {};
+        const sessions = sp.sessions || [];
+        const seances = sp.seances_effectuees || sessions.length || 0;
+        const presences = sp.presences || 0;
+        const abs = sp.absences || 0;
+        const tauxPart = seances > 0 ? Math.round((presences / seances) * 100) : null;
+        const tauxAbs  = seances > 0 ? Math.round((abs / seances) * 100) : null;
+        const prog = progressionNotes[a.id] || {};
+        const progSessions = prog.sessions ?? (sp.sessions || []);
+
+        const TABS = [
+          { id:"infos",    label:"📋 Informations" },
+          { id:"suivi",    label:"📊 Suivi" },
+          { id:"paiement", label:"💳 Paiement" },
+          { id:"docs",     label:"📎 Documents" },
+        ];
+
+        return (
+          <div style={modalOverlay} onClick={() => setApprenantModal(null)}>
+            <div style={{ ...modalBox, width:720, maxWidth:"95vw", maxHeight:"90vh", overflowY:"auto", padding:0 }} onClick={e=>e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:"linear-gradient(135deg,#0f172a,#0891b2)", padding:"20px 24px", borderRadius:"14px 14px 0 0", display:"flex", alignItems:"center", gap:14, position:"sticky", top:0, zIndex:10 }}>
+                <div style={{ width:50, height:50, borderRadius:"50%", background:"rgba(255,255,255,0.18)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:18, color:"#fff", flexShrink:0 }}>
+                  {initiales}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:17, fontWeight:800, color:"#fff" }}>{a.prospect_nom || "—"}</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,0.65)", display:"flex", gap:10 }}>
+                    {a.prospect_email && <span>{a.prospect_email}</span>}
+                    {a.prospect_telephone && <span>📞 {a.prospect_telephone}</span>}
+                  </div>
+                </div>
+                {accesBloque && <span style={{ background:"#ef4444", color:"#fff", borderRadius:999, fontSize:11, fontWeight:800, padding:"4px 12px" }}>🔒 Accès bloqué</span>}
+                <button onClick={() => setApprenantModal(null)} style={{ background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", width:30, height:30, borderRadius:"50%", cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>✕</button>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display:"flex", borderBottom:"2px solid #e2e8f0", background:"#f8fafc", padding:"0 24px" }}>
+                {TABS.map(t => (
+                  <button key={t.id} onClick={() => setApprenantTab(t.id)}
+                    style={{ padding:"12px 16px", border:"none", background:"none", cursor:"pointer", fontSize:13, fontWeight:apprenantTab===t.id?800:500, color:apprenantTab===t.id?"#0891b2":"#64748b", borderBottom:apprenantTab===t.id?"2.5px solid #0891b2":"2.5px solid transparent", marginBottom:-2, whiteSpace:"nowrap" }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content */}
+              <div style={{ padding:"24px" }}>
+
+                {/* INFOS */}
+                {apprenantTab === "infos" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                      {[
+                        ["Mode de cours", modeLabel],
+                        ["Coaching", coachLabel],
+                        ["Assistante", a.assistante_nom || "—"],
+                        ["Téléphone assistante", a.assistante_tel || "—"],
+                        ["Date de conversion", a.updated_at ? new Date(a.updated_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "—"],
+                        ["Source", a.source || "—"],
+                      ].map(([l,v]) => (
+                        <div key={l} style={{ background:"#f8fafc", borderRadius:8, padding:"10px 14px", border:"1px solid #e2e8f0" }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".05em", marginBottom:3 }}>{l}</div>
+                          <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {testProspect && (
+                      <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#f0fdf4", borderRadius:10, border:"1px solid #bbf7d0" }}>
+                        <span style={{ fontSize:12, fontWeight:700, color:"#15803d" }}>📝 Test de niveau</span>
+                        <span style={{ fontWeight:800, fontSize:14, color:"#fff", background:"#0891b2", borderRadius:999, padding:"2px 12px" }}>{testProspect.niveau}</span>
+                        <span style={{ fontSize:12, color:"#64748b" }}>{testProspect.score}% · {testProspect.date && new Date(testProspect.date).toLocaleDateString("fr-FR")}</span>
+                        <button onClick={() => { setSelectedTest(testProspect); setShowTestDetailModal(true); }} style={{ marginLeft:"auto", fontSize:11, padding:"4px 10px", borderRadius:6, border:"1px solid #16a34a40", background:"#dcfce7", color:"#15803d", cursor:"pointer", fontWeight:700 }}>Voir →</button>
+                      </div>
+                    )}
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      <button onClick={() => setChatAssignation(chatAssignation?.id===a.id?null:a)} style={{ ...btnPrimary, fontSize:12, padding:"8px 16px" }}>💬 Chat</button>
+                      <button onClick={() => { setSuiviTarget(a); setShowSuiviModal(true); }} style={{ ...btnSecondary, fontSize:12, padding:"8px 16px" }}>🚀 Suivi démarrage</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUIVI */}
+                {apprenantTab === "suivi" && (
+                  <div>
+                    {seances === 0 && (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:13 }}>Aucune séance enregistrée. Ouvrez l'onglet Progression pour en ajouter.</div>
+                    )}
+                    {seances > 0 && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+                          <div style={{ background:"#f0fdf4", borderRadius:10, padding:"12px", textAlign:"center", border:"1px solid #bbf7d0" }}>
+                            <div style={{ fontSize:10, color:"#15803d", fontWeight:700, marginBottom:4 }}>Séances</div>
+                            <div style={{ fontSize:24, fontWeight:900, color:"#0f172a" }}>{seances}</div>
+                          </div>
+                          <div style={{ background:"#e0f2fe", borderRadius:10, padding:"12px", textAlign:"center", border:"1px solid #bae6fd" }}>
+                            <div style={{ fontSize:10, color:"#0369a1", fontWeight:700, marginBottom:4 }}>Participation</div>
+                            <div style={{ fontSize:24, fontWeight:900, color: tauxPart>=80?"#15803d":tauxPart>=60?"#d97706":"#ef4444" }}>{tauxPart}%</div>
+                          </div>
+                          <div style={{ background:"#fef2f2", borderRadius:10, padding:"12px", textAlign:"center", border:"1px solid #fca5a5" }}>
+                            <div style={{ fontSize:10, color:"#b91c1c", fontWeight:700, marginBottom:4 }}>Absentéisme</div>
+                            <div style={{ fontSize:24, fontWeight:900, color: tauxAbs<=10?"#15803d":tauxAbs<=25?"#d97706":"#ef4444" }}>{tauxAbs}%</div>
+                          </div>
+                        </div>
+                        <div style={{ height:8, background:"#e5e7eb", borderRadius:999, overflow:"hidden" }}>
+                          <div style={{ height:"100%", borderRadius:999, width:`${tauxPart}%`, background: tauxPart>=80?"#22c55e":tauxPart>=60?"#f59e0b":"#ef4444", transition:"width .4s" }} />
+                        </div>
+                        {(() => {
+                          const now2 = new Date();
+                          const monday = new Date(now2); monday.setDate(now2.getDate()-((now2.getDay()+6)%7)); monday.setHours(0,0,0,0);
+                          const absWeek = sessions.filter(s=>new Date(s.date)>=monday&&s.statut==="absent").length;
+                          const alertS = absWeek > 2;
+                          const sorted2=[...sessions].sort((x,y)=>x.date.localeCompare(y.date));
+                          let c2=0,mc2=0;
+                          for(const s of sorted2){if(s.statut==="absent"){c2++;if(c2>mc2)mc2=c2;}else c2=0;}
+                          const alertC = mc2 >= 3;
+                          return (
+                            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                              {alertS && <div style={{ padding:"8px 12px", background:"#fff7ed", borderRadius:8, border:"1px solid #fed7aa", fontSize:12, color:"#c2410c", fontWeight:700 }}>🔔 +2 absences cette semaine ({absWeek} absences)</div>}
+                              {alertC && <div style={{ padding:"8px 12px", background:"#fef2f2", borderRadius:8, border:"1px solid #fca5a5", fontSize:12, color:"#b91c1c", fontWeight:700 }}>🚨 {mc2} absences consécutives — intervention urgente</div>}
+                            </div>
+                          );
+                        })()}
+                        <div style={{ border:"1px solid #e2e8f0", borderRadius:10, overflow:"hidden" }}>
+                          <div style={{ padding:"8px 14px", background:"#f8fafc", fontSize:11, fontWeight:700, color:"#374151", borderBottom:"1px solid #e2e8f0" }}>Liste des séances</div>
+                          {sessions.length === 0 && <div style={{ padding:"20px", textAlign:"center", fontSize:12, color:"#94a3b8" }}>Aucune séance</div>}
+                          {sessions.map((s,i) => (
+                            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:i<sessions.length-1?"1px solid #f1f5f9":"none" }}>
+                              <span style={{ fontSize:14 }}>{s.statut==="present"?"✅":"❌"}</span>
+                              <span style={{ fontSize:12, color:"#374151", flex:1 }}>{s.date}</span>
+                              <span style={{ fontSize:11, fontWeight:700, color:s.statut==="present"?"#15803d":"#ef4444", padding:"2px 8px", borderRadius:999, background:s.statut==="present"?"#dcfce7":"#fee2e2" }}>{s.statut==="present"?"Présent":"Absent"}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => { setProgressionTarget(a); setShowProgressionModal(true); }}
+                          style={{ ...btnSecondary, fontSize:12, textAlign:"center" }}>
+                          ✏️ Gérer les séances (Progression)
+                        </button>
+                      </div>
+                    )}
+                    {seances === 0 && (
+                      <button onClick={() => { setProgressionTarget(a); setShowProgressionModal(true); }} style={{ ...btnPrimary, marginTop:12 }}>+ Ajouter des séances</button>
+                    )}
+                  </div>
+                )}
+
+                {/* PAIEMENT */}
+                {apprenantTab === "paiement" && (() => {
+                  const savePlan = async (newPlan) => {
+                    await handleSavePlanPaiement(a.id, newPlan);
+                  };
+
+                  const toggleAcces = async () => {
+                    const newPlan = { ...plan, acces_bloque: !accesBloque, tranches };
+                    await savePlan(newPlan);
+                  };
+
+                  const marquerPaye = (tid) => {
+                    const tranche = tranches.find(t => t.id === tid);
+                    if (!tranche) return;
+                    const typeLabel = a.type_coaching==="groupe"?"Coaching groupe":a.type_coaching==="prive"?"Coaching privé":"Formation";
+                    const ml = a.type_cours==="en_ligne"?"En ligne":`Présentiel${a.centre_nom?" · "+a.centre_nom:""}`;
+                    const offreLabel = `Parcours BET · ${ml} · ${typeLabel}`;
+                    setTranchePayTarget({ assignationId: a.id, trancheId: tid, plan, tranches });
+                    setEditingItem({
+                      client:         a.prospect_nom       || "",
+                      email:          a.prospect_email     || "",
+                      telephone:      a.prospect_telephone || "",
+                      offre:          offreLabel,
+                      inscription:    `${tranche.label} — Échéance : ${tranche.date_echeance}`,
+                      montantDu:      tranche.montant      || 0,
+                      montantReçu:    tranche.montant      || 0,
+                      date:           new Date().toISOString().slice(0, 10),
+                      mode:           "Mobile Money",
+                      statut:         "reçu",
+                      notes:          `Règlement tranche « ${tranche.label} » — Échéance prévue : ${tranche.date_echeance}`,
+                      refTransaction: "",
+                      assignationId:  a.id,
+                      preuveImage:    null,
+                    });
+                    setShowPaiementModal(true);
+                  };
+
+                  const supprimerTranche = async (tid) => {
+                    const newTranches = tranches.filter(t => t.id !== tid);
+                    await savePlan({ ...plan, tranches: newTranches });
+                  };
+
+                  const tranchesPaye  = tranches.filter(t => t.statut === "payé").reduce((s,t) => s + (t.montant||0), 0);
+                  const tranchesTotal = tranches.reduce((s,t) => s + (t.montant||0), 0);
+                  const isSolde = tranches.length > 0
+                    ? tranchesTotal > 0 && tranchesPaye >= tranchesTotal
+                    : totalDu > 0 && totalReçu >= totalDu;
+
+                  return (
+                    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+                      {/* Access block toggle */}
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderRadius:10, border:`1.5px solid ${accesBloque?"#fca5a5":"#e2e8f0"}`, background:accesBloque?"#fef2f2":"#f8fafc" }}>
+                        <div>
+                          <div style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>{accesBloque?"🔒 Accès à la formation bloqué":"🔓 Accès à la formation actif"}</div>
+                          <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{accesBloque?"L'apprenant ne peut plus accéder à ses cours.":"L'apprenant a accès à tous ses cours."}</div>
+                        </div>
+                        <button onClick={toggleAcces} style={{ padding:"8px 16px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:accesBloque?"#22c55e":"#ef4444", color:"#fff" }}>
+                          {accesBloque?"🔓 Débloquer":"🔒 Bloquer"}
+                        </button>
+                      </div>
+
+                      {/* Alerts from tranches */}
+                      {tranches.filter(t=>t.statut==="en_attente").map(t => {
+                        const d = new Date(t.date_echeance); d.setHours(0,0,0,0);
+                        const diff = Math.ceil((today - d) / 86400000);
+                        const daysLeft = Math.ceil((d - today) / 86400000);
+                        if (diff > 7) return <div key={t.id} style={{ padding:"10px 14px", background:"#fef2f2", borderRadius:8, border:"1px solid #fca5a5", fontSize:12, color:"#b91c1c", fontWeight:700 }}>🚨 {t.label} — Retard critique de {diff} jours</div>;
+                        if (diff > 0) return <div key={t.id} style={{ padding:"10px 14px", background:"#fff7ed", borderRadius:8, border:"1px solid #fed7aa", fontSize:12, color:"#c2410c", fontWeight:700 }}>⚠️ {t.label} — Retard de {diff} jour{diff>1?"s":""}</div>;
+                        if (daysLeft >= 0 && daysLeft <= 5) return <div key={t.id} style={{ padding:"10px 14px", background:"#fefce8", borderRadius:8, border:"1px solid #fde68a", fontSize:12, color:"#854d0e", fontWeight:700 }}>⏰ {t.label} — Échéance dans {daysLeft} jour{daysLeft!==1?"s":""}</div>;
+                        return null;
+                      })}
+
+                      {/* Tranches list */}
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:800, color:"#374151", marginBottom:8 }}>📅 Plan de paiement échelonné</div>
+                        {tranches.length === 0 && <div style={{ fontSize:12, color:"#94a3b8", padding:"16px", background:"#f8fafc", borderRadius:8, border:"1px dashed #e2e8f0", textAlign:"center" }}>Aucune tranche définie. Ajoutez-en ci-dessous.</div>}
+                        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                          {tranches.map(t => {
+                            const d = new Date(t.date_echeance); d.setHours(0,0,0,0);
+                            const diff = Math.ceil((today - d) / 86400000);
+                            const isLate = t.statut==="en_attente" && diff > 0;
+                            return (
+                              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderRadius:10, border:`1.5px solid ${t.statut==="payé"?"#bbf7d0":isLate?"#fca5a5":"#e2e8f0"}`, background:t.statut==="payé"?"#f0fdf4":isLate?"#fef2f2":"#fff" }}>
+                                <div style={{ flex:1 }}>
+                                  <div style={{ fontSize:12, fontWeight:800, color:"#0f172a" }}>{t.label}</div>
+                                  <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>
+                                    {Number(t.montant).toLocaleString("fr-FR")} F · Échéance : {t.date_echeance}
+                                    {t.date_paiement_effectif && ` · Payé le ${t.date_paiement_effectif}`}
+                                  </div>
+                                </div>
+                                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, color:t.statut==="payé"?"#15803d":isLate?"#b91c1c":"#d97706", background:t.statut==="payé"?"#dcfce7":isLate?"#fee2e2":"#fef3c7" }}>
+                                  {t.statut==="payé"?"✅ Payé":isLate?"⛔ Retard":"⏳ En attente"}
+                                </span>
+                                {t.statut !== "payé" && (
+                                  <button onClick={() => marquerPaye(t.id)} title="Marquer payé" style={{ background:"#dcfce7", border:"1px solid #bbf7d0", borderRadius:6, padding:"4px 8px", fontSize:12, cursor:"pointer" }}>✅</button>
+                                )}
+                                <EcheancePicker tranche={t} onSave={async (newDate) => {
+                                  const newTranches = tranches.map(tr => tr.id===t.id ? {...tr, date_echeance:newDate} : tr);
+                                  await savePlan({ ...plan, tranches:newTranches });
+                                }} />
+                                <button onClick={() => supprimerTranche(t.id)} title="Supprimer" style={{ background:"#fee2e2", border:"1px solid #fca5a5", borderRadius:6, padding:"4px 8px", fontSize:12, cursor:"pointer" }}>🗑️</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Add tranche form */}
+                      {isSolde ? (
+                        <div style={{ padding:"12px 16px", borderRadius:10, border:"1.5px solid #e2e8f0", background:"#f1f5f9", display:"flex", alignItems:"center", gap:10, color:"#94a3b8", fontSize:12, fontWeight:600 }}>
+                          ✅ Paiement soldé — aucune nouvelle tranche possible
+                        </div>
+                      ) : (
+                        <AddTrancheForm onAdd={async (newT) => {
+                          const newTranches = [...tranches, { ...newT, id:`t${Date.now()}`, statut:"en_attente", date_paiement_effectif:null }];
+                          await savePlan({ ...plan, tranches:newTranches });
+                        }} />
+                      )}
+
+                      {/* Existing paiements */}
+                      {pmts.length > 0 && (
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:800, color:"#374151", marginBottom:8 }}>💳 Versements enregistrés ({pmts.length})</div>
+                          <div style={{ border:"1px solid #e2e8f0", borderRadius:10, overflow:"hidden" }}>
+                            {pmts.map((p,i) => (
+                              <div key={p.id||i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderBottom:i<pmts.length-1?"1px solid #f1f5f9":"none" }}>
+                                <div style={{ flex:1 }}>
+                                  <div style={{ fontSize:12, fontWeight:700, color:"#0f172a" }}>{p.client || a.prospect_nom} · {p.date || "—"}</div>
+                                  <div style={{ fontSize:11, color:"#64748b" }}>{p.mode || "—"}{p.refTransaction?` · Réf: ${p.refTransaction}`:""}</div>
+                                </div>
+                                <div style={{ textAlign:"right" }}>
+                                  <div style={{ fontSize:12, fontWeight:800, color:"#22c55e" }}>+{Number(p.montantReçu||0).toLocaleString("fr-FR")} F</div>
+                                  {p.montantDu > 0 && <div style={{ fontSize:10, color:"#94a3b8" }}>sur {Number(p.montantDu).toLocaleString("fr-FR")} F</div>}
+                                </div>
+                              </div>
+                            ))}
+                            <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 14px", background:"#f8fafc", borderTop:"1.5px solid #e2e8f0", fontSize:12, fontWeight:800 }}>
+                              <span>Total reçu</span>
+                              <span style={{ color:"#22c55e" }}>{Number(totalReçu).toLocaleString("fr-FR")} F</span>
+                            </div>
+                          </div>
+                          <button onClick={() => { setPmtListTarget(a); setShowPmtListModal(true); }} style={{ ...btnSecondary, fontSize:11, marginTop:8, width:"100%" }}>+ Ajouter un versement</button>
+                        </div>
+                      )}
+                      {pmts.length === 0 && (
+                        <button
+                          disabled={isSolde}
+                          onClick={() => {
+                            if (isSolde) return;
+                            const typeLabel = a.type_coaching==="groupe"?"Coaching groupe":a.type_coaching==="prive"?"Coaching privé":"Formation";
+                            const ml = a.type_cours==="en_ligne"?"En ligne":`Présentiel${a.centre_nom?" · "+a.centre_nom:""}`;
+                            const offreLabel = `Parcours BET · ${ml} · ${typeLabel}`;
+                            setEditingItem({ client:a.prospect_nom||"", email:a.prospect_email||"", telephone:a.prospect_telephone||"", offre:offreLabel, inscription:offreLabel, montantDu:0, montantReçu:0, date:new Date().toISOString().slice(0,10), mode:"Mobile Money", statut:"en_attente", notes:"", refTransaction:"", assignationId:a.id, preuveImage:null });
+                            setShowPaiementModal(true);
+                          }}
+                          style={{ ...btnSecondary, width:"100%", fontSize:12, opacity:isSolde?0.45:1, cursor:isSolde?"not-allowed":"pointer" }}
+                        >
+                          {isSolde ? "✅ Paiement soldé" : "💳 Enregistrer un versement"}
+                        </button>
+                      )}
+
+                    </div>
+                  );
+                })()}
+
+                {/* DOCUMENTS */}
+                {apprenantTab === "docs" && (
+                  <div>
+                    <div style={{ marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <div style={{ fontSize:12, fontWeight:800, color:"#374151" }}>📎 Documents du dossier ({docsApp.length})</div>
+                      <button onClick={() => { setDocDossierTarget(a); setShowDocDossierModal(true); }} style={{ ...btnSecondary, fontSize:11, padding:"6px 14px" }}>+ Gérer</button>
+                    </div>
+                    {docsApp.length === 0 && <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:12 }}>Aucun document dans le dossier.</div>}
+                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      {docsApp.map((doc,di) => (
+                        <div key={di} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderRadius:8, border:"1px solid #e2e8f0", background:"#f8fafc" }}>
+                          <span style={{ fontSize:20 }}>{DOC_TYPES.find(d=>d.key===doc.type)?.icon||"📎"}</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#0f172a" }}>{doc.nom}</div>
+                            {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize:11, color:"#0891b2" }}>Voir le document →</a>}
+                          </div>
+                          <span style={{ fontSize:10, background:"#ede9fe", color:"#6d28d9", padding:"2px 8px", borderRadius:5, fontWeight:600 }}>{DOC_TYPES.find(d=>d.key===doc.type)?.label||doc.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══ MODAL NEWSLETTER ══ */}
       {showNewsletterModal && selectedNewsletter && (() => {
@@ -3306,11 +3700,6 @@ export default function CommercialDashboard() {
       {showLeadModal && (
         <Modal title={editingItem ? "Modifier le lead" : "Ajouter un lead"} onClose={() => { setShowLeadModal(false); setEditingItem(null); }}>
           <LeadForm initialData={editingItem} onSave={handleSaveLead} onCancel={() => setShowLeadModal(false)} />
-        </Modal>
-      )}
-      {showDevisModal && (
-        <Modal title={editingItem ? "Modifier le devis" : "Ajouter un devis"} onClose={() => { setShowDevisModal(false); setEditingItem(null); }}>
-          <DevisForm initialData={editingItem} onSave={handleSaveDevis} onCancel={() => setShowDevisModal(false)} />
         </Modal>
       )}
       {showInscriptionModal && (
@@ -3437,7 +3826,8 @@ export default function CommercialDashboard() {
                       onClick={() => {
                         if (isPaidUp) return;
                         const typeLabel = a.type_coaching==="groupe"?"Coaching groupe":a.type_coaching==="prive"?"Coaching privé":"Formation";
-                        setEditingItem({ client:a.prospect_nom||"", email:a.prospect_email||"", telephone:a.prospect_telephone||"", inscription:`Parcours BET · ${modeLabel} · ${typeLabel}`, montantDu:montantTotal, montantReçu:0, date:new Date().toISOString().slice(0,10), mode:"Mobile Money", statut:"en_attente", notes:"", refTransaction:"", assignationId:a.id });
+                        const offreLabel = `Parcours BET · ${modeLabel} · ${typeLabel}`;
+                        setEditingItem({ client:a.prospect_nom||"", email:a.prospect_email||"", telephone:a.prospect_telephone||"", offre:offreLabel, inscription:offreLabel, montantDu:montantTotal, montantReçu:0, date:new Date().toISOString().slice(0,10), mode:"Mobile Money", statut:"en_attente", notes:"", refTransaction:"", assignationId:a.id, preuveImage:null });
                         setShowPmtListModal(false);
                         setShowPaiementModal(true);
                       }}
@@ -3470,7 +3860,8 @@ export default function CommercialDashboard() {
         const inscLie   = inscriptions.find(i => i.email && a.prospect_email && i.email.toLowerCase()===a.prospect_email.toLowerCase());
         const NIVEAU_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
         const NIVEAUX     = ["A1","A2","B1","B2","C1","C2"];
-        const prog        = progressionNotes[a.id] || { seances:"", niveauActuel: testLie?.niveau || "", niveauCible:"", commentaire:"", presences:"", absences:"" };
+        const progDefault = { sessions: a.suivi_presences?.sessions || [], newSessionDate: new Date().toISOString().slice(0,10), newSessionStatut:"present", seances:"", niveauActuel: testLie?.niveau || "", niveauCible:"", commentaire:"", presences:"", absences:"" };
+        const prog        = progressionNotes[a.id] ? { ...progDefault, ...progressionNotes[a.id], sessions: progressionNotes[a.id].sessions ?? (a.suivi_presences?.sessions || []) } : progDefault;
         const setP        = (k,v) => setProgressionNotes(prev => ({ ...prev, [a.id]: { ...prog, [k]:v } }));
         const pctPaiement = totalDu > 0 ? Math.round((totalReçu/totalDu)*100) : 0;
 
@@ -3627,6 +4018,64 @@ export default function CommercialDashboard() {
                 </div>
 
                 {/* ── Commentaire libre ── */}
+                {/* ── Saisie des séances ── */}
+                <div style={{ background:"#f8fafc", borderRadius:10, padding:"12px 14px", border:"1px solid #e2e8f0" }}>
+                  <div style={{ fontSize:10, fontWeight:800, color:"#374151", marginBottom:10, textTransform:"uppercase", letterSpacing:".06em" }}>📅 Saisie des séances</div>
+                  <div style={{ display:"flex", gap:8, marginBottom:10, alignItems:"center" }}>
+                    <input
+                      type="date"
+                      value={prog.newSessionDate || new Date().toISOString().slice(0,10)}
+                      onChange={e => setP("newSessionDate", e.target.value)}
+                      style={{ ...inputSt, margin:0, flex:1, fontSize:12 }}
+                    />
+                    <button
+                      onClick={() => {
+                        setP("newSessionStatut", prog.newSessionStatut === "present" ? "absent" : "present");
+                      }}
+                      style={{ padding:"6px 12px", borderRadius:7, border:"1.5px solid #e2e8f0", background: prog.newSessionStatut === "absent" ? "#fee2e2" : "#dcfce7", color: prog.newSessionStatut === "absent" ? "#b91c1c" : "#15803d", fontWeight:700, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}
+                    >
+                      {prog.newSessionStatut === "absent" ? "❌ Absent" : "✅ Présent"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const date   = prog.newSessionDate || new Date().toISOString().slice(0,10);
+                        const statut = prog.newSessionStatut || "present";
+                        const updated = [...(prog.sessions || []), { date, statut }].sort((x,y) => x.date.localeCompare(y.date));
+                        setP("sessions", updated);
+                      }}
+                      style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#0891b2", color:"#fff", fontWeight:700, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}
+                    >+ Ajouter</button>
+                  </div>
+                  {(prog.sessions || []).length === 0 ? (
+                    <div style={{ fontSize:11, color:"#94a3b8", textAlign:"center", padding:"10px 0" }}>Aucune séance enregistrée — ajoutez la première ci-dessus</div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:4, maxHeight:220, overflowY:"auto" }}>
+                      {[...(prog.sessions || [])].map((s, origIdx) => ({ ...s, origIdx })).sort((x,y) => y.date.localeCompare(x.date)).map((s) => (
+                        <div key={s.origIdx} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background: s.statut==="present"?"#f0fdf4":"#fef2f2", borderRadius:7, border:`1px solid ${s.statut==="present"?"#bbf7d0":"#fca5a5"}` }}>
+                          <span style={{ fontSize:12 }}>{s.statut==="present"?"✅":"❌"}</span>
+                          <span style={{ fontSize:12, color:"#374151", flex:1, fontWeight:600 }}>
+                            {new Date(s.date+"T12:00:00").toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short", year:"numeric" })}
+                          </span>
+                          <span style={{ fontSize:11, fontWeight:700, color: s.statut==="present"?"#15803d":"#b91c1c" }}>
+                            {s.statut==="present" ? "Présent" : "Absent"}
+                          </span>
+                          <button
+                            onClick={() => setP("sessions", (prog.sessions||[]).filter((_,j) => j !== s.origIdx))}
+                            style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:14, lineHeight:1, padding:"0 2px" }}
+                          >✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(prog.sessions || []).length > 0 && (
+                    <div style={{ marginTop:8, display:"flex", gap:12, fontSize:11, color:"#6b7280" }}>
+                      <span>✅ {(prog.sessions||[]).filter(s=>s.statut==="present").length} présence{(prog.sessions||[]).filter(s=>s.statut==="present").length!==1?"s":""}</span>
+                      <span>❌ {(prog.sessions||[]).filter(s=>s.statut==="absent").length} absence{(prog.sessions||[]).filter(s=>s.statut==="absent").length!==1?"s":""}</span>
+                      <span style={{ marginLeft:"auto", fontWeight:700 }}>{Math.round(((prog.sessions||[]).filter(s=>s.statut==="present").length / (prog.sessions||[]).length)*100)}% participation</span>
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label style={{ fontSize:10, fontWeight:700, color:"#374151", display:"block", marginBottom:6 }}>📝 Notes de suivi (commercial)</label>
                   <textarea
@@ -3641,7 +4090,19 @@ export default function CommercialDashboard() {
                 <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
                   <button onClick={()=>{ setShowProgressionModal(false); setProgressionTarget(null); }} style={btnSecondary}>Fermer</button>
                   <button
-                    onClick={()=>{ toast.success("Notes de suivi enregistrées ✓"); }}
+                    onClick={async () => {
+                      const sessions = prog.sessions || [];
+                      const presences = sessions.filter(s => s.statut === "present").length;
+                      const absences  = sessions.filter(s => s.statut === "absent").length;
+                      const sp = {
+                        sessions,
+                        presences,
+                        absences,
+                        seances_effectuees: sessions.length,
+                        updated_at: new Date().toISOString(),
+                      };
+                      await handleSavePresences(a.id, sp);
+                    }}
                     style={{ ...btnPrimary, background:"linear-gradient(135deg,#4c1d95,#7c3aed)" }}
                   >💾 Sauvegarder</button>
                 </div>
@@ -3750,11 +4211,11 @@ export default function CommercialDashboard() {
                     contact:    a.prospect_nom       || "",
                     telephone:  a.prospect_telephone || "",
                     email:      a.prospect_email     || "",
-                    offre:      testLie ? offreParNiveau(testLie.niveau) : "",
+                    offre:      pmts.find(p => p.offre)?.offre || (testLie ? offreParNiveau(testLie.niveau) : ""),
                     niveauTest: testLie?.niveau || "B1",
                     dateDebut:  "",
                     date:       new Date().toISOString().slice(0,10),
-                    montant:    totalDu,
+                    montant:    pmts.find(p => p.offre)?.montantDu || (pmts.length === 1 ? totalDu : 0),
                     statut:     "confirmée",
                     apprenantConverti: false,
                     documents:  [],
@@ -3763,6 +4224,7 @@ export default function CommercialDashboard() {
                   onSave={(formData) => handleFinaliserInscription(a, formData)}
                   onCancel={() => { setShowFinalisationModal(false); setFinalisationTarget(null); }}
                   finalisationMode
+                  catalogueOffres={catalogueOffres}
                 />
 
               </div>
@@ -3771,8 +4233,18 @@ export default function CommercialDashboard() {
         );
       })()}
       {showPaiementModal && (
-        <Modal title={editingItem?.id ? "Modifier le paiement" : editingItem?.assignationId ? `💳 Paiement — ${editingItem.client}` : "Enregistrer un paiement"} onClose={() => { setShowPaiementModal(false); setEditingItem(null); }} wide>
-          <PaiementForm initialData={editingItem} onSave={handleSavePaiement} onCancel={() => setShowPaiementModal(false)} apprenants={assignations.filter(a => a.statut === "converti")} />
+        <Modal
+          title={editingItem?.id ? "Modifier le paiement" : tranchePayTarget ? `💳 Paiement tranche — ${editingItem?.client}` : editingItem?.assignationId ? `💳 Paiement — ${editingItem.client}` : "Enregistrer un paiement"}
+          onClose={() => { setShowPaiementModal(false); setEditingItem(null); setTranchePayTarget(null); }}
+          wide
+        >
+          <PaiementForm
+            initialData={editingItem}
+            onSave={handleSavePaiement}
+            onCancel={() => { setShowPaiementModal(false); setEditingItem(null); setTranchePayTarget(null); }}
+            apprenants={assignations.filter(a => a.statut === "converti")}
+            catalogueOffres={catalogueOffres}
+          />
         </Modal>
       )}
       {showDossierModal && (
@@ -4048,7 +4520,21 @@ export default function CommercialDashboard() {
    FORMULAIRES CRUD
 ═══════════════════════════════════════════════════════ */
 // const BET_COLOR_F = "#0891b2";
-const OFFRE_LIST_F = ["Anglais Pro B2","Business English","Certification TOEIC","Anglais Enfant","Formation Entreprise"];
+const OFFRES_TARIFS = [
+  { label:"Anglais Pro B2",           prix: 150_000 },
+  { label:"Anglais Pro B1",           prix: 120_000 },
+  { label:"Anglais Essentiel A2",     prix:  90_000 },
+  { label:"Business English",         prix: 200_000 },
+  { label:"Certification TOEIC",      prix: 300_000 },
+  { label:"Anglais Enfant",           prix:  80_000 },
+  { label:"Formation Entreprise",     prix: 250_000 },
+  { label:"Coaching de groupe",       prix:  60_000 },
+  { label:"Coaching privé",           prix: 180_000 },
+  { label:"Anglais Expert C2",        prix: 220_000 },
+  { label:"Cours débutant / Alpha",   prix:  70_000 },
+  { label:"Formation Personnalisée",  prix:       0 },
+];
+const OFFRE_LIST_F = OFFRES_TARIFS.map(o => o.label);
 
 const LeadForm = ({ initialData, onSave, onCancel }) => {
   const [form, setForm] = useState(initialData || { client:"",contact:"",email:"",source:"Site web",statut:"qualifié",date:new Date().toISOString().slice(0,10),montantPotentiel:0,notes:"" });
@@ -4107,22 +4593,74 @@ const DOC_TYPES = [
   { key:"autre",  label:"Autre document",        icon:"📎" },
 ];
 
-const InscriptionForm = ({ initialData, onSave, onCancel, finalisationMode }) => {
+const InscriptionForm = ({ initialData, onSave, onCancel, finalisationMode, catalogueOffres = [] }) => {
   const [form, setForm] = useState(initialData || {
     client:"", contact:"", telephone:"", email:"", offre:"", niveauTest:"B1",
     dateDebut:"", date:new Date().toISOString().slice(0,10), montant:0,
     statut:"confirmée", apprenantConverti:false, documents:[], notesAdmin:""
   });
-  const [uploadingType, setUploadingType] = useState("");
-  const [uploadingName, setUploadingName] = useState("");
+  const [upType,     setUpType]     = useState("");
+  const [upNom,      setUpNom]      = useState("");
+  const [uploading,  setUploading]  = useState(false);
+  const [uploadPct,  setUploadPct]  = useState(0);
+  const fileInputRef = React.useRef(null);
 
-  const addDocument = () => {
-    if (!uploadingType) return;
-    const docDef = DOC_TYPES.find(d=>d.key===uploadingType);
-    const nom = uploadingName.trim() || docDef?.label || uploadingType;
-    if (form.documents.find(d=>d.type===uploadingType && d.nom===nom)) return;
-    setForm(f=>({ ...f, documents:[...f.documents, { nom, type:uploadingType }] }));
-    setUploadingType(""); setUploadingName("");
+  const formatSize = (b) => {
+    if (!b) return "";
+    if (b < 1024) return `${b} o`;
+    if (b < 1024*1024) return `${(b/1024).toFixed(0)} Ko`;
+    return `${(b/(1024*1024)).toFixed(1)} Mo`;
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!upType) { toast.error("Choisissez d'abord le type de document"); e.target.value = ""; return; }
+    if (file.size > 20 * 1024 * 1024) { toast.error("Fichier trop volumineux (max 20 Mo)"); e.target.value = ""; return; }
+    setUploading(true); setUploadPct(10);
+    try {
+      const def = DOC_TYPES.find(d => d.key === upType);
+      const nom = upNom.trim() || def?.label || upType;
+      const fd  = new FormData();
+      fd.append("file", file);
+      setUploadPct(40);
+      const res = await fetch(`${API_URL}/api/upload/dossier`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` },
+        body: fd,
+      });
+      const rawText = await res.text();
+      if (!res.ok) {
+        let msg = `Erreur ${res.status}`;
+        try { msg = JSON.parse(rawText).error || msg; } catch { msg = rawText.slice(0,200); }
+        throw new Error(msg);
+      }
+      const { file: uploaded } = JSON.parse(rawText);
+      setUploadPct(90);
+      setForm(f => ({ ...f, documents: [...f.documents, {
+        nom, type: upType, url: uploaded.url, public_id: uploaded.public_id,
+        taille: uploaded.size || file.size, mimetype: file.type,
+      }]}));
+      setUpType(""); setUpNom("");
+      toast.success(`${def?.icon || "📎"} ${nom} ajouté`);
+    } catch (err) {
+      toast.error("Upload échoué : " + (err.message || "réessayez"));
+    } finally {
+      setUploading(false); setUploadPct(0);
+      e.target.value = "";
+    }
+  };
+
+  const removeDoc = (i) => {
+    const doc = form.documents[i];
+    if (doc.public_id) {
+      const rt = doc.mimetype?.startsWith("image/") ? "image" : "raw";
+      fetch(`${API_URL}/api/upload/delete?public_id=${encodeURIComponent(doc.public_id)}&resource_type=${rt}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` },
+      }).catch(() => {});
+    }
+    setForm(f => ({ ...f, documents: f.documents.filter((_,j) => j !== i) }));
   };
 
   const rdOnly = { ...inputSt, background:"#f8fafc", color:"#64748b", cursor:"not-allowed" };
@@ -4141,44 +4679,130 @@ const InscriptionForm = ({ initialData, onSave, onCancel, finalisationMode }) =>
       </div>
 
       <div style={{ fontSize:12, fontWeight:700, color:"#15803d", margin:"14px 0 10px", padding:"8px 12px", background:"#f0fdf4", borderRadius:8 }}>📚 Formation</div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:4 }}>
-        <div><label style={labelSt}>Offre choisie *</label>
-          <select style={inputSt} value={form.offre} onChange={e=>setForm({...form,offre:e.target.value})}>
-            <option value="">– Choisir –</option>{OFFRE_LIST_F.map(o=><option key={o}>{o}</option>)}
-          </select>
+
+      {/* En mode finalisation : offre + montant issus du paiement → lecture seule */}
+      {finalisationMode ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div style={{ background:"#f8fafc", borderRadius:8, border:"1px solid #e2e8f0", padding:"10px 12px" }}>
+              <div style={{ fontSize:9, fontWeight:700, color:"#94a3b8", marginBottom:4, textTransform:"uppercase", letterSpacing:".06em" }}>Formation</div>
+              <div style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>{form.offre || <span style={{ color:"#94a3b8", fontStyle:"italic" }}>Non définie</span>}</div>
+            </div>
+            <div style={{ background:"#f0fdf4", borderRadius:8, border:"1px solid #bbf7d0", padding:"10px 12px" }}>
+              <div style={{ fontSize:9, fontWeight:700, color:"#15803d", marginBottom:4, textTransform:"uppercase", letterSpacing:".06em" }}>Montant total</div>
+              <div style={{ fontSize:13, fontWeight:800, color:"#15803d" }}>{Number(form.montant||0).toLocaleString("fr-FR")} FCFA</div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div><label style={labelSt}>Niveau CECRL</label>
+              <select style={inputSt} value={form.niveauTest} onChange={e=>setForm({...form,niveauTest:e.target.value})}>
+                {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n}>{n}</option>)}
+              </select>
+            </div>
+            <div><label style={labelSt}>Date d'inscription</label><input type="date" style={inputSt} value={form.date} onChange={e=>setForm({...form,date:e.target.value})} /></div>
+          </div>
+          <div><label style={{ ...labelSt, color:"#0369a1", fontWeight:800 }}>Date de début formation *</label>
+            <input type="date" style={{ ...inputSt, border:"2px solid #0891b2" }} value={form.dateDebut} onChange={e=>setForm({...form,dateDebut:e.target.value})} />
+          </div>
+          {!form.offre && (
+            <div><label style={{ ...labelSt, color:"#dc2626" }}>⚠ Offre choisie * (non saisie lors du paiement)</label>
+              <select style={{ ...inputSt, borderColor:"#fca5a5" }} value={form.offre} onChange={e=>setForm({...form,offre:e.target.value})}>
+                <option value="">– Choisir –</option>
+                {catalogueOffres.length > 0
+                  ? Object.entries(catalogueOffres.reduce((acc,o) => { (acc[o.categorie]=[...(acc[o.categorie]||[]),o]); return acc; }, {}))
+                      .map(([cat, items]) => (
+                        <optgroup key={cat} label={CAT_LABELS[cat] || cat}>
+                          {items.map(o => <option key={o.id} value={o.label}>{o.icon} {o.label}{o.prix_num>0?` · ${o.prix_num.toLocaleString("fr-FR")} FCFA`:""}</option>)}
+                        </optgroup>
+                      ))
+                  : OFFRE_LIST_F.map(o=><option key={o}>{o}</option>)
+                }
+              </select>
+            </div>
+          )}
         </div>
-        <div><label style={labelSt}>Niveau CECRL</label>
-          <select style={inputSt} value={form.niveauTest} onChange={e=>setForm({...form,niveauTest:e.target.value})}>
-            {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n}>{n}</option>)}
-          </select>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:4 }}>
+          <div><label style={labelSt}>Offre choisie *</label>
+            <select style={inputSt} value={form.offre} onChange={e=>setForm({...form,offre:e.target.value})}>
+              <option value="">– Choisir –</option>{OFFRE_LIST_F.map(o=><option key={o}>{o}</option>)}
+            </select>
+          </div>
+          <div><label style={labelSt}>Niveau CECRL</label>
+            <select style={inputSt} value={form.niveauTest} onChange={e=>setForm({...form,niveauTest:e.target.value})}>
+              {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n}>{n}</option>)}
+            </select>
+          </div>
+          <div><label style={labelSt}>Date d'inscription</label><input type="date" style={inputSt} value={form.date} onChange={e=>setForm({...form,date:e.target.value})} /></div>
+          <div><label style={labelSt}>Date de début formation *</label><input type="date" style={inputSt} value={form.dateDebut} onChange={e=>setForm({...form,dateDebut:e.target.value})} /></div>
+          <div><label style={labelSt}>Montant (FCFA)</label><input type="number" style={inputSt} value={form.montant} onChange={e=>setForm({...form,montant:Number(e.target.value)})} /></div>
+          <div><label style={labelSt}>Statut</label>
+            <select style={inputSt} value={form.statut} onChange={e=>setForm({...form,statut:e.target.value})}>
+              <option value="confirmée">Confirmée</option><option value="en_attente">En attente</option>
+            </select>
+          </div>
         </div>
-        <div><label style={labelSt}>Date d'inscription</label><input type="date" style={inputSt} value={form.date} onChange={e=>setForm({...form,date:e.target.value})} /></div>
-        <div><label style={labelSt}>Date de début formation *</label><input type="date" style={inputSt} value={form.dateDebut} onChange={e=>setForm({...form,dateDebut:e.target.value})} /></div>
-        <div><label style={labelSt}>Montant (FCFA)</label><input type="number" style={inputSt} value={form.montant} onChange={e=>setForm({...form,montant:Number(e.target.value)})} /></div>
-        <div><label style={labelSt}>Statut</label>
-          <select style={inputSt} value={form.statut} onChange={e=>setForm({...form,statut:e.target.value})}>
-            <option value="confirmée">Confirmée</option><option value="en_attente">En attente</option>
-          </select>
-        </div>
+      )}
+
+      <div style={{ fontSize:12, fontWeight:700, color:"#7c3aed", margin:"14px 0 10px", padding:"8px 12px", background:"#faf5ff", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span>📎 Documents du dossier</span>
+        <span style={{ fontSize:10, fontWeight:400, color:"#9ca3af" }}>{form.documents.length} fichier{form.documents.length!==1?"s":""} · max 20 Mo</span>
       </div>
 
-      <div style={{ fontSize:12, fontWeight:700, color:"#7c3aed", margin:"14px 0 10px", padding:"8px 12px", background:"#faf5ff", borderRadius:8 }}>📎 Documents du dossier</div>
-      <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-        <select value={uploadingType} onChange={e=>setUploadingType(e.target.value)} style={{ ...inputSt, flex:1 }}>
-          <option value="">— Type de document —</option>
-          {DOC_TYPES.map(d=><option key={d.key} value={d.key}>{d.icon} {d.label}</option>)}
-        </select>
-        <input value={uploadingName} onChange={e=>setUploadingName(e.target.value)} style={{ ...inputSt, flex:1 }} placeholder="Nom personnalisé (optionnel)" />
-        <button onClick={addDocument} style={{ ...btnPrimary, padding:"9px 14px" }}>+ Ajouter</button>
-      </div>
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
-        {form.documents.map((doc,i)=>(
-          <span key={i} style={{ fontSize:11, background:"#e0f2fe", color:"#0369a1", padding:"4px 10px", borderRadius:6, fontWeight:600, display:"flex", alignItems:"center", gap:5 }}>
-            {DOC_TYPES.find(d=>d.key===doc.type)?.icon||"📎"} {doc.nom}
-            <button onClick={()=>setForm(f=>({...f,documents:f.documents.filter((_,j)=>j!==i)}))} style={{ background:"none", border:"none", cursor:"pointer", color:"#dc2626", fontSize:12, padding:0 }}>✕</button>
-          </span>
-        ))}
-        {form.documents.length===0 && <span style={{ fontSize:11, color:"#9ca3af", fontStyle:"italic" }}>Aucun document ajouté</span>}
+      {/* Liste des fichiers uploadés */}
+      {form.documents.length > 0 && (
+        <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
+          {form.documents.map((doc, i) => {
+            const def = DOC_TYPES.find(d => d.key === doc.type);
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:8, background:"#faf5ff", borderRadius:8, border:"1px solid #e9d5ff", padding:"8px 10px" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{def?.icon || "📎"}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:"#4c1d95", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.nom}</div>
+                  <div style={{ fontSize:10, color:"#9ca3af" }}>{def?.label || doc.type}{doc.taille ? ` · ${formatSize(doc.taille)}` : ""}</div>
+                </div>
+                {doc.url && (
+                  <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                    style={{ background:"#ede9fe", color:"#6d28d9", border:"none", borderRadius:6, padding:"4px 8px", fontSize:10, fontWeight:700, textDecoration:"none", flexShrink:0 }}>
+                    👁 Voir
+                  </a>
+                )}
+                <button onClick={() => removeDoc(i)}
+                  style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:10, fontWeight:700, flexShrink:0 }}>
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {form.documents.length === 0 && (
+        <div style={{ textAlign:"center", padding:"14px 0", color:"#9ca3af", fontSize:11, fontStyle:"italic", marginBottom:8 }}>
+          Aucun document — ajoutez des fichiers ci-dessous
+        </div>
+      )}
+
+      {/* Zone d'ajout */}
+      <div style={{ background:"#f5f3ff", borderRadius:10, border:"1.5px dashed #c4b5fd", padding:"12px 14px", marginBottom:14 }}>
+        <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+          <select value={upType} onChange={e => setUpType(e.target.value)} style={{ ...inputSt, flex:1 }}>
+            <option value="">— Type de document —</option>
+            {DOC_TYPES.map(d => <option key={d.key} value={d.key}>{d.icon} {d.label}</option>)}
+          </select>
+          <input value={upNom} onChange={e => setUpNom(e.target.value)}
+            style={{ ...inputSt, flex:1 }} placeholder="Nom personnalisé (optionnel)" />
+        </div>
+        <input ref={fileInputRef} type="file"
+          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.xls,.xlsx"
+          style={{ display:"none" }} onChange={handleFileSelect} />
+        <button
+          onClick={() => { if (!upType) { toast.error("Sélectionnez d'abord le type de document"); return; } fileInputRef.current?.click(); }}
+          disabled={uploading}
+          style={{ width:"100%", background: uploading ? "#ddd6fe" : "linear-gradient(135deg,#7c3aed,#6d28d9)", color:"#fff", border:"none", borderRadius:8, padding:"9px 0", fontWeight:700, fontSize:12, cursor: uploading ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          {uploading ? (
+            <><span style={{ width:14, height:14, border:"2px solid rgba(255,255,255,.3)", borderTop:"2px solid #fff", borderRadius:"50%", display:"inline-block", animation:"spin 1s linear infinite" }} />{uploadPct}% — Envoi en cours…</>
+          ) : "📤 Choisir un fichier et uploader"}
+        </button>
       </div>
 
       <div style={{ marginBottom:14 }}><label style={labelSt}>Notes administratives</label><textarea style={{ ...inputSt, height:60 }} value={form.notesAdmin} onChange={e=>setForm({...form,notesAdmin:e.target.value})} placeholder="Remarques, conditions particulières…"/></div>
@@ -4205,9 +4829,31 @@ const InscriptionForm = ({ initialData, onSave, onCancel, finalisationMode }) =>
 
 const PROOF_MODES = new Set(["Chèque","RIA","MoneyGram","Western Union","Virement bancaire"]);
 
-const PaiementForm = ({ initialData, onSave, onCancel, apprenants = [] }) => {
-  const [form, setForm] = useState(initialData || { client:"",email:"",telephone:"",inscription:"",montantDu:0,montantReçu:0,date:new Date().toISOString().slice(0,10),mode:"Mobile Money",statut:"en_attente",notes:"",refTransaction:"",assignationId:null,preuveImage:null });
+const CAT_LABELS = { en_ligne:"💻 En ligne", presentiel:"🏢 Présentiel / Centres", certification:"📜 Certifications" };
+
+const PaiementForm = ({ initialData, onSave, onCancel, apprenants = [], catalogueOffres = [] }) => {
+  const [form, setForm] = useState(initialData || { client:"",email:"",telephone:"",offre:"",inscription:"",montantDu:0,montantReçu:0,date:new Date().toISOString().slice(0,10),mode:"Mobile Money",statut:"en_attente",notes:"",refTransaction:"",assignationId:null,preuveImage:null });
   const f = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  // Fallback statique si le catalogue n'est pas encore chargé
+  const offres = catalogueOffres.length > 0 ? catalogueOffres : OFFRES_TARIFS.map(o => ({ id:o.label, label:o.label, prix_str:`${o.prix.toLocaleString("fr-FR")} FCFA`, prix_num:o.prix, categorie:"en_ligne", icon:"📚" }));
+
+  const selectOffre = (label) => {
+    const found = offres.find(o => o.label === label);
+    setForm(prev => ({
+      ...prev,
+      offre:     label,
+      montantDu: found?.prix_num ?? prev.montantDu,
+    }));
+  };
+
+  // Grouper par catégorie pour le select
+  const grouped = offres.reduce((acc, o) => {
+    const cat = o.categorie || "autre";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(o);
+    return acc;
+  }, {});
 
   const handleProofUpload = (e) => {
     const file = e.target.files[0];
@@ -4268,23 +4914,80 @@ const PaiementForm = ({ initialData, onSave, onCancel, apprenants = [] }) => {
 
       <div style={{ marginBottom:12 }}><label style={labelSt}>Email client</label><input type="email" style={inputSt} value={form.email} onChange={e=>f("email",e.target.value)} placeholder="exemple@email.com" /></div>
 
-      <div style={{ marginBottom:12 }}><label style={labelSt}>Formation / Parcours</label><input style={inputSt} value={form.inscription} onChange={e=>f("inscription",e.target.value)} placeholder="Ex: Parcours BET · En ligne · Coaching groupe" /></div>
+      {/* Formation */}
+      <div style={{ background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#15803d", marginBottom:8 }}>📚 Formation</div>
+        {/* Quand la formation est fixe (tranche ou parcours lié) → bloc statique */}
+        {isFromProspect && form.offre ? (
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <div style={{ padding:"8px 12px", background:"#dcfce7", borderRadius:8, fontSize:13, fontWeight:700, color:"#166534" }}>
+              📋 {form.offre}
+            </div>
+            {form.inscription && (
+              <div style={{ padding:"6px 12px", background:"#f0fdf4", borderRadius:8, fontSize:12, color:"#15803d", border:"1px solid #bbf7d0" }}>
+                🎯 {form.inscription}
+              </div>
+            )}
+            {form.montantDu > 0 && (
+              <div style={{ fontSize:11, color:"#166534", fontWeight:700, padding:"4px 10px", background:"#fff", borderRadius:999, border:"1px solid #86efac", alignSelf:"flex-start" }}>
+                💰 Montant tranche : {Number(form.montantDu).toLocaleString("fr-FR")} FCFA
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <select
+              value={form.offre}
+              onChange={e => selectOffre(e.target.value)}
+              style={{ ...inputSt, margin:0, width:"100%", marginBottom: form.offre ? 8 : 0 }}
+            >
+              <option value="">— Choisir la formation —</option>
+              {Object.entries(grouped).map(([cat, items]) => (
+                <optgroup key={cat} label={CAT_LABELS[cat] || cat}>
+                  {items.map(o => (
+                    <option key={o.id} value={o.label}>
+                      {o.icon} {o.label}{o.prix_num > 0 ? ` · ${o.prix_num.toLocaleString("fr-FR")} FCFA` : o.prix_str !== "Sur devis" ? ` · ${o.prix_str}` : " · Sur devis"}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {form.offre && form.montantDu > 0 && (
+              <span style={{ fontSize:11, background:"#f0fdf4", color:"#166534", padding:"3px 10px", borderRadius:999, fontWeight:700, border:"1px solid #86efac", display:"inline-block", marginTop:6 }}>
+                💰 Tarif : {Number(form.montantDu).toLocaleString("fr-FR")} FCFA
+              </span>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Montants */}
       <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
         <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:10 }}>💰 Montants</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+          {/* Montant dû — auto-rempli, modifiable */}
           <div>
-            <label style={labelSt}>Montant total dû (FCFA)</label>
+            <label style={{ ...labelSt, display:"flex", alignItems:"center", gap:6 }}>
+              Montant total dû (FCFA)
+              {form.offre && <span style={{ fontSize:9, background:"#dcfce7", color:"#15803d", padding:"1px 6px", borderRadius:999, fontWeight:700 }}>auto</span>}
+            </label>
             <input type="number" style={inputSt} value={form.montantDu} onChange={e=>f("montantDu",Number(e.target.value))} min={0} />
           </div>
+          {/* Montant reçu — principal champ de saisie */}
           <div>
-            <label style={labelSt}>Montant reçu (FCFA)</label>
-            <input type="number" style={inputSt} value={form.montantReçu} onChange={e=>f("montantReçu",Number(e.target.value))} min={0} />
+            <label style={{ ...labelSt, color:"#0369a1", fontWeight:800 }}>Montant reçu (FCFA) *</label>
+            <input
+              type="number"
+              style={{ ...inputSt, border:"2px solid #0891b2", fontWeight:700, fontSize:14 }}
+              value={form.montantReçu}
+              onChange={e=>f("montantReçu",Number(e.target.value))}
+              min={0}
+              autoFocus={!!form.assignationId}
+            />
           </div>
         </div>
         {(form.montantDu > 0 || form.montantReçu > 0) && (
-          <div style={{ marginTop:10, padding:"8px 12px", background: form.montantReçu >= form.montantDu ? "#f0fdf4" : "#fef3c7", borderRadius:8, fontSize:12, fontWeight:700, color: form.montantReçu >= form.montantDu ? "#15803d" : "#d97706" }}>
+          <div style={{ padding:"8px 12px", background: form.montantReçu >= form.montantDu ? "#f0fdf4" : "#fef3c7", borderRadius:8, fontSize:12, fontWeight:700, color: form.montantReçu >= form.montantDu ? "#15803d" : "#d97706" }}>
             {form.montantReçu >= form.montantDu
               ? `✅ Paiement complet — ${Number(form.montantReçu).toLocaleString("fr-FR")} FCFA reçu`
               : `⏳ Reste à payer : ${Number(form.montantDu - form.montantReçu).toLocaleString("fr-FR")} FCFA`

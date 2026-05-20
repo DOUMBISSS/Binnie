@@ -543,7 +543,7 @@ export default function EspaceApprenant() {
   // ── Témoignage ────────────────────────────────────────
   const estCertifie = MES_CERTIFICATIONS.filter(c => c.valide).length > 0;
   const certifPrincipale = MES_CERTIFICATIONS.find(c => c.valide);
-  const [temoExistant,   setTemoExistant]   = useState(null);   // null = chargement
+  const [temoExistant,   setTemoExistant]   = useState(null);
   const [temoLoading,    setTemoLoading]    = useState(false);
   const [temoSubmitting, setTemoSubmitting] = useState(false);
   const [temoForm, setTemoForm] = useState({
@@ -551,6 +551,28 @@ export default function EspaceApprenant() {
     role: `${MON_PROFIL.poste} · ${MON_PROFIL.entreprise}`,
     score: certifPrincipale ? `${certifPrincipale.titre.split("—")[0].trim()}` : "",
   });
+  const [temoPhotoPreview, setTemoPhotoPreview] = useState(null);
+  const [temoPhotoUrl,     setTemoPhotoUrl]     = useState(null);
+  const [temoPhotoLoading, setTemoPhotoLoading] = useState(false);
+  const [temoPhotoError,   setTemoPhotoError]   = useState("");
+  const temoPhotoInputRef = useRef(null);
+
+  const handleTemoPhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setTemoPhotoError("Seules les images sont acceptées."); return; }
+    if (file.size > 5 * 1024 * 1024) { setTemoPhotoError("La photo ne doit pas dépasser 5 Mo."); return; }
+    setTemoPhotoError(""); setTemoPhotoLoading(true);
+    setTemoPhotoPreview(URL.createObjectURL(file));
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch(`${API_URL}/api/upload/temoignage`, { method:"POST", body:fd });
+      const d   = await res.json();
+      if (!res.ok) throw new Error(d.error || "Erreur upload");
+      setTemoPhotoUrl(d.url || d.file?.url);
+    } catch (err) { setTemoPhotoError(err.message); setTemoPhotoPreview(null); setTemoPhotoUrl(null); }
+    finally { setTemoPhotoLoading(false); }
+  };
 
   const EMOJI_TEMO = ["🎓","🌟","💪","🏆","👩🏽‍💻","👨🏿‍💼","👩🏾‍⚖️","👨🏽‍🎓","✨","👑"];
 
@@ -578,10 +600,11 @@ export default function EspaceApprenant() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apprenant_id: MON_PROFIL.id,
-          texte:  temoForm.texte,
-          etoiles: temoForm.etoiles,
-          role:   temoForm.role,
-          score:  temoForm.score,
+          texte:    temoForm.texte,
+          etoiles:  temoForm.etoiles,
+          role:     temoForm.role,
+          score:    temoForm.score,
+          photo_url: temoPhotoUrl || null,
         }),
       });
       const data = await res.json();
@@ -1872,9 +1895,14 @@ export default function EspaceApprenant() {
                           {"★".repeat(temoExistant.etoiles||5)}
                           <span style={{ color:"#e5e7eb" }}>{"☆".repeat(5-(temoExistant.etoiles||5))}</span>
                         </div>
-                        <p style={{ fontSize:13, color:"#374151", fontStyle:"italic", lineHeight:1.65, margin:0 }}>
+                        <p style={{ fontSize:13, color:"#374151", fontStyle:"italic", lineHeight:1.65, margin:"0 0 10px" }}>
                           « {temoExistant.texte} »
                         </p>
+                        {temoExistant.photo_url && (
+                          <div style={{ borderRadius:8, overflow:"hidden", border:"1px solid #e5e7eb", maxHeight:120 }}>
+                            <img src={temoExistant.photo_url} alt="Photo du diplôme" style={{ width:"100%", height:120, objectFit:"cover", display:"block" }} />
+                          </div>
+                        )}
                       </div>
                       {temoExistant.statut==="en_attente" && (
                         <p style={{ fontSize:12, color:"#9ca3af", marginTop:14, textAlign:"center" }}>
@@ -1920,9 +1948,34 @@ export default function EspaceApprenant() {
                         </div>
                       </div>
 
-                      {/* Avatar */}
+                      {/* Photo du diplôme */}
                       <div style={{ marginBottom:20 }}>
-                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>Avatar</label>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:4 }}>
+                          🎓 Photo de votre diplôme / certificat <span style={{ fontWeight:400, color:"#9ca3af", fontSize:11 }}>(optionnelle, max 10 Mo)</span>
+                        </label>
+                        <p style={{ fontSize:11, color:"#9ca3af", margin:"0 0 10px" }}>Ajoutez une photo de votre certificat TOEIC, TOEFL, IELTS… pour illustrer votre témoignage.</p>
+                        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+                          <div style={{ width:80, height:56, borderRadius:8, overflow:"hidden", background:"#f9fafb", border:"2px dashed #e5e7eb", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                            {temoPhotoPreview
+                              ? <img src={temoPhotoPreview} alt="Diplôme" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                              : <span style={{ fontSize:26 }}>🏅</span>}
+                          </div>
+                          <div>
+                            <input ref={temoPhotoInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleTemoPhotoChange} />
+                            <button onClick={() => temoPhotoInputRef.current?.click()} disabled={temoPhotoLoading}
+                              style={{ padding:"8px 16px", background:"#f3f4f6", border:"1px solid #e5e7eb", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, color:"#374151" }}>
+                              {temoPhotoLoading ? "⏳ Upload…" : temoPhotoUrl ? "✅ Changer le diplôme" : "📁 Ajouter le diplôme"}
+                            </button>
+                            {temoPhotoError && <p style={{ color:"#ef4444", fontSize:11, margin:"5px 0 0" }}>{temoPhotoError}</p>}
+                            {temoPhotoUrl && !temoPhotoLoading && <p style={{ color:"#166534", fontSize:11, margin:"5px 0 0" }}>✓ Photo du diplôme prête</p>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Avatar (si pas de photo) */}
+                      {!temoPhotoUrl && (
+                      <div style={{ marginBottom:20 }}>
+                        <label style={{ fontSize:13, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>Avatar emoji</label>
                         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                           {EMOJI_TEMO.map(e => (
                             <div key={e} onClick={() => setTemoForm(f=>({...f,avatar:e}))}
@@ -1932,6 +1985,7 @@ export default function EspaceApprenant() {
                           ))}
                         </div>
                       </div>
+                      )}
 
                       {/* Rôle */}
                       <div style={{ marginBottom:16 }}>
@@ -1958,7 +2012,9 @@ export default function EspaceApprenant() {
                         <div style={{ marginBottom:22, padding:16, borderRadius:12, background:"linear-gradient(135deg,#f0f4ff,#fdf2f8)", border:"1px solid #e0e7ff" }}>
                           <div style={{ fontSize:11, color:"#9ca3af", marginBottom:10, fontWeight:600, letterSpacing:.5 }}>APERÇU</div>
                           <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
-                            <div style={{ width:40, height:40, borderRadius:"50%", background:"#1e4080", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{temoForm.avatar}</div>
+                            <div style={{ width:40, height:40, borderRadius:"50%", background:"#1e4080", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, overflow:"hidden" }}>
+                              {temoPhotoPreview ? <img src={temoPhotoPreview} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : temoForm.avatar}
+                            </div>
                             <div>
                               <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{MON_PROFIL.prenom} {MON_PROFIL.nom}</div>
                               <div style={{ fontSize:11, color:"#9ca3af" }}>{temoForm.role}</div>

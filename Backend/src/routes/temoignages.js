@@ -10,7 +10,7 @@ router.get("/publics", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("temoignages")
-      .select("id, nom, role, score, texte, avatar, couleur, etoiles, ordre")
+      .select("id, nom, role, score, texte, avatar, photo_url, couleur, etoiles, ordre")
       .eq("actif", true)
       .eq("statut", "actif")
       .order("ordre", { ascending: true })
@@ -25,7 +25,7 @@ router.get("/publics", async (req, res) => {
 
 // ── Soumission apprenant ───────────────────────────────────────
 router.post("/soumettre", async (req, res) => {
-  const { apprenant_id, texte, etoiles, score, role } = req.body;
+  const { apprenant_id, texte, etoiles, score, role, photo_url } = req.body;
   if (!apprenant_id || !texte) {
     return res.status(400).json({ error: "apprenant_id et texte requis" });
   }
@@ -79,6 +79,7 @@ router.post("/soumettre", async (req, res) => {
       texte,
       etoiles:         etoiles || 5,
       avatar:          "🎓",
+      photo_url:       photo_url?.trim() || null,
       couleur:         "#1e4080",
       statut:          "en_attente",
       source:          "apprenant",
@@ -145,7 +146,7 @@ router.post("/", authenticateAdmin, async (req, res) => {
 // ── Admin : modifier ──────────────────────────────────────────
 router.patch("/:id", authenticateAdmin, async (req, res) => {
   const { id } = req.params;
-  const allowed = ["nom","role","score","texte","avatar","couleur","etoiles","actif","ordre","statut","motif_rejet"];
+  const allowed = ["nom","role","score","texte","avatar","photo_url","couleur","etoiles","actif","ordre","statut","motif_rejet"];
   const updates = Object.fromEntries(
     Object.entries(req.body).filter(([k]) => allowed.includes(k))
   );

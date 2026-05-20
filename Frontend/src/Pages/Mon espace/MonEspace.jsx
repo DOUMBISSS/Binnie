@@ -920,12 +920,22 @@ const TabConseillereContact = ({ user, setActiveTab }) => {
   const [parcoursMode,  setParcoursMode]  = useState(null);
   const [currentUser,   setCurrentUser]   = useState(user);
   const [testResult,    setTestResult]    = useState(null);
+  const [dbAssignation, setDbAssignation] = useState(null);
 
   useEffect(() => {
     if (!user?.email) return;
     fetch(`${API}/api/level-test/result?email=${encodeURIComponent(user.email)}`)
       .then(r => r.json())
       .then(d => setTestResult(d.result || null))
+      .catch(() => {});
+  }, [user.email]);
+
+  // Charger l'assignation depuis la DB (fallback si metadata absente ou vide)
+  useEffect(() => {
+    if (!user?.email) return;
+    fetch(`${API}/api/parcours/mon-assignation?email=${encodeURIComponent(user.email)}`)
+      .then(r => r.json())
+      .then(d => { if (d.assignation) setDbAssignation(d.assignation); })
       .catch(() => {});
   }, [user.email]);
 
@@ -936,9 +946,17 @@ const TabConseillereContact = ({ user, setActiveTab }) => {
     setParcoursOpen(false);
     const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: {} }));
     if (session?.user) setCurrentUser(session.user);
+    // Recharger depuis la DB aussi
+    if (user?.email) {
+      fetch(`${API}/api/parcours/mon-assignation?email=${encodeURIComponent(user.email)}`)
+        .then(r => r.json())
+        .then(d => { if (d.assignation) setDbAssignation(d.assignation); })
+        .catch(() => {});
+    }
   };
 
-  const assignation = currentUser?.user_metadata?.parcours_assignation;
+  // Priorité : metadata Supabase > DB
+  const assignation = currentUser?.user_metadata?.parcours_assignation || dbAssignation;
   const iniAss = assignation
     ? `${assignation.assistante_prenom?.[0]||""}${assignation.assistante_nom?.[0]||""}`.toUpperCase()
     : "?";
@@ -1605,24 +1623,30 @@ const ApprenantView = ({ user, session, prospectInfo = {} }) => {
 ══════════════════════════════════════════════════════ */
 const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🏆","💼","🌍","✨","🚀","💡","🎯"];
 
+const EMOJI_TEMO_ME = ["🎓","🌟","💪","🏆","👩🏽‍💻","👨🏿‍💼","👩🏾‍⚖️","👨🏽‍🎓","✨","👑"];
+
 const TabTemoignage = ({ user, certifs, estCertifie }) => {
-  const [existant,   setExistant]   = useState(null);  // témoignage déjà soumis
-  const [loadingEx,  setLoadingEx]  = useState(true);
-  const [form,       setForm]       = useState({ texte:"", etoiles:5, avatar:"🎓", role:"" });
-  const [submitting, setSubmitting] = useState(false);
-  const [msg,        setMsg]        = useState(null);  // { type:"ok"|"err", text }
+  const [existant,       setExistant]       = useState(null);
+  const [loadingEx,      setLoadingEx]      = useState(true);
+  const [form,           setForm]           = useState({ texte:"", etoiles:5, avatar:"🎓", role:"" });
+  const [submitting,     setSubmitting]     = useState(false);
+  const [msg,            setMsg]            = useState(null);
+  const [photoPreview,   setPhotoPreview]   = useState(null);
+  const [photoUrl,       setPhotoUrl]       = useState(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError,     setPhotoError]     = useState("");
+  const photoInputRef = React.useRef(null);
 
   const meta      = user.user_metadata || {};
   const prenom    = meta.prenom || "";
   const nom       = meta.nom    || "";
   const fullName  = prenom && nom ? `${prenom} ${nom}` : user.email?.split("@")[0] || "";
 
-  // Charger le témoignage existant
   useEffect(() => {
     if (!user?.id) return;
     supabase
       .from("temoignages")
-      .select("id, statut, texte, etoiles, avatar, role, score, actif, created_at")
+      .select("id, statut, texte, etoiles, avatar, photo_url, role, score, actif, created_at")
       .eq("apprenant_id", user.id)
       .in("statut", ["en_attente","actif"])
       .maybeSingle()
@@ -1630,6 +1654,28 @@ const TabTemoignage = ({ user, certifs, estCertifie }) => {
   }, [user?.id]);
 
   const certifPrincipale = certifs?.[0];
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setPhotoError("Seules les images sont acceptées."); return; }
+    if (file.size > 5 * 1024 * 1024) { setPhotoError("La photo ne doit pas dépasser 5 Mo."); return; }
+    setPhotoError(""); setPhotoUploading(true);
+    setPhotoPreview(URL.createObjectURL(file));
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch(`${API}/api/upload/temoignage`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${s?.access_token}` },
+        body: fd,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Erreur upload");
+      setPhotoUrl(d.url || d.file?.url);
+    } catch (err) { setPhotoError(err.message); setPhotoPreview(null); setPhotoUrl(null); }
+    finally { setPhotoUploading(false); }
+  };
 
   const handleSubmit = async () => {
     if (!form.texte.trim()) return;
@@ -1640,18 +1686,18 @@ const TabTemoignage = ({ user, certifs, estCertifie }) => {
         headers: { "Content-Type":"application/json" },
         body: JSON.stringify({
           apprenant_id: user.id,
-          texte:   form.texte.trim(),
-          etoiles: form.etoiles,
-          role:    form.role.trim() || null,
+          texte:     form.texte.trim(),
+          etoiles:   form.etoiles,
+          role:      form.role.trim() || null,
+          photo_url: photoUrl || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setMsg({ type:"ok", text: data.message });
-      // Recharger le témoignage existant
       const { data: ex } = await supabase
         .from("temoignages")
-        .select("id, statut, texte, etoiles, avatar, role, score, actif, created_at")
+        .select("id, statut, texte, etoiles, avatar, photo_url, role, score, actif, created_at")
         .eq("apprenant_id", user.id)
         .in("statut", ["en_attente","actif"])
         .maybeSingle();
@@ -1705,10 +1751,24 @@ const TabTemoignage = ({ user, certifs, estCertifie }) => {
             </span>
           </div>
           <div style={{ background:"#f8fafc", borderRadius:12, padding:"20px 22px", borderLeft:"4px solid #1e4080", marginBottom:16 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+              <div style={{ width:44, height:44, borderRadius:"50%", overflow:"hidden", background:"#1e4080", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <span style={{ fontSize:"1.3rem" }}>{existant.avatar || "🎓"}</span>
+              </div>
+              <div>
+                <div style={{ fontWeight:800, color:"#0f172a", fontSize:".9rem" }}>{fullName}</div>
+                {existant.role && <div style={{ fontSize:".77rem", color:"#64748b" }}>{existant.role}</div>}
+              </div>
+            </div>
             <div style={{ fontSize:"1.3rem", marginBottom:8, color:"#f59e0b" }}>{"★".repeat(existant.etoiles)}</div>
-            <p style={{ fontFamily:FF, fontSize:".95rem", color:"#334155", lineHeight:1.7, margin:0, fontStyle:"italic" }}>
+            <p style={{ fontFamily:FF, fontSize:".95rem", color:"#334155", lineHeight:1.7, margin:"0 0 12px", fontStyle:"italic" }}>
               "{existant.texte}"
             </p>
+            {existant.photo_url && (
+              <div style={{ borderRadius:8, overflow:"hidden", border:"1px solid #e2e8f0", maxHeight:130 }}>
+                <img src={existant.photo_url} alt="Photo du diplôme" style={{ width:"100%", height:130, objectFit:"cover", display:"block" }} />
+              </div>
+            )}
           </div>
           <div style={{ display:"flex", gap:12, fontSize:".82rem", color:"#64748b", flexWrap:"wrap" }}>
             {existant.score && <span>🏆 {existant.score}</span>}
@@ -1756,16 +1816,42 @@ const TabTemoignage = ({ user, certifs, estCertifie }) => {
           ))}
         </div>
 
-        {/* Avatar emoji */}
-        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:8 }}>Avatar</label>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
-          {EMOJI_LIST.map(e => (
-            <button key={e} onClick={() => setForm(p => ({...p, avatar:e}))} style={{
-              fontSize:"1.3rem", width:40, height:40, borderRadius:10, border:`2px solid ${form.avatar===e?"#1e4080":"#e2e8f0"}`,
-              background: form.avatar===e ? "#eff6ff" : "#fff", cursor:"pointer", transition:"all .15s",
-            }}>{e}</button>
-          ))}
+        {/* Photo du diplôme */}
+        <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:6 }}>
+          🎓 Photo de votre diplôme / certificat <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnelle — max 10 Mo)</span>
+        </label>
+        <p style={{ fontSize:".75rem", color:"#94a3b8", margin:"0 0 10px" }}>Une photo de votre certificat TOEIC, TOEFL, IELTS… sera affichée avec votre témoignage.</p>
+        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+          <div style={{ width:90, height:64, borderRadius:10, border:"2px dashed #e2e8f0", overflow:"hidden", flexShrink:0, background:"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            {photoPreview
+              ? <img src={photoPreview} alt="Aperçu diplôme" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+              : <span style={{ fontSize:"1.8rem" }}>🏅</span>}
+          </div>
+          <div style={{ flex:1 }}>
+            <input ref={photoInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handlePhotoChange} />
+            <button onClick={() => photoInputRef.current?.click()} disabled={photoUploading}
+              style={{ padding:"8px 18px", background:"#f1f5f9", border:"1.5px solid #e2e8f0", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:".8rem", color:"#334155" }}>
+              {photoUploading ? "⏳ Upload en cours…" : photoUrl ? "✅ Changer la photo du diplôme" : "📁 Ajouter la photo du diplôme"}
+            </button>
+            {photoError && <p style={{ color:"#e93747", fontSize:".75rem", margin:"6px 0 0" }}>{photoError}</p>}
+            {photoUrl && !photoUploading && <p style={{ color:"#065f46", fontSize:".75rem", margin:"6px 0 0" }}>✓ Photo du diplôme prête à l'envoi</p>}
+          </div>
         </div>
+
+        {/* Avatar emoji (si pas de photo) */}
+        {!photoUrl && (
+          <>
+            <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:8 }}>Avatar emoji</label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
+              {EMOJI_TEMO_ME.map(e => (
+                <button key={e} onClick={() => setForm(p => ({...p, avatar:e}))} style={{
+                  fontSize:"1.3rem", width:40, height:40, borderRadius:10, border:`2px solid ${form.avatar===e?"#1e4080":"#e2e8f0"}`,
+                  background: form.avatar===e ? "#eff6ff" : "#fff", cursor:"pointer", transition:"all .15s",
+                }}>{e}</button>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Rôle / titre */}
         <label style={{ fontSize:".83rem", fontWeight:700, color:"#334155", display:"block", marginBottom:6 }}>
@@ -1799,7 +1885,9 @@ const TabTemoignage = ({ user, certifs, estCertifie }) => {
               "{form.texte}"
             </p>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem" }}>{form.avatar}</div>
+              <div style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem", overflow:"hidden" }}>
+                {photoPreview ? <img src={photoPreview} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : form.avatar}
+              </div>
               <div>
                 <div style={{ fontWeight:800, color:"#fff", fontSize:".85rem" }}>{fullName}</div>
                 {form.role && <div style={{ color:"rgba(255,255,255,.6)", fontSize:".75rem" }}>{form.role}</div>}

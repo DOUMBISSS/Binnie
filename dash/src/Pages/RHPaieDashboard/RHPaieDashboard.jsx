@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import NotificationBell from "../../Components/NotificationBell";
 import { useNotifPoller } from "../../hooks/useNotifPoller";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 const PRIMARY_COLOR   = "#0d9488";
 const PRIMARY_LIGHT   = "#ccfbf1";
@@ -222,7 +223,8 @@ export default function RHPaieDashboard() {
     { key:"recaps",     label:"Récapitulatifs",      icon:"📋", badge:stats.enControle+stats.anomalies },
     { key:"contrats",   label:"Contrats coaches",    icon:"📄" },
     { key:"grille",     label:"Grilles tarifaires",  icon:"💰" },
-    { key:"historique", label:"Historique paiements",icon:"🕐" },
+    { key:"historique",     label:"Historique paiements", icon:"🕐" },
+    { key:"notifications",  label:"Notifications",         icon:"🔔" },
   ];
 
   return (
@@ -530,6 +532,13 @@ export default function RHPaieDashboard() {
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {/* ══════ NOTIFICATIONS ══════ */}
+            {activeTab==="notifications" && (
+              <div style={{ padding:"24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#0d9488" />
               </div>
             )}
 

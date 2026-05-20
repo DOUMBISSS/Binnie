@@ -153,6 +153,23 @@ router.post("/recording", (req, res) => {
   });
 });
 
+// POST /api/upload/temoignage — photo du diplôme/certificat pour témoignage apprenant (authenticateUser)
+router.post("/temoignage", authenticateUser, (req, res) => {
+  const uploadTemo = multer({
+    storage: makeStorage("diplomes_temoignages", ["jpg", "jpeg", "png", "webp"]),
+    limits:  { fileSize: 10 * MB },
+    fileFilter: (req, file, cb) => {
+      if (!file.mimetype.startsWith("image/")) return cb(new Error("Seules les images sont acceptées"));
+      cb(null, true);
+    },
+  });
+  uploadTemo.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
+    res.json({ message: "Photo du diplôme uploadée", url: req.file.path, file: fileResponse(req.file) });
+  });
+});
+
 // POST /api/upload/dossier — documents dossier apprenant (Cloudinary via upload_stream)
 router.post("/dossier", authenticateAdmin, (req, res) => {
   uploadDossierMem.single("file")(req, res, (multerErr) => {

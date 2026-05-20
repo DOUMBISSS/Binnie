@@ -127,6 +127,7 @@ async function pollTests(userId) {
     await writeNotif(userId, `test_${id}`, payload);
     playNotifSound();
     showBrowserNotif("📝 Nouveau test de niveau", `${nom} a obtenu le niveau ${niveau}`);
+    window.dispatchEvent(new CustomEvent("bet:test:new", { detail: r }));
   }
 }
 
@@ -185,6 +186,7 @@ async function pollAssignations(userId) {
     await writeNotif(userId, `assignation_${id}`, payload);
     playNotifSound();
     showBrowserNotif("🎯 Nouveau prospect", `${a.prospect_nom} a choisi ${a.assistante_nom}`);
+    window.dispatchEvent(new CustomEvent("bet:assignation:new", { detail: a }));
   }
 }
 

@@ -20,12 +20,14 @@ async function isParticipant(convId, userId) {
 // ── GET /contacts → liste des autres utilisateurs à contacter ─
 router.get("/contacts", authenticateAdmin, async (req, res) => {
   try {
-    const me = req.user.id;
+    const me       = req.user.id;
+    const myScope  = req.profil?.scope || [];
+    const isNational = req.role === "super_admin" || myScope.includes("national");
 
     // Table utilisateurs (commerciaux, managers, responsables…)
     const { data: utilisateurs } = await supabase
       .from("utilisateurs")
-      .select("id, nom, prenom, email, role, actif")
+      .select("id, nom, prenom, email, role, scope, actif")
       .neq("id", me)
       .eq("actif", true)
       .order("nom");
@@ -45,17 +47,29 @@ router.get("/contacts", authenticateAdmin, async (req, res) => {
       prenom: p.prenom,
       email:  p.email,
       role:   p.profil_type,
+      scope:  ["national"], // profils_admin = anciens admins → accès national
       actif:  p.actif,
     }));
 
-    // Fusionner en évitant les doublons (un même id peut exister dans les deux tables)
+    // Fusionner en évitant les doublons
     const seen = new Set(fromUtilisateurs.map(u => u.id));
-    const merged = [
+    let merged = [
       ...fromUtilisateurs,
       ...fromProfilsAdmin.filter(p => !seen.has(p.id)),
     ].sort((a, b) => (a.nom || "").localeCompare(b.nom || ""));
 
-    res.json({ contacts: merged });
+    // Restriction par centre : les utilisateurs non-nationaux ne voient que
+    // les membres de leur centre + les profils nationaux
+    if (!isNational) {
+      merged = merged.filter((c) => {
+        const cScope = c.scope || [];
+        if (cScope.includes("national")) return true;
+        return cScope.some((s) => myScope.includes(s));
+      });
+    }
+
+    // Retirer le champ scope de la réponse (inutile côté client)
+    res.json({ contacts: merged.map(({ scope: _, ...rest }) => rest) });
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });
   }

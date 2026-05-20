@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import toast, { Toaster } from "react-hot-toast";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
 const authH = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("admin_token")}` });
@@ -501,6 +502,194 @@ function DocumentsCommerciaux({ documents, entreprises, onRefresh }) {
 }
 
 // ════════════════════════════════════════════════════════════
+// ONGLET DEVIS ENTREPRISES
+// ════════════════════════════════════════════════════════════
+const DEVIS_STATUTS = {
+  brouillon: { label:"📝 Brouillon", color:"#94a3b8" },
+  envoyé:    { label:"📤 Envoyé",    color:"#0891b2" },
+  accepté:   { label:"✅ Accepté",   color:"#16a34a" },
+  refusé:    { label:"❌ Refusé",    color:"#dc2626" },
+  expiré:    { label:"⏰ Expiré",    color:"#f59e0b" },
+};
+
+function DevisEntreprises({ documents, entreprises, onRefresh }) {
+  const devis = documents.filter(d => d.type_doc === "devis");
+  const [showForm, setShowForm]   = useState(false);
+  const [editItem, setEditItem]   = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [filterStatut, setFilterStatut] = useState("tous");
+  const [form, setForm] = useState({ entreprise_id:"", titre:"", montant:"", validite:"", statut:"brouillon", notes:"", fichier_url:"" });
+
+  const isExpired = (d) => d.validite && new Date(d.validite) < new Date() && d.statut === "envoyé";
+
+  const openNew  = () => { setForm({ entreprise_id:"", titre:"", montant:"", validite:"", statut:"brouillon", notes:"", fichier_url:"" }); setEditItem(null); setShowForm(true); };
+  const openEdit = (d) => { setForm({ entreprise_id:d.entreprise_id||"", titre:d.titre||"", montant:d.montant||"", validite:d.validite||"", statut:d.statut||"brouillon", notes:d.notes||"", fichier_url:d.fichier_url||"" }); setEditItem(d); setShowForm(true); };
+
+  const save = async () => {
+    if (!form.entreprise_id || !form.titre) return toast.error("Entreprise et objet requis");
+    setSaving(true);
+    try {
+      const url    = editItem ? `${API}/api/corporate/documents/${editItem.id}` : `${API}/api/corporate/documents`;
+      const method = editItem ? "PATCH" : "POST";
+      const res = await fetch(url, { method, headers: authH(), body: JSON.stringify({ ...form, type_doc:"devis" }) });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      toast.success(editItem ? "Devis modifié ✓" : "Devis créé ✓");
+      setShowForm(false); onRefresh();
+    } catch (err) { toast.error(err.message); }
+    finally { setSaving(false); }
+  };
+
+  const updateStatut = async (id, statut) => {
+    await fetch(`${API}/api/corporate/documents/${id}`, { method:"PATCH", headers: authH(), body: JSON.stringify({ statut }) });
+    toast.success(`Devis marqué "${statut}" ✓`); onRefresh();
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Supprimer ce devis ?")) return;
+    await fetch(`${API}/api/corporate/documents/${id}`, { method:"DELETE", headers: authH() });
+    toast.success("Devis supprimé"); onRefresh();
+  };
+
+  const filtered = filterStatut === "tous" ? devis
+    : filterStatut === "expiré" ? devis.filter(d => isExpired(d))
+    : devis.filter(d => d.statut === filterStatut && !isExpired(d));
+
+  const totalAccepte   = devis.filter(d => d.statut === "accepté").reduce((s,d) => s+(Number(d.montant)||0), 0);
+  const totalEnAttente = devis.filter(d => d.statut === "envoyé" && !isExpired(d)).reduce((s,d) => s+(Number(d.montant)||0), 0);
+  const nbExpires      = devis.filter(d => isExpired(d)).length;
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:20 }}>
+        <div style={{ background:"#f0fdf4", borderRadius:12, padding:"14px 16px", border:"1.5px solid #bbf7d0" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#16a34a" }}>{devis.filter(d=>d.statut==="accepté").length}</div>
+          <div style={{ fontSize:11, color:"#166534", marginTop:2 }}>✅ Devis acceptés</div>
+          <div style={{ fontSize:12, fontWeight:700, color:"#16a34a", marginTop:2 }}>{fmt(totalAccepte)}</div>
+        </div>
+        <div style={{ background:"#eff6ff", borderRadius:12, padding:"14px 16px", border:"1.5px solid #bfdbfe" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:B2B }}>{devis.filter(d=>d.statut==="envoyé"&&!isExpired(d)).length}</div>
+          <div style={{ fontSize:11, color:B2B, marginTop:2 }}>📤 En attente de réponse</div>
+          <div style={{ fontSize:12, fontWeight:700, color:B2B, marginTop:2 }}>{fmt(totalEnAttente)}</div>
+        </div>
+        <div style={{ background:"#fefce8", borderRadius:12, padding:"14px 16px", border:"1.5px solid #fde68a" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#d97706" }}>{nbExpires}</div>
+          <div style={{ fontSize:11, color:"#92400e", marginTop:2 }}>⏰ Devis expirés</div>
+        </div>
+        <div style={{ background:"#fef2f2", borderRadius:12, padding:"14px 16px", border:"1.5px solid #fecaca" }}>
+          <div style={{ fontSize:22, fontWeight:800, color:"#dc2626" }}>{devis.filter(d=>d.statut==="refusé").length}</div>
+          <div style={{ fontSize:11, color:"#dc2626", marginTop:2 }}>❌ Devis refusés</div>
+        </div>
+      </div>
+
+      {/* Filtres + bouton */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {["tous","brouillon","envoyé","accepté","refusé","expiré"].map(s => {
+            const st = DEVIS_STATUTS[s] || {};
+            return (
+              <button key={s} onClick={()=>setFilterStatut(s)}
+                style={{ padding:"5px 11px", borderRadius:999, border:`1.5px solid ${filterStatut===s?(st.color||B2B):"#e2e8f0"}`, background:filterStatut===s?`${st.color||B2B}15`:"#fff", color:filterStatut===s?(st.color||B2B):"#374151", fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                {s === "tous" ? "Tous" : st.label || s}
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={openNew} style={btnPrimary}>➕ Nouveau devis</button>
+      </div>
+
+      {/* Liste */}
+      {filtered.length === 0 ? (
+        <div style={{ textAlign:"center", padding:60, color:"#94a3b8" }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>📄</div>
+          {filterStatut === "tous" ? "Aucun devis. Créez votre premier devis entreprise." : `Aucun devis "${filterStatut}".`}
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {filtered.map(d => {
+            const expired = isExpired(d);
+            const st = DEVIS_STATUTS[expired ? "expiré" : d.statut] || {};
+            return (
+              <div key={d.id} style={{ background:"#fff", borderRadius:12, padding:"16px 20px", border:`1.5px solid ${expired?"#fde68a":"#e2e8f0"}`, display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div style={{ flex:1, minWidth:200 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                    <span style={{ fontWeight:800, fontSize:14, color:DARK }}>{d.titre}</span>
+                    <span style={{ fontSize:10, padding:"2px 9px", borderRadius:999, background:`${st.color}20`, color:st.color, fontWeight:700 }}>{st.label}</span>
+                    {expired && <span style={{ fontSize:10, padding:"2px 8px", borderRadius:999, background:"#fef3c7", color:"#92400e", fontWeight:700 }}>⚠️ Expiré</span>}
+                  </div>
+                  <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>🏢 {d.entreprise_nom}</div>
+                  <div style={{ display:"flex", gap:16, fontSize:11, color:"#94a3b8", flexWrap:"wrap" }}>
+                    <span>📅 Créé le {fmtDate(d.created_at)}</span>
+                    {d.validite && <span style={{ color:expired?"#d97706":"#94a3b8" }}>⏰ Valide jusqu'au {fmtDate(d.validite)}</span>}
+                  </div>
+                  {d.notes && <div style={{ fontSize:11, color:"#64748b", marginTop:5, fontStyle:"italic" }}>{d.notes}</div>}
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8 }}>
+                  {d.montant && <div style={{ fontWeight:800, fontSize:16, color:"#059669" }}>{fmt(d.montant)}</div>}
+                  {d.fichier_url && <a href={d.fichier_url} target="_blank" rel="noreferrer" style={{ padding:"5px 10px", background:"#f0f9ff", color:BET, border:`1px solid ${BET}30`, borderRadius:6, fontSize:11, fontWeight:700, textDecoration:"none" }}>📎 Fichier</a>}
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
+                    {d.statut === "brouillon" && <button onClick={()=>updateStatut(d.id,"envoyé")} style={{ padding:"5px 10px", background:"#e0f2fe", color:BET, border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:11 }}>📤 Envoyer</button>}
+                    {(d.statut === "envoyé" || expired) && <button onClick={()=>updateStatut(d.id,"envoyé")} style={{ padding:"5px 10px", background:"#fef3c7", color:"#92400e", border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:11 }}>📧 Relancer</button>}
+                    {d.statut === "envoyé" && !expired && <button onClick={()=>updateStatut(d.id,"accepté")} style={{ padding:"5px 10px", background:"#dcfce7", color:"#166534", border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:11 }}>✅ Accepté</button>}
+                    {d.statut === "envoyé" && !expired && <button onClick={()=>updateStatut(d.id,"refusé")} style={{ padding:"5px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:11 }}>❌ Refusé</button>}
+                    <button onClick={()=>openEdit(d)} style={{ padding:"5px 10px", background:"#f8fafc", color:"#374151", border:"1px solid #e2e8f0", borderRadius:6, cursor:"pointer", fontSize:11 }}>✏️</button>
+                    <button onClick={()=>del(d.id)} style={{ padding:"5px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:6, cursor:"pointer", fontSize:11 }}>🗑️</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal */}
+      {showForm && (
+        <Modal title={editItem ? "Modifier le devis" : "Nouveau devis entreprise"} onClose={()=>setShowForm(false)} wide>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+            <div style={{ gridColumn:"1/-1" }}>
+              <Field label="Entreprise" required>
+                <select value={form.entreprise_id} onChange={e=>setForm({...form,entreprise_id:e.target.value})} style={selectStyle}>
+                  <option value="">— Choisir l'entreprise —</option>
+                  {entreprises.map(e=><option key={e.id} value={e.id}>{e.nom}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div style={{ gridColumn:"1/-1" }}>
+              <Field label="Objet du devis" required>
+                <input value={form.titre} onChange={e=>setForm({...form,titre:e.target.value})} style={inputStyle} placeholder="Formation Anglais Professionnel — 20 employés" />
+              </Field>
+            </div>
+            <Field label="Montant estimé (FCFA)">
+              <input type="number" value={form.montant} onChange={e=>setForm({...form,montant:e.target.value})} style={inputStyle} placeholder="3 500 000" />
+            </Field>
+            <Field label="Statut">
+              <select value={form.statut} onChange={e=>setForm({...form,statut:e.target.value})} style={selectStyle}>
+                {Object.entries(DEVIS_STATUTS).map(([v,s])=><option key={v} value={v}>{s.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Date de validité">
+              <input type="date" value={form.validite} onChange={e=>setForm({...form,validite:e.target.value})} style={inputStyle} />
+            </Field>
+            <Field label="URL du fichier (Drive / Cloudinary)">
+              <input value={form.fichier_url} onChange={e=>setForm({...form,fichier_url:e.target.value})} style={inputStyle} placeholder="https://…" />
+            </Field>
+            <div style={{ gridColumn:"1/-1" }}>
+              <Field label="Notes internes">
+                <textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} style={{ ...inputStyle, minHeight:70, resize:"vertical" }} />
+              </Field>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:8 }}>
+            <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? "⏳…" : editItem ? "💾 Mettre à jour" : "✅ Créer le devis"}</button>
+            <button onClick={()=>setShowForm(false)} style={btnSecondary}>Annuler</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
 // ONGLET FACTURATION B2B
 // ════════════════════════════════════════════════════════════
 function FacturationB2B({ factures, entreprises, onRefresh }) {
@@ -637,11 +826,13 @@ function FacturationB2B({ factures, entreprises, onRefresh }) {
 // COMPOSANT PRINCIPAL
 // ════════════════════════════════════════════════════════════
 const TABS = [
-  { id:"overview",   label:"Vue d'ensemble", icon:"📊" },
+  { id:"overview",   label:"Vue d'ensemble",     icon:"📊" },
   { id:"entreprises",label:"Comptes entreprises", icon:"🏢" },
-  { id:"pipeline",   label:"Pipeline B2B", icon:"🔄" },
-  { id:"documents",  label:"Documents", icon:"📄" },
-  { id:"factures",   label:"Facturation", icon:"🧾" },
+  { id:"pipeline",   label:"Pipeline B2B",        icon:"🔄" },
+  { id:"devis",      label:"Devis",               icon:"📄" },
+  { id:"documents",  label:"Documents",           icon:"🗂️" },
+  { id:"factures",       label:"Facturation",         icon:"🧾" },
+  { id:"notifications",  label:"Notifications",       icon:"🔔" },
 ];
 
 export default function CorporateDashboard() {
@@ -675,7 +866,8 @@ export default function CorporateDashboard() {
   useEffect(() => { load(); }, [load]);
 
   const facturesEnRetard = factures.filter(f => f.statut === "en_retard").length;
-  const tabBadges = { factures: facturesEnRetard || null };
+  const devisExpires     = documents.filter(d => d.type_doc === "devis" && d.validite && new Date(d.validite) < new Date() && d.statut === "envoyé").length;
+  const tabBadges = { factures: facturesEnRetard || null, devis: devisExpires || null };
 
   return (
     <div style={{ minHeight:"100vh", background:"#f1f5f9", fontFamily:"'Inter',system-ui,sans-serif" }}>
@@ -736,8 +928,14 @@ export default function CorporateDashboard() {
             {activeTab === "overview"    && <VueEnsemble entreprises={entreprises} prospects={prospects} factures={factures} />}
             {activeTab === "entreprises" && <CompteEntreprises entreprises={entreprises} onRefresh={load} />}
             {activeTab === "pipeline"    && <PipelineB2B prospects={prospects} entreprises={entreprises} onRefresh={load} />}
+            {activeTab === "devis"       && <DevisEntreprises documents={documents} entreprises={entreprises} onRefresh={load} />}
             {activeTab === "documents"   && <DocumentsCommerciaux documents={documents} entreprises={entreprises} onRefresh={load} />}
             {activeTab === "factures"    && <FacturationB2B factures={factures} entreprises={entreprises} onRefresh={load} />}
+            {activeTab === "notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#2563eb" />
+              </div>
+            )}
           </>
         )}
       </div>

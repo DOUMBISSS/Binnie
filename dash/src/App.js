@@ -2,6 +2,7 @@ import './App.css';
 import {Routes,Route,Navigate} from 'react-router-dom';
 import 'animate.css';
 import './chartConfig';
+import { supabase } from './config/supabase';
 import Home from './Pages/Home';
 import 'react-toastify/dist/ReactToastify.css';
 import NotFoundPage from './Pages/NotFoundPage';
@@ -56,6 +57,14 @@ import RHPaieDashboard from './Pages/RHPaieDashboard/RHPaieDashboard';
 import SuperviseurDashboard from './Pages/SuperviseurDashboard/SuperviseurDashboard';
 
 
+
+// Garder admin_token synchronisé quand Supabase rafraîchit le JWT automatiquement
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.access_token) {
+    localStorage.setItem("admin_token", session.access_token);
+    if (session.refresh_token) localStorage.setItem("admin_refresh", session.refresh_token);
+  }
+});
 
 const DASHBOARD_PAR_ROLE = {
   super_admin:         "/dashboard/superAdmin",

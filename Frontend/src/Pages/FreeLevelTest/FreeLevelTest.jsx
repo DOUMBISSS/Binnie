@@ -383,10 +383,14 @@ export default function FreeLevelTest({ questions: propQ }) {
   const [pCentres,      setPCentres]      = useState([]);
   const [pLoading,      setPLoading]      = useState(false);
   const [pErreur,       setPErreur]       = useState("");
-  const [pPeriode,      setPPeriode]      = useState(null);// "semaine" | "weekend"
   const [pModePaiement, setPModePaiement] = useState(null);
   const [pMmOption,     setPMmOption]     = useState(null);
   const [pSubmitting,   setPSubmitting]   = useState(false);
+  const [pOffresEnLigne,       setPOffresEnLigne]       = useState([]);
+  const [pOffreChoisie,        setPOffreChoisie]        = useState(null);
+  const [pSelectedCentreCard,  setPSelectedCentreCard]  = useState(null);
+  const [pCentresMaster,       setPCentresMaster]       = useState([]);
+  const [pCentreAssistantesMap,setPCentreAssistantesMap]= useState({});
   // Étape assign (après le quiz — fallback si l'utilisateur a un lien direct sans projet)
   const [assignCentre,       setAssignCentre]       = useState("");
   const [assignCommerciaux,  setAssignCommerciaux]  = useState([]);
@@ -447,18 +451,56 @@ export default function FreeLevelTest({ questions: propQ }) {
 
   const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
-  /* ── Charger les centres BET quand on entre dans le step projet ── */
+  /* ── Charger les centres BET + offres en ligne quand on entre dans le step projet ── */
   useEffect(() => {
     if (step !== "projet") return;
     // Reset wizard
     setPStep(0); setPModeCours(null); setPTypeCoaching(null);
     setPCentreChoisi(null); setPAssistante(null); setPAssistantes([]);
-    setPPeriode(null); setPModePaiement(null); setPMmOption(null);
-    setPErreur("");
+    setPOffreChoisie(null); setPSelectedCentreCard(null);
+    setPModePaiement(null); setPMmOption(null);
+    setPCentreAssistantesMap({}); setPErreur("");
+
+    // Centres
     fetch(`${API_BASE}/api/parcours/centres`)
       .then(r => r.json())
-      .then(d => setPCentres(d.centres || []))
+      .then(d => {
+        const centres = d.centres || [];
+        setPCentres(centres);
+        // Pré-charger les assistantes de chaque centre
+        Promise.all(centres.map(async c => {
+          try {
+            const r = await fetch(`${API_BASE}/api/parcours/assistantes-presentiel/${c.id}?tous=true`);
+            const d = await r.json();
+            return { id: c.id, assistantes: d.assistantes || [] };
+          } catch { return { id: c.id, assistantes: [] }; }
+        })).then(results => {
+          const map = {};
+          results.forEach(({ id, assistantes }) => { map[id] = assistantes; });
+          setPCentreAssistantesMap(map);
+        });
+      })
       .catch(() => {});
+
+    // Centres master (pour les offres par cabinet)
+    try {
+      const s = localStorage.getItem("bet_centres_master");
+      if (s) setPCentresMaster(JSON.parse(s).filter(c => c.actif !== false));
+    } catch {}
+
+    // Offres en ligne : localStorage d'abord, puis sync Supabase
+    try {
+      const s = localStorage.getItem("bet_offres_en_ligne");
+      if (s) setPOffresEnLigne(JSON.parse(s).filter(o => o.actif !== false));
+    } catch {}
+    supabase.from("plateforme_config").select("valeur").eq("key","offres_en_ligne").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem("bet_offres_en_ligne", JSON.stringify(data.valeur));
+          setPOffresEnLigne(data.valeur.filter(o => o.actif !== false));
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   /* ── Lire ?ref= dans l'URL pour pré-attribuer l'assistante ── */
@@ -581,6 +623,22 @@ export default function FreeLevelTest({ questions: propQ }) {
     }, 800);
   };
 
+  /* ── Wizard projet : helpers ── */
+  const pInferTypeCoaching = (offre) => {
+    if (!offre) return null;
+    const l = (offre.label || "").toLowerCase();
+    if (l.includes("groupe") || l.includes("group")) return "groupe";
+    if (l.includes("priv")) return "prive";
+    return null;
+  };
+
+  const pFindMaster = (centre) => {
+    const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/^bet\s+/,"").trim();
+    const cn = norm(centre.nom);
+    return pCentresMaster.find(m => norm(m.name) === cn) ||
+           pCentresMaster.find(m => norm(m.name).includes(cn) || cn.includes(norm(m.name)));
+  };
+
   /* ── Wizard projet : handlers ── */
   const pChoisirMode = (mode) => {
     setPModeCours(mode);
@@ -588,26 +646,23 @@ export default function FreeLevelTest({ questions: propQ }) {
     setPCentreChoisi(null);
     setPAssistante(null);
     setPAssistantes([]);
-    setPPeriode(null);
+    setPOffreChoisie(null);
+    setPSelectedCentreCard(null);
     setPModePaiement(null);
     setPMmOption(null);
     setPErreur("");
-    setPStep(1);
+    if (mode === "en_ligne") setPStep(1);
+    else setPStep(1.5);
   };
 
-  const pChoisirCoaching = async (type) => {
-    setPTypeCoaching(type);
-    setPCentreChoisi(null);
-    setPAssistante(null);
-    setPAssistantes([]);
-    setPPeriode(null);
-    setPModePaiement(null);
-    setPMmOption(null);
-    setPErreur("");
-    if (pModeCours === "presentiel") { setPStep(1.5); return; }
+  // En ligne : offre sélectionnée → charger les assistantes
+  const pChoisirOffreEnLigne = async (offre) => {
+    setPOffreChoisie(offre);
+    setPTypeCoaching(pInferTypeCoaching(offre));
+    setPAssistantes([]); setPAssistante(null); setPErreur("");
     setPLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/parcours/assistantes-ligne?type_coaching=${type}`);
+      const r = await fetch(`${API_BASE}/api/parcours/assistantes-ligne`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Erreur");
       setPAssistantes(d.assistantes || []);
@@ -616,14 +671,30 @@ export default function FreeLevelTest({ questions: propQ }) {
     finally { setPLoading(false); }
   };
 
+  // En ligne : continuer sans sélectionner d'offre
+  const pContinuerSansOffreEnLigne = async () => {
+    setPOffreChoisie(null); setPTypeCoaching(null);
+    setPAssistantes([]); setPAssistante(null); setPErreur("");
+    setPLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/parcours/assistantes-ligne`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      setPAssistantes(d.assistantes || []);
+      setPStep(2);
+    } catch (e) { setPErreur(e.message); }
+    finally { setPLoading(false); }
+  };
+
+  // Présentiel : confirmer cabinet (avec ou sans offre) → charger assistantes
   const pChoisirCentre = async (centre) => {
     setPCentreChoisi(centre); setPLoading(true); setPErreur("");
+    setPSelectedCentreCard(null);
     try {
       const r = await fetch(`${API_BASE}/api/parcours/assistantes-presentiel/${centre.id}?liste=true`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Erreur");
       setPAssistantes(d.assistantes || []);
-      setPPeriode(d.periode || null);
       setPStep(2);
     } catch (e) { setPErreur(e.message); }
     finally { setPLoading(false); }
@@ -631,8 +702,7 @@ export default function FreeLevelTest({ questions: propQ }) {
 
   const pChoisirAssistante = (a) => {
     setPAssistante(a);
-    // Groupe → payment step, sinon → soumettre directement
-    if (pTypeCoaching === "groupe") { setPStep(3.5); } else { pDoSubmit(a); }
+    pDoSubmit(a); // pas d'étape paiement dans le test de niveau
   };
 
   const pDoSubmit = async (assistante) => {
@@ -650,16 +720,35 @@ export default function FreeLevelTest({ questions: propQ }) {
           type_cours:         pModeCours,
           type_coaching:      pTypeCoaching || undefined,
           centre_id:          pCentreChoisi?.id || undefined,
-          mode_paiement:      pModePaiement === "mobile_money"
-                                ? `mobile_money_${pMmOption || "autre"}`
-                                : pModePaiement || undefined,
+          source:             "test_niveau",
         }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Erreur");
-      await supabase.auth.updateUser({ data: { commercial_id: ast.id, centre_id: pCentreChoisi?.id || null } }).catch(() => {});
-      setFormData(fd => ({ ...fd, commercial_id: ast.id, centre_id: pCentreChoisi?.id || null }));
-      setSessionCommercialId(ast.id);
+      // utilisateur_id = ID dans la table utilisateurs (pour le filtre level_test_results)
+      // ast.id         = ID dans la table assistantes  (pour l'assignation parcours)
+      const commercialUserId = d.assistante?.utilisateur_id || null;
+      await supabase.auth.updateUser({
+        data: {
+          commercial_id: commercialUserId,
+          centre_id: pCentreChoisi?.id || null,
+          parcours_assignation: {
+            assignation_id:    d.assignation?.id || null,
+            assistante_id:     ast.id,
+            assistante_prenom: ast.prenom,
+            assistante_nom:    ast.nom,
+            assistante_photo:  ast.photo_url || null,
+            assistante_tel:    ast.telephone || null,
+            type_cours:        pModeCours,
+            type_coaching:     pTypeCoaching || null,
+            centre_id:         pCentreChoisi?.id || null,
+            centre_nom:        pCentreChoisi?.nom || null,
+            date:              new Date().toISOString(),
+          },
+        },
+      }).catch(() => {});
+      setFormData(fd => ({ ...fd, commercial_id: commercialUserId, centre_id: pCentreChoisi?.id || null }));
+      setSessionCommercialId(commercialUserId);
       setPAssistante(ast);
       setPStep(4);
     } catch (e) { setPErreur(e.message); }
@@ -1091,7 +1180,7 @@ export default function FreeLevelTest({ questions: propQ }) {
 
             const pHeaderTitle = {
               0: "Comment souhaitez-vous apprendre ?",
-              1: "Quel type de coaching ?",
+              1: "Choisissez votre formule",
               1.5: "Choisissez votre cabinet",
               2: "Choisissez votre assistante",
               3.5: "Mode de paiement",
@@ -1103,6 +1192,25 @@ export default function FreeLevelTest({ questions: propQ }) {
               return a.photo_url
                 ? <img src={a.photo_url} alt={a.prenom} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
                 : <div style={{ width:size, height:size, borderRadius:"50%", background:`linear-gradient(135deg,${PM_NAVY},${PM_BLUE})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:size*.3, flexShrink:0, fontFamily:PM_F }}>{ini||"?"}</div>;
+            };
+
+            const PMAvatarStack = ({ list = [], size = 28, max = 4 }) => {
+              const shown = list.slice(0, max);
+              const surplus = list.length - max;
+              return (
+                <div style={{ display:"flex", alignItems:"center" }}>
+                  {shown.map((a, i) => (
+                    <div key={a.id} style={{ marginLeft: i ? -size*.3 : 0, zIndex: max - i }}>
+                      <PMAv a={a} size={size} />
+                    </div>
+                  ))}
+                  {surplus > 0 && (
+                    <div style={{ marginLeft:-size*.3, width:size, height:size, borderRadius:"50%", background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*.28, fontWeight:800, color:"#64748b" }}>
+                      +{surplus}
+                    </div>
+                  )}
+                </div>
+              );
             };
 
             const totalDots = 4;
@@ -1168,134 +1276,326 @@ export default function FreeLevelTest({ questions: propQ }) {
                     </div>
                   )}
 
-                  {/* ─── pStep 1 : type de coaching (en_ligne ET présentiel) ─── */}
+                  {/* ─── pStep 1 : offres en ligne (même design que ParcoursModal step 1) ─── */}
                   {pStep === 1 && !pLoading && (
                     <div style={{ animation:"pmFU .3s ease" }}>
                       <button onClick={() => setPStep(0)} style={pmBackBtn}>← Retour</button>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-                        {[
-                          { type:"groupe", icon:"👥", title:"Coaching de groupe", desc:"Sessions avec d'autres apprenants. Dynamique et économique.", prix:"Dès 35 000 FCFA/mois" },
-                          { type:"prive",  icon:"👤", title:"Coaching privé",     desc:"Suivi individuel avec votre coach attitré.", prix:"Dès 65 000 FCFA/mois" },
-                        ].map(o => (
-                          <div key={o.type} className="pm-card" onClick={() => pChoisirCoaching(o.type)}
-                            style={{ border:"2px solid #e2e8f0", borderRadius:16, padding:"20px 16px", cursor:"pointer", transition:"all .22s", textAlign:"center", background:"#fafafa" }}>
-                            <div style={{ fontSize:"2.2rem", marginBottom:10 }}>{o.icon}</div>
-                            <div style={{ fontWeight:800, color:PM_DARK, fontSize:".92rem", marginBottom:6, fontFamily:PM_F }}>{o.title}</div>
-                            <div style={{ fontSize:".76rem", color:"#475569", lineHeight:1.6, marginBottom:10 }}>{o.desc}</div>
-                            <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700 }}>{o.prix}</span>
+                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:20, lineHeight:1.6 }}>
+                        Découvrez nos formules de cours en ligne. Apprenez où que vous soyez, à votre rythme, avec nos assistantes dédiées.
+                      </p>
+                      {pOffresEnLigne.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"36px 20px", background:"#f8fafc", borderRadius:16, border:"1.5px dashed #e2e8f0" }}>
+                          <div style={{ fontSize:"2rem", marginBottom:10 }}>💻</div>
+                          <p style={{ color:"#64748b", fontSize:".88rem", lineHeight:1.6, margin:0 }}>
+                            Nos offres seront disponibles très prochainement.<br />
+                            <strong>Contactez-nous</strong> pour en savoir plus.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="pm-grid2" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:18 }}>
+                            {pOffresEnLigne.map((o, i) => {
+                              const COLORS = [PM_BLUE, PM_NAVY, "#059669", "#d97706", "#7c3aed", "#dc2626"];
+                              const col = COLORS[i % COLORS.length];
+                              return (
+                                <div key={o.id || i} className="pm-card"
+                                  onClick={() => pChoisirOffreEnLigne(o)}
+                                  style={{ border:"2px solid #e2e8f0", borderRadius:18, padding:"18px 16px", cursor:"pointer", transition:"all .22s", background:"#fafafa", display:"flex", flexDirection:"column", gap:10 }}>
+                                  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8 }}>
+                                    <div style={{ width:44, height:44, borderRadius:12, background:`${col}15`, border:`2px solid ${col}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.4rem", flexShrink:0 }}>
+                                      {o.icon || "💻"}
+                                    </div>
+                                    <div style={{ textAlign:"right" }}>
+                                      <div style={{ fontWeight:800, fontSize:".88rem", color:col, fontFamily:PM_F }}>{o.prix || "Sur devis"}</div>
+                                      {o.duration && <div style={{ fontSize:".68rem", color:"#94a3b8", marginTop:1 }}>{o.duration}</div>}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontWeight:800, fontSize:".88rem", color:PM_DARK, fontFamily:PM_F, marginBottom:4, lineHeight:1.3 }}>{o.label}</div>
+                                    {o.desc && <div style={{ fontSize:".74rem", color:"#64748b", lineHeight:1.5 }}>{o.desc}</div>}
+                                  </div>
+                                  {o.brochure_url && (
+                                    <a href={o.brochure_url} download={o.brochure_nom || true} target="_blank" rel="noopener noreferrer"
+                                      onClick={e => e.stopPropagation()}
+                                      style={{ display:"flex", alignItems:"center", gap:6, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:8, padding:"6px 10px", textDecoration:"none", marginTop:"auto" }}>
+                                      <span style={{ fontSize:".8rem" }}>📄</span>
+                                      <span style={{ fontSize:".7rem", fontWeight:700, color:PM_BLUE, flex:1 }}>{o.brochure_nom || "Télécharger la brochure"}</span>
+                                      <span style={{ fontSize:".62rem", fontWeight:700, color:"#94a3b8", background:"#f1f5f9", borderRadius:4, padding:"1px 5px" }}>PDF</span>
+                                    </a>
+                                  )}
+                                  <div style={{ background:`linear-gradient(135deg,${col},${PM_NAVY})`, color:"#fff", borderRadius:999, padding:"8px 0", fontWeight:800, fontSize:".74rem", textAlign:"center", fontFamily:PM_F, marginTop:"auto" }}>
+                                    Choisir cette offre →
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        ))}
-                      </div>
+                          <div style={{ textAlign:"center" }}>
+                            <button onClick={pContinuerSansOffreEnLigne}
+                              style={{ background:"none", border:"none", color:"#94a3b8", fontSize:".78rem", cursor:"pointer", textDecoration:"underline", fontFamily:PM_F }}>
+                              Continuer sans sélectionner d'offre →
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
-                  {/* ─── pStep 1.5 présentiel : cabinets ─── */}
+                  {/* ─── pStep 1.5 présentiel : cabinets (même design que ParcoursModal p1) ─── */}
                   {pStep === 1.5 && !pLoading && (
                     <div style={{ animation:"pmFU .3s ease" }}>
-                      <button onClick={() => setPStep(1)} style={pmBackBtn}>← Retour</button>
-                      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                        {pCentres.length === 0
-                          ? <p style={{ color:"#94a3b8", textAlign:"center", padding:20 }}>Chargement des centres…</p>
-                          : pCentres.map(c => (
-                            <div key={c.id} className="pm-centre" onClick={() => pChoisirCentre(c)}
-                              style={{ display:"flex", alignItems:"center", gap:12, border:"2px solid #e2e8f0", borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all .18s", background:"#fff" }}>
-                              <div style={{ width:40, height:40, borderRadius:10, background:`${PM_NAVY}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", flexShrink:0 }}>🏢</div>
-                              <div style={{ flex:1 }}>
-                                <div style={{ fontWeight:700, fontSize:".88rem", color:PM_DARK }}>{c.nom}</div>
-                                {c.ville && <div style={{ fontSize:".73rem", color:"#64748b", marginTop:1 }}>{c.ville}</div>}
-                              </div>
-                              <span style={{ color:PM_NAVY, fontWeight:800 }}>→</span>
-                            </div>
-                          ))}
-                      </div>
+                      <button onClick={() => setPStep(0)} style={pmBackBtn}>← Retour</button>
+                      <p style={{ color:"#64748b", fontSize:".82rem", marginBottom:16, lineHeight:1.6 }}>
+                        Sélectionnez un cabinet et choisissez votre formule pour continuer.
+                      </p>
+                      {pCentres.length === 0
+                        ? <p style={{ color:"#94a3b8", textAlign:"center", padding:20 }}>Chargement des centres…</p>
+                        : (
+                          <div className="pm-centre-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                            {pCentres.map(c => {
+                              const master     = pFindMaster(c);
+                              const color      = master?.color || PM_NAVY;
+                              const offres     = (master?.offres || []).filter(o => o.actif !== false);
+                              const assistList = pCentreAssistantesMap[c.id] || [];
+                              const isOpen_    = pSelectedCentreCard === c.id;
+                              const offreOk    = isOpen_ && pOffreChoisie && pSelectedCentreCard === c.id;
+                              const prixList   = offres.map(o => parseInt((o.prix||"").replace(/\D/g,""))||0).filter(Boolean);
+                              const minPrix    = prixList.length ? Math.min(...prixList) : null;
+                              return (
+                                <div key={c.id}
+                                  onClick={() => setPSelectedCentreCard(isOpen_ ? null : c.id)}
+                                  style={{ gridColumn: isOpen_ ? "1 / -1" : "auto",
+                                    border:`2px solid ${isOpen_ ? color : "#e2e8f0"}`, borderRadius:16,
+                                    background: isOpen_ ? `${color}06` : "#fff",
+                                    cursor:"pointer", transition:"all .22s", overflow:"hidden",
+                                    boxShadow: isOpen_ ? `0 8px 24px ${color}20` : "none" }}>
+                                  <div style={{ height:4, background: isOpen_ ? color : "#e2e8f0", transition:"background .2s" }} />
+                                  <div style={{ padding:"14px 16px" }}>
+                                    <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+                                      <div style={{ width:42, height:42, borderRadius:10, background:`${color}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", flexShrink:0 }}>🏢</div>
+                                      <div style={{ flex:1, minWidth:0 }}>
+                                        <div style={{ fontWeight:800, fontSize:".9rem", color: isOpen_ ? color : PM_DARK, lineHeight:1.2 }}>{c.nom}</div>
+                                        {c.ville && <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>{c.ville}</div>}
+                                        {c.adresse && <div style={{ fontSize:".68rem", color:"#94a3b8", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.adresse}</div>}
+                                      </div>
+                                      <div style={{ color: isOpen_ ? color : "#94a3b8", fontWeight:800, fontSize:"1rem", transition:"transform .2s", transform: isOpen_ ? "rotate(90deg)" : "none" }}>›</div>
+                                    </div>
+                                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                        {assistList.length > 0
+                                          ? <PMAvatarStack list={assistList} size={28} max={4} />
+                                          : <span style={{ fontSize:".7rem", color:"#94a3b8" }}>—</span>
+                                        }
+                                        {assistList.length > 0 && (
+                                          <span style={{ fontSize:".7rem", color:"#64748b", fontWeight:600 }}>
+                                            {assistList.length} assistante{assistList.length > 1 ? "s" : ""}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {minPrix && (
+                                        <span style={{ background:`${color}12`, color, borderRadius:999, padding:"2px 8px", fontSize:".66rem", fontWeight:800 }}>
+                                          Dès {minPrix.toLocaleString("fr")} F
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isOpen_ && (
+                                    <div style={{ borderTop:`1px solid ${color}30`, padding:"14px 16px", animation:"pmFU .2s ease" }}
+                                      onClick={e => e.stopPropagation()}>
+                                      {master?.brochure_url && (
+                                        <a href={master.brochure_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                          style={{ display:"flex", alignItems:"center", gap:6, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:8, padding:"7px 10px", marginBottom:14, textDecoration:"none" }}>
+                                          <span style={{ fontSize:".9rem" }}>📄</span>
+                                          <span style={{ fontSize:".72rem", fontWeight:700, color:PM_BLUE, flex:1 }}>Télécharger la brochure</span>
+                                          <span style={{ fontSize:".62rem", fontWeight:700, color:"#94a3b8", background:"#f1f5f9", borderRadius:4, padding:"1px 5px" }}>PDF</span>
+                                        </a>
+                                      )}
+                                      {offres.length === 0 ? (
+                                        <p style={{ fontSize:".78rem", color:"#94a3b8", margin:"0 0 12px", textAlign:"center" }}>Contactez-nous pour les tarifs.</p>
+                                      ) : (
+                                        <>
+                                          <p style={{ fontSize:".72rem", fontWeight:700, color:"#374151", marginBottom:10, textTransform:"uppercase", letterSpacing:".05em" }}>
+                                            Choisissez votre formule
+                                          </p>
+                                          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+                                            {offres.map((o, i) => {
+                                              const sel = pOffreChoisie?.label === o.label && pSelectedCentreCard === c.id;
+                                              return (
+                                                <div key={i} onClick={() => setPOffreChoisie(o)}
+                                                  style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 13px", borderRadius:12,
+                                                    border:`2px solid ${sel ? color : "#e2e8f0"}`,
+                                                    background: sel ? `${color}08` : "#f8fafc",
+                                                    cursor:"pointer", transition:"all .15s" }}>
+                                                  <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${sel ? color : "#cbd5e1"}`,
+                                                    background: sel ? color : "#fff", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                                                    {sel && <div style={{ width:7, height:7, borderRadius:"50%", background:"#fff" }} />}
+                                                  </div>
+                                                  <div style={{ flex:1, minWidth:0 }}>
+                                                    <div style={{ fontWeight:700, fontSize:".82rem", color: sel ? color : PM_DARK }}>{o.label}</div>
+                                                    {o.desc && <div style={{ fontSize:".7rem", color:"#64748b", marginTop:1 }}>{o.desc}</div>}
+                                                  </div>
+                                                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                                                    <div style={{ fontWeight:800, fontSize:".82rem", color: sel ? color : PM_DARK }}>{o.prix}</div>
+                                                    {o.duration && <div style={{ fontSize:".66rem", color:"#94a3b8" }}>{o.duration}</div>}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </>
+                                      )}
+                                      <button onClick={() => pChoisirCentre(c)}
+                                        disabled={offres.length > 0 && !offreOk}
+                                        style={{ width:"100%", padding:"11px", borderRadius:999,
+                                          background: (offres.length === 0 || offreOk) ? `linear-gradient(135deg,${color},${PM_DARK})` : "#e5e7eb",
+                                          color: (offres.length === 0 || offreOk) ? "#fff" : "#94a3b8",
+                                          border:"none", cursor: (offres.length === 0 || offreOk) ? "pointer" : "default",
+                                          fontWeight:800, fontSize:".84rem", fontFamily:PM_F, transition:"all .2s" }}>
+                                        {offres.length > 0 && !offreOk
+                                          ? "Sélectionnez une formule ↑"
+                                          : `Continuer avec ${c.nom.replace(/^BET\s*/i,"")} →`}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )
+                      }
                     </div>
                   )}
 
-                  {/* ─── pStep 2 en_ligne : liste assistantes ─── */}
+                  {/* ─── pStep 2 en_ligne : assistantes (même design que ParcoursModal step 2) ─── */}
                   {pStep === 2 && pModeCours === "en_ligne" && !pLoading && (
                     <div style={{ animation:"pmFU .3s ease" }}>
-                      <button onClick={() => setPStep(1)} style={pmBackBtn}>← Retour</button>
-                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:14 }}>
-                        {pAssistantes.length} assistante{pAssistantes.length>1?"s":""} disponible{pAssistantes.length>1?"s":""} · Coaching {pTypeCoaching==="groupe"?"de groupe":"privé"}
+                      <button onClick={() => setPStep(1)} style={pmBackBtn}>← Retour aux offres</button>
+                      {pOffreChoisie && (
+                        <div style={{ display:"flex", alignItems:"center", gap:10, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:16 }}>
+                          <span style={{ fontSize:"1.1rem" }}>{pOffreChoisie.icon || "💻"}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontWeight:800, fontSize:".82rem", color:PM_DARK }}>{pOffreChoisie.label}</div>
+                            <div style={{ fontSize:".72rem", color:"#64748b" }}>{pOffreChoisie.prix}{pOffreChoisie.duration ? ` · ${pOffreChoisie.duration}` : ""}</div>
+                          </div>
+                          <button onClick={() => { setPOffreChoisie(null); setPStep(1); }} style={{ background:"none", border:"none", fontSize:".72rem", color:"#94a3b8", cursor:"pointer", fontWeight:700 }}>Changer</button>
+                        </div>
+                      )}
+                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:16, lineHeight:1.6 }}>
+                        Choisissez l'assistante qui vous accompagnera tout au long de votre parcours en ligne.
                       </p>
                       {pAssistantes.length === 0 ? (
                         <div style={{ textAlign:"center", padding:"32px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0" }}>
                           <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
-                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>
-                            Toutes nos assistantes ont atteint leur quota aujourd'hui.<br />
-                            <strong>Contactez-nous directement</strong> pour être pris(e) en charge.
-                          </p>
+                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6, margin:0 }}>Toutes nos assistantes ont atteint leur quota aujourd'hui.<br/><strong>Contactez-nous directement.</strong></p>
                         </div>
                       ) : (
-                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                          {pAssistantes.map(a => (
-                            <div key={a.id} className="pm-assistant" onClick={() => pChoisirAssistante(a)}
-                              style={{ display:"flex", alignItems:"center", gap:14, border:"2px solid #e2e8f0", borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .2s", background:"#fff" }}>
-                              <PMAv a={a} size={46} />
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:800, fontSize:".9rem", color:PM_DARK }}>{a.prenom} {a.nom}</div>
-                                <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>Assistante BET Languages</div>
-                                <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                                  <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>✓ Disponible</span>
-                                  {a.quota_jour > 0 && (
-                                    <span style={{ background:`${PM_BLUE}12`, color:PM_BLUE, borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>
-                                      {a.quota_jour - (a.prises_aujourd_hui||0)} place{(a.quota_jour-(a.prises_aujourd_hui||0))>1?"s":""} restante{(a.quota_jour-(a.prises_aujourd_hui||0))>1?"s":""}
-                                    </span>
-                                  )}
+                        <div className="pm-assist-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+                          {pAssistantes.map(a => {
+                            const placesRestantes = (a.quota_jour || 5) - (a.prises_aujourd_hui || 0);
+                            const wa = a.telephone
+                              ? `https://wa.me/${a.telephone.replace(/\D/g,"")}?text=${encodeURIComponent(`Bonjour ${a.prenom}, je souhaite m'inscrire à un cours BET en ligne${pOffreChoisie ? ` — ${pOffreChoisie.label}` : ""}.`)}`
+                              : null;
+                            return (
+                              <div key={a.id} className="pm-assist-card" onClick={() => pChoisirAssistante(a)}
+                                style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, border:"2px solid #e2e8f0", borderRadius:18, padding:"20px 14px 16px", cursor:"pointer", transition:"all .22s", background:"#fff", textAlign:"center" }}>
+                                <div style={{ position:"relative" }}>
+                                  <PMAv a={a} size={72} />
+                                  <span style={{ position:"absolute", bottom:0, right:0, width:16, height:16, borderRadius:"50%", background:"#22c55e", border:"2.5px solid #fff" }} />
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight:800, fontSize:".88rem", color:PM_DARK, fontFamily:PM_F, lineHeight:1.3 }}>{a.prenom} {a.nom}</div>
+                                  <div style={{ fontSize:".68rem", color:"#94a3b8", marginTop:3 }}>Assistante · En ligne</div>
+                                </div>
+                                {a.telephone && (
+                                  <div style={{ fontSize:".72rem", color:"#334155", fontWeight:600 }}>📞 {a.telephone}</div>
+                                )}
+                                <span style={{ background:`${PM_BLUE}14`, color:PM_BLUE, borderRadius:999, padding:"3px 10px", fontSize:".66rem", fontWeight:700 }}>
+                                  {placesRestantes} place{placesRestantes > 1 ? "s" : ""} restante{placesRestantes > 1 ? "s" : ""}
+                                </span>
+                                {wa && (
+                                  <a href={wa} target="_blank" rel="noopener noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:5, width:"100%", padding:"8px 0", background:"#25d366", color:"#fff", borderRadius:999, textDecoration:"none", fontWeight:700, fontSize:".74rem", fontFamily:PM_F, marginTop:"auto" }}>
+                                    <span>💬</span> WhatsApp
+                                  </a>
+                                )}
+                                <div style={{ width:"100%", padding:"7px 0", background:`linear-gradient(135deg,${PM_BLUE},${PM_NAVY})`, color:"#fff", borderRadius:999, fontWeight:800, fontSize:".72rem", fontFamily:PM_F }}>
+                                  Choisir →
                                 </div>
                               </div>
-                              {pSubmitting
-                                ? <div style={{ width:16, height:16, border:"2px solid #e2e8f0", borderTopColor:PM_BLUE, borderRadius:"50%", animation:"fltSpin .7s linear infinite", flexShrink:0 }} />
-                                : <span style={{ color:PM_BLUE, fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>→</span>
-                              }
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* ─── pStep 2 présentiel : liste des assistantes disponibles ─── */}
+                  {/* ─── pStep 2 présentiel : assistantes (même design que ParcoursModal p2) ─── */}
                   {pStep === 2 && pModeCours === "presentiel" && !pLoading && (
                     <div style={{ animation:"pmFU .3s ease" }}>
-                      <button onClick={() => setPStep(1.5)} style={pmBackBtn}>← Retour</button>
-
-                      {/* Bandeau période */}
-                      <div style={{ display:"flex", alignItems:"center", gap:8, background: pPeriode==="weekend" ? "#fef9ec" : "#eff6ff", border:`1.5px solid ${pPeriode==="weekend"?"#fde68a":"#bae6fd"}`, borderRadius:10, padding:"10px 14px", marginBottom:14 }}>
-                        <span style={{ fontSize:"1.1rem" }}>{pPeriode==="weekend" ? "📅" : "📆"}</span>
-                        <div style={{ fontSize:".78rem", color: pPeriode==="weekend" ? "#92400e" : "#1e40af", lineHeight:1.5 }}>
-                          Assistante{pAssistantes.length > 1 ? "s" : ""} <strong>{pPeriode==="weekend" ? "week-end" : "semaine"}</strong> — {pCentreChoisi?.nom}
-                          {pAssistantes.length > 1 && <span style={{ marginLeft:6, opacity:.8 }}>· Choisissez la vôtre</span>}
+                      <button onClick={() => { setPStep(1.5); setPSelectedCentreCard(pCentreChoisi?.id); }} style={pmBackBtn}>← Retour</button>
+                      {pOffreChoisie && (
+                        <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px", marginBottom:16 }}>
+                          <span style={{ fontSize:"1rem" }}>✅</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontWeight:700, fontSize:".82rem", color:"#065f46" }}>{pOffreChoisie.label}</div>
+                            <div style={{ fontSize:".72rem", color:"#047857" }}>{pOffreChoisie.prix}{pOffreChoisie.duration ? ` · ${pOffreChoisie.duration}` : ""}</div>
+                          </div>
+                          <button onClick={() => setPStep(1.5)} style={{ background:"none", border:"none", fontSize:".7rem", color:"#059669", cursor:"pointer", fontWeight:700 }}>Changer</button>
                         </div>
-                      </div>
-
+                      )}
+                      <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:16 }}>
+                        {pAssistantes.length} assistante{pAssistantes.length > 1 ? "s" : ""} — {pCentreChoisi?.nom}
+                      </p>
                       {pAssistantes.length === 0 ? (
                         <div style={{ textAlign:"center", padding:"32px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0" }}>
                           <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
-                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>Aucune assistante disponible pour ce centre aujourd'hui.</p>
+                          <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>
+                            Aucune assistante assignée à ce centre.<br/>
+                            <strong>Contactez-nous directement</strong> pour être pris(e) en charge.
+                          </p>
                         </div>
                       ) : (
-                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                          {pAssistantes.map(a => (
-                            <div key={a.id} className="pm-assistant" onClick={() => pChoisirAssistante(a)}
-                              style={{ display:"flex", alignItems:"center", gap:14, border:"2px solid #e2e8f0", borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .2s", background:"#fff" }}>
-                              <PMAv a={a} size={46} />
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:800, fontSize:".9rem", color:PM_DARK }}>{a.prenom} {a.nom}</div>
-                                <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>Assistante présentiel — {pCentreChoisi?.nom}</div>
-                                <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                                  <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>✓ Disponible</span>
-                                  <span style={{ background: pPeriode==="weekend" ? "#fef9ec" : "#eff6ff", color: pPeriode==="weekend" ? "#92400e" : "#1e40af", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700 }}>
-                                    {pPeriode==="weekend" ? "Sam – Dim" : "Lun – Ven"}
-                                  </span>
+                        <div className="pm-assist-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                          {pAssistantes.map(a => {
+                            const JOURS_SEMAINE_ = ["lundi","mardi","mercredi","jeudi","vendredi"];
+                            const JOURS_WEEKEND_ = ["samedi","dimanche"];
+                            const JOURS_COURT_   = { lundi:"Lun", mardi:"Mar", mercredi:"Mer", jeudi:"Jeu", vendredi:"Ven", samedi:"Sam", dimanche:"Dim" };
+                            const jours      = a.jours_travail || JOURS_SEMAINE_;
+                            const hasSemaine = jours.some(j => JOURS_SEMAINE_.includes(j));
+                            const hasWeekend = jours.some(j => JOURS_WEEKEND_.includes(j));
+                            const master     = pFindMaster(pCentreChoisi || {});
+                            const color      = master?.color || PM_NAVY;
+                            return (
+                              <div key={a.id} className="pm-assist-card" onClick={() => pChoisirAssistante(a)}
+                                style={{ border:"2px solid #e2e8f0", borderRadius:18, padding:"18px 14px", cursor:"pointer", transition:"all .22s", background:"#fff", textAlign:"center" }}>
+                                <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}>
+                                  <PMAv a={a} size={68} />
+                                </div>
+                                <div style={{ fontWeight:800, fontSize:".9rem", color:PM_DARK, marginBottom:2 }}>{a.prenom} {a.nom}</div>
+                                <div style={{ fontSize:".72rem", color:"#94a3b8", marginBottom: a.telephone ? 4 : 8 }}>Assistante BET</div>
+                                {a.telephone && (
+                                  <div style={{ fontSize:".72rem", color:PM_BLUE, fontWeight:700, marginBottom:8 }}>📞 {a.telephone}</div>
+                                )}
+                                <div style={{ marginBottom:8 }}>
+                                  <div style={{ display:"flex", gap:3, justifyContent:"center", flexWrap:"wrap" }}>
+                                    {jours.map(j => (
+                                      <span key={j} style={{ fontSize:".58rem", fontWeight:800, padding:"2px 6px", borderRadius:4, background: JOURS_WEEKEND_.includes(j) ? "#fef3c7" : "#eff6ff", color: JOURS_WEEKEND_.includes(j) ? "#92400e" : "#1e40af" }}>
+                                        {JOURS_COURT_[j] || j}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginBottom:12 }}>
+                                  {hasSemaine && <span style={{ fontSize:".65rem", padding:"3px 8px", borderRadius:999, background:"#eff6ff", color:"#1e40af", fontWeight:700 }}>📆 Semaine</span>}
+                                  {hasWeekend && <span style={{ fontSize:".65rem", padding:"3px 8px", borderRadius:999, background:"#fef3c7", color:"#92400e", fontWeight:700 }}>📅 Weekend</span>}
+                                </div>
+                                <div style={{ background:`linear-gradient(135deg,${color},${PM_DARK})`, color:"#fff", borderRadius:999, padding:"8px 0", fontWeight:800, fontSize:".76rem", fontFamily:PM_F }}>
+                                  Choisir →
                                 </div>
                               </div>
-                              {pSubmitting
-                                ? <div style={{ width:16, height:16, border:"2px solid #e2e8f0", borderTopColor:PM_BLUE, borderRadius:"50%", animation:"fltSpin .7s linear infinite", flexShrink:0 }} />
-                                : <span style={{ color:PM_BLUE, fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>→</span>
-                              }
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>

@@ -1,6 +1,7 @@
 // src/Pages/OnboardingDashboard/OnboardingDashboard.jsx
 import React, { useState, useMemo } from "react";
 import toast, { Toaster } from "react-hot-toast";
+import NotificationsTab from "../../Components/NotificationsTab";
 
 /* ═══════════════════════════════════════════════════════
    CHARTE BET ONBOARDING
@@ -126,6 +127,7 @@ const INIT_MESSAGES = [
    PAGE PRINCIPALE
 ═══════════════════════════════════════════════════════ */
 export default function OnboardingDashboard() {
+  const profil = JSON.parse(localStorage.getItem("admin_profil") || "{}");
   const [activeTab, setActiveTab] = useState("dashboard");
   const [apprenants, setApprenants] = useState(INIT_APPRENANTS);
   const [plannings, setPlannings] = useState(INIT_PLANNINGS);
@@ -209,6 +211,7 @@ export default function OnboardingDashboard() {
     { key:"suivi",         label:"Suivi démarrage",    icon:"✅" },
     { key:"bilans",        label:"Bilans & Renouvellements", icon:"📋", badge:bilansDus },
     { key:"messages",      label:"Messages",           icon:"💬", badge:msgNonLus },
+    { key:"notifications", label:"Notifications",      icon:"🔔" },
   ];
 
   const inp = { padding:"9px 11px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,width:"100%",boxSizing:"border-box" };
@@ -588,6 +591,13 @@ export default function OnboardingDashboard() {
                     <div style={{ gridColumn:"1/-1",textAlign:"center",padding:40,color:"#9ca3af",fontSize:13 }}>Aucun bilan à traiter actuellement</div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ══ NOTIFICATIONS ══ */}
+            {activeTab==="notifications" && (
+              <div style={{ padding: "24px 0" }}>
+                <NotificationsTab userId={profil?.id} accentColor="#7c3aed" />
               </div>
             )}
 

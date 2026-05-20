@@ -133,9 +133,9 @@ const App = () => {
                   <Route path="/lead-magnet/merci" element={<LeadThankYou />} />
                   <Route path="/update-password" element={<UpdatePassword />} />
                 </Routes>
-                <SimulateurButton />
+                {/* <SimulateurButton /> */}
                 <WhatsAppButton />
-                <BookingCalendar />
+                {/* <BookingCalendar /> */}
               </Router>
             </FavoritesContextProvider>
           </CartContextProvider>

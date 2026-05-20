@@ -968,32 +968,59 @@ const AgreeeBanner = () => {
 /* ─────────────────────────────────────────────────────────
    8. PARTNERS MARQUEE
 ───────────────────────────────────────────────────────── */
-const PARTNERS = [
-  { name: "dot.", logo: "/images/partners/dot.png" },
-  { name: "Digital Opportunity Trust", logo: "/images/partners/dot_trust.png" },
-  { name: "Business Scouts", logo: "/images/partners/business_scouts.png" },
-  { name: "GIZ", logo: "/images/partners/giz.png" },
-  { name: "ENSEA", logo: "/images/partners/ensea.png" },
-  { name: "Allianz", logo: "/images/partners/allianz.png" },
-  { name: "GIZ Full", logo: "/images/partners/giz_full.png" },
+const PARTNERS_FALLBACK = [
+  { nom: "dot.", logo_url: "/images/partners/dot.png" },
+  { nom: "Digital Opportunity Trust", logo_url: "/images/partners/dot_trust.png" },
+  { nom: "Business Scouts", logo_url: "/images/partners/business_scouts.png" },
+  { nom: "GIZ", logo_url: "/images/partners/giz.png" },
+  { nom: "ENSEA", logo_url: "/images/partners/ensea.png" },
+  { nom: "Allianz", logo_url: "/images/partners/allianz.png" },
+  { nom: "GIZ Full", logo_url: "/images/partners/giz_full.png" },
 ];
 
-const PartnersSection = () => (
-  <section style={{ padding: "48px 0", background: "#fff", borderTop: "1px solid #f1f5f9", overflow: "hidden" }}>
-    <div style={{ maxWidth: 1180, margin: "0 auto 24px", padding: "0 24px", textAlign: "center" }}>
-      <p style={{ fontSize: ".78rem", color: "#94a3b8", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase" }}>Ils nous accordent leur confiance</p>
-    </div>
-    <div style={{ overflow: "hidden" }}>
-      <div style={{ display: "flex", width: "fit-content", animation: "ticker 22s linear infinite" }}>
-        {[...PARTNERS, ...PARTNERS].map((p, i) => (
-          <div key={i} style={{ flexShrink: 0, height: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 36px", opacity: 0.65, filter: "grayscale(.3)" }}>
-            <img src={p.logo} alt={p.name} style={{ maxHeight: "100%", maxWidth: 120, objectFit: "contain" }} />
-          </div>
-        ))}
+const PartnersSection = () => {
+  const [partners, setPartners] = useState(PARTNERS_FALLBACK);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/partenaires/publics`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data) && data.length > 0) setPartners(data); })
+      .catch(() => {});
+  }, []);
+
+  const items = [...partners, ...partners];
+
+  return (
+    <section style={{ padding: "56px 0", background: "#fff", borderTop: "1px solid #f1f5f9", overflow: "hidden" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto 28px", padding: "0 24px", textAlign: "center" }}>
+        <p style={{ fontSize: ".78rem", color: "#94a3b8", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>
+          Ils nous accordent leur confiance
+        </p>
+        <h2 style={{ margin: 0, fontSize: "1.45rem", fontWeight: 800, color: "#0f172a" }}>Nos partenaires</h2>
       </div>
-    </div>
-  </section>
-);
+      <div style={{ overflow: "hidden", position: "relative" }}>
+        {/* fade gauche/droite */}
+        <div style={{ position:"absolute", left:0, top:0, bottom:0, width:80, background:"linear-gradient(to right,#fff,transparent)", zIndex:2, pointerEvents:"none" }} />
+        <div style={{ position:"absolute", right:0, top:0, bottom:0, width:80, background:"linear-gradient(to left,#fff,transparent)", zIndex:2, pointerEvents:"none" }} />
+        <div style={{ display: "flex", width: "fit-content", animation: "ticker 28s linear infinite" }}>
+          {items.map((p, i) => (
+            <div key={i} style={{ flexShrink: 0, height: 72, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 48px" }}>
+              {p.site_web ? (
+                <a href={p.site_web} target="_blank" rel="noopener noreferrer" title={p.nom} style={{ display:"flex", alignItems:"center" }}>
+                  <img src={p.logo_url} alt={p.nom} style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", opacity: 0.7, filter: "grayscale(.2)", transition:"opacity .2s" }}
+                    onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                    onMouseLeave={e=>e.currentTarget.style.opacity="0.7"} />
+                </a>
+              ) : (
+                <img src={p.logo_url} alt={p.nom} style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", opacity: 0.7, filter: "grayscale(.2)" }} />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 /* ─────────────────────────────────────────────────────────
    9. COACHES SECTION

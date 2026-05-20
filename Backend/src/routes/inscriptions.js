@@ -12,14 +12,15 @@ router.post("/adulte/submit", async (req, res) => {
   try {
     const { nom_complet, email, telephone, date_naissance, offre_id, offre_titre, mode_paiement, niveau_detecte, statut, commercial_id, centre_id } = req.body;
 
-    if (!nom_complet || !email || !telephone) {
-      return res.status(400).json({ error: "Champs obligatoires manquants" });
+    // email est optionnel (formulaire domicile ne l'exige pas)
+    if (!nom_complet || !telephone) {
+      return res.status(400).json({ error: "Champs obligatoires manquants (nom et téléphone)" });
     }
 
-    const { error } = await supabase.from("inscriptions_adultes").insert({
+    const payload = {
       nom_complet,
-      email,
       telephone,
+      email:           email           || null,
       date_naissance:  date_naissance  || null,
       offre_id:        offre_id        || null,
       offre_titre:     offre_titre     || null,
@@ -28,17 +29,21 @@ router.post("/adulte/submit", async (req, res) => {
       commercial_id:   commercial_id   || null,
       centre_id:       centre_id       || null,
       statut:          statut          || "nouveau",
-    });
+    };
+
+    console.log("📝 Inscription adulte payload:", JSON.stringify(payload));
+
+    const { error } = await supabase.from("inscriptions_adultes").insert(payload);
 
     if (error) {
-      console.error("Erreur Supabase inscription adulte :", error);
-      return res.status(500).json({ error: error.message });
+      console.error("❌ Supabase inscription adulte:", error.code, error.message, error.details, error.hint);
+      return res.status(500).json({ error: error.message, code: error.code, details: error.details, hint: error.hint });
     }
 
     res.status(201).json({ message: "Inscription adulte enregistrée" });
   } catch (err) {
-    console.error("Erreur serveur inscription adulte :", err);
-    res.status(500).json({ error: "Erreur interne" });
+    console.error("❌ Erreur serveur inscription adulte:", err);
+    res.status(500).json({ error: err.message || "Erreur interne" });
   }
 });
 

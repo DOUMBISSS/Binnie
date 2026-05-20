@@ -95,6 +95,13 @@ const TemoCard = ({ t, delay = 0 }) => (
         « {t.texte} »
       </p>
 
+      {/* Photo diplôme si disponible */}
+      {t.photo_url && (
+        <div style={{ margin: "0 0 14px", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0", maxHeight: 140 }}>
+          <img src={t.photo_url} alt={`Diplôme de ${t.nom}`} style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }} />
+        </div>
+      )}
+
       {/* Identité */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
         <div style={{ width: 46, height: 46, borderRadius: "50%", background: `${t.couleur || "#1e4080"}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem", flexShrink: 0 }}>
@@ -127,7 +134,7 @@ const TemoignagesPage = () => {
     window.scrollTo(0, 0);
     supabase
       .from("temoignages")
-      .select("id, nom, role, score, texte, avatar, couleur, etoiles, ordre")
+      .select("id, nom, role, score, texte, avatar, photo_url, couleur, etoiles, ordre")
       .eq("actif", true)
       .eq("statut", "actif")
       .order("ordre", { ascending: true })

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../config/supabase";
+import PromosBanner from "../Components/PromosBanner/PromosBanner";
 
-const API                = process.env.REACT_APP_API_URL || "http://localhost:5001";
-const CENTRES_MASTER_KEY  = "bet_centres_master";
+const API                   = process.env.REACT_APP_API_URL || "http://localhost:5001";
+const CENTRES_MASTER_KEY    = "bet_centres_master";
+const LS_OFFRES_EN_LIGNE_KEY = "bet_offres_en_ligne";
 const DEFAULT_BROCHURE_URL = "https://pdfobject.com/pdf/sample.pdf";
 const F                  = "'Montserrat', 'Segoe UI', sans-serif";
 const BET_BLUE           = "#0891b2";
@@ -153,6 +155,7 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
   const [selectedCentreCard,   setSelectedCentreCard]   = useState(null); // carte ouverte en p1
   const [userCoords,           setUserCoords]           = useState(null); // { lat, lng }
   const [geoStatus,            setGeoStatus]            = useState("idle"); // idle | loading | ok | denied
+  const [offresEnLigne, setOffresEnLigne] = useState([]);
   const [loading,      setLoading]      = useState(false);
   const [erreur,       setErreur]       = useState("");
   const [form,         setForm]         = useState({ nom:"", email:"", telephone:"" });
@@ -160,6 +163,18 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
   const [submitting,   setSubmitting]   = useState(false);
   const [modePaiement, setModePaiement] = useState(null);
   const [mmOption,     setMmOption]     = useState(null);
+
+  /* Auth inline (step 2.5) */
+  const [authTab,    setAuthTab]    = useState("login");
+  const [authFormPm, setAuthFormPm] = useState({ email:"", password:"", prenom:"", nom:"", telephone:"" });
+  const [authLoadPm, setAuthLoadPm] = useState(false);
+  const [authErrPm,  setAuthErrPm]  = useState("");
+
+  /* Code promo */
+  const [codePromo,        setCodePromo]        = useState("");
+  const [codePromoApplied, setCodePromoApplied] = useState(null);
+  const [codePromoLoading, setCodePromoLoading] = useState(false);
+  const [codePromoError,   setCodePromoError]   = useState("");
   const [zoneForm,     setZoneForm]     = useState("");
   const [disponForm,   setDisponForm]   = useState([]);
 
@@ -175,15 +190,22 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
   const toggleDispo = (id) =>
     setDisponForm(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
 
-  // ── Auth check
+  // ── Auth check + live tracking
   useEffect(() => {
     if (userProp) { setSbUser(userProp); return; }
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSbUser(session?.user || null);
+      if (session?.user) prefillForm(session.user);
     });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSbUser(session?.user || null);
+      if (session?.user) prefillForm(session.user);
+    });
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userProp]);
 
-  // ── Load centres + centresMaster
+  // ── Load centres + centresMaster + offres en ligne
   useEffect(() => {
     if (!isOpen) return;
     fetch(`${API}/api/parcours/centres`).then(r => r.json()).then(d => setCentres(d.centres || [])).catch(() => {});
@@ -191,6 +213,18 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
       const s = localStorage.getItem(CENTRES_MASTER_KEY);
       if (s) setCentresMaster(JSON.parse(s).filter(c => c.actif !== false));
     } catch {}
+    // Offres en ligne : localStorage d'abord, puis sync Supabase
+    try {
+      const s = localStorage.getItem(LS_OFFRES_EN_LIGNE_KEY);
+      if (s) setOffresEnLigne(JSON.parse(s).filter(o => o.actif !== false));
+    } catch {}
+    supabase.from("plateforme_config").select("valeur").eq("key","offres_en_ligne").maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data?.valeur) && data.valeur.length) {
+          localStorage.setItem(LS_OFFRES_EN_LIGNE_KEY, JSON.stringify(data.valeur));
+          setOffresEnLigne(data.valeur.filter(o => o.actif !== false));
+        }
+      });
   }, [isOpen]);
 
   // ── Pré-charger les assistantes de tous les centres (pour les photos dans les cartes)
@@ -259,17 +293,22 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
   // ── Choisir mode
   const choisirMode = (mode) => {
     setModeCours(mode); resetPresentiel(); setTypeCoaching(null); setZoneForm(""); setDisponForm([]);
-    if (mode === "domicile") { if (sbUser) prefillForm(sbUser); setStep(6); }
+    if (mode === "domicile") {
+      if (sbUser) { prefillForm(sbUser); setStep(6); }
+      else { setStep(2.5); }  // show auth gate before domicile form
+    }
     else if (mode === "presentiel") setStep("p1");
     else setStep(1);
   };
 
-  // ── Coaching en ligne
-  const choisirCoachingEnLigne = async (type) => {
-    setTypeCoaching(type); setAssistantes([]); setAssistante(null); setErreur("");
+  // ── Offre en ligne sélectionnée → charge toutes les assistantes en ligne
+  const choisirOffreEnLigne = async (offre) => {
+    setOffreChoisie(offre);
+    setTypeCoaching(inferTypeCoaching(offre));
+    setAssistantes([]); setAssistante(null); setErreur("");
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/parcours/assistantes-ligne?type_coaching=${type}`);
+      const r = await fetch(`${API}/api/parcours/assistantes-ligne`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Erreur");
       setAssistantes(d.assistantes || []);
@@ -277,6 +316,17 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
     } catch (e) { setErreur(e.message); }
     finally { setLoading(false); }
   };
+
+  // ── Auto-progression quand l'user se connecte depuis l'auth gate (step 2.5)
+  useEffect(() => {
+    if (step === 2.5 && sbUser) {
+      prefillForm(sbUser);
+      if (modeCours === "domicile") setStep(6);
+      else if (modeCours === "presentiel") setStep("p4");
+      else setStep(typeCoaching === "groupe" ? 3.5 : 3);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbUser, step]);
 
   // ── Ouvrir/fermer une carte centre
   const toggleCentreCard = (centreId) => {
@@ -325,6 +375,58 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
     return !Object.keys(errors).length;
   };
 
+  // ── Valider code promo
+  const validerCodePromo = async (offreType) => {
+    const code = codePromo.trim().toUpperCase();
+    if (!code) return;
+    setCodePromoLoading(true);
+    setCodePromoError("");
+    setCodePromoApplied(null);
+    try {
+      const token = localStorage.getItem("bet_token") || localStorage.getItem("admin_token") || "";
+      const r = await fetch(`${API}/api/codes-promo/valider`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ code, offre_type: offreType }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setCodePromoError(d.error || "Code invalide"); return; }
+      setCodePromoApplied(d);
+    } catch { setCodePromoError("Impossible de vérifier le code"); }
+    finally { setCodePromoLoading(false); }
+  };
+
+  const handleAuthLogin = async () => {
+    if (!authFormPm.email || !authFormPm.password) return setAuthErrPm("Email et mot de passe requis.");
+    setAuthLoadPm(true); setAuthErrPm("");
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authFormPm.email, password: authFormPm.password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Email ou mot de passe incorrect");
+      await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+    } catch (err) { setAuthErrPm(err.message); }
+    finally { setAuthLoadPm(false); }
+  };
+
+  const handleAuthRegister = async () => {
+    if (!authFormPm.prenom || !authFormPm.nom || !authFormPm.email || !authFormPm.password) return setAuthErrPm("Tous les champs * sont requis.");
+    setAuthLoadPm(true); setAuthErrPm("");
+    try {
+      const res = await fetch(`${API}/api/auth/register`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nom: authFormPm.nom, prenom: authFormPm.prenom, email: authFormPm.email, telephone: authFormPm.telephone, password: authFormPm.password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur lors de l'inscription");
+      const { error } = await supabase.auth.signInWithPassword({ email: authFormPm.email, password: authFormPm.password });
+      if (error) throw new Error(error.message);
+    } catch (err) { setAuthErrPm(err.message); }
+    finally { setAuthLoadPm(false); }
+  };
+
   // ── Submit assignation
   const submitAssignation = async () => {
     if (!validateForm()) return;
@@ -343,6 +445,7 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
           mode_paiement:      modePaiement === "mobile_money"
                                 ? `mobile_money_${mmOption || "autre"}`
                                 : modePaiement || undefined,
+          code_promo:         codePromoApplied?.code || undefined,
         }),
       });
       const d = await r.json();
@@ -370,13 +473,47 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
     try {
       const disponStr = disponForm.map(id => DISPOS.find(d => d.id === id)?.label || id).join(", ");
       const notes = [zoneForm ? `Zone : ${zoneForm}` : "", disponStr ? `Disponibilités : ${disponStr}` : ""].filter(Boolean).join(" | ");
-      const r = await fetch(`${API}/api/inscriptions/adulte/submit`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ nom_complet: form.nom.trim(), email: form.email.trim() || undefined,
-          telephone: form.telephone.trim(), offre_titre: `Cours à domicile${notes ? " — " + notes : ""}`, statut:"nouveau" }),
+
+      // Étape 1 : inscription dans la table (non-bloquante si la table a un problème)
+      try {
+        await fetch(`${API}/api/inscriptions/adulte/submit`, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            nom_complet:  form.nom.trim(),
+            email:        form.email.trim() || null,
+            telephone:    form.telephone.trim(),
+            offre_titre:  `Cours à domicile${notes ? " — " + notes : ""}`,
+            statut:       "nouveau",
+          }),
+        });
+      } catch(_) { /* table absente ou schéma incorrect — on continue quand même */ }
+
+      // Étape 2 : assignation vers le PA (prioritaire)
+      const paR = await fetch(`${API}/api/parcours/assistantes-pa`);
+      const paD = await paR.json();
+      const pa = (paD.assistantes || [])[0] || null;
+
+      if (!pa) {
+        throw new Error("Aucun conseiller pédagogique disponible. Veuillez réessayer ou nous contacter directement.");
+      }
+
+      const ar = await fetch(`${API}/api/parcours/assignation`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assistante_id:      pa.id,
+          prospect_nom:       form.nom.trim(),
+          prospect_email:     form.email.trim() || undefined,
+          prospect_telephone: form.telephone.trim(),
+          type_cours:         "domicile",
+          type_coaching:      "prive",
+          source:             "formulaire_domicile",
+        }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Erreur");
+      if (!ar.ok) {
+        const ad = await ar.json();
+        throw new Error(ad.error || "Erreur lors de l'envoi de la demande");
+      }
+
       setStep(4);
     } catch(e) { setErreur(e.message); }
     finally { setSubmitting(false); }
@@ -391,7 +528,7 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
 
   // ── Header
   const headerTitle = { 0:"Comment souhaitez-vous apprendre ?", "p1":"Choisissez votre cabinet", "p2":`Assistantes — ${centreChoisi?.nom||""}`, "p4":"Paiement & confirmation",
-    1:"Quel type de coaching ?", 2:"Choisissez votre assistante", 2.5:"Connexion requise",
+    1:"Choisissez votre formule", 2:"Choisissez votre assistante", 2.5:"Connexion requise",
     3:"Vos coordonnées", 3.5:"Mode de paiement", 6:"Cours à domicile / Cours privé",
     4: modeCours === "domicile" ? "Demande reçue !" : "Demande envoyée !" }[String(step)] || "";
 
@@ -473,23 +610,79 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
             </div>
           )}
 
-          {/* ═══ STEP 1 (en ligne) : coaching ═══ */}
+          {/* ═══ STEP 1 (en ligne) : offres ═══ */}
           {step === 1 && !loading && (
             <div style={{ animation:"pmFU .3s ease" }}>
               <button onClick={() => setStep(0)} style={backBtn}>← Retour</button>
-              <div className="pm-grid2" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-                {[
-                  { type:"groupe", icon:"👥", title:"Coaching de groupe", desc:"Sessions partagées avec d'autres apprenants. Dynamique et économique." },
-                  { type:"prive",  icon:"👤", title:"Coaching privé",     desc:"Suivi individuel avec votre coach attitré." },
-                ].map(o => (
-                  <div key={o.type} className="pm-card" onClick={() => choisirCoachingEnLigne(o.type)}
-                    style={{ border:"2px solid #e2e8f0", borderRadius:16, padding:"20px 16px", cursor:"pointer", transition:"all .22s", textAlign:"center", background:"#fafafa" }}>
-                    <div style={{ fontSize:"2.2rem", marginBottom:10 }}>{o.icon}</div>
-                    <div style={{ fontWeight:800, color:BET_DARK, fontSize:".92rem", marginBottom:6, fontFamily:F }}>{o.title}</div>
-                    <div style={{ fontSize:".76rem", color:"#475569", lineHeight:1.6, marginBottom:16 }}>{o.desc}</div>
+              <PromosBanner
+                offreType="en_ligne"
+                accentColor={BET_BLUE}
+                onApply={(code) => { setCodePromo(code); setCodePromoApplied(null); setCodePromoError(""); }}
+              />
+              <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:20, lineHeight:1.6 }}>
+                Découvrez nos formules de cours en ligne. Apprenez où que vous soyez, à votre rythme, avec nos assistantes dédiées.
+              </p>
+
+              {offresEnLigne.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"36px 20px", background:"#f8fafc", borderRadius:16, border:"1.5px dashed #e2e8f0" }}>
+                  <div style={{ fontSize:"2rem", marginBottom:10 }}>💻</div>
+                  <p style={{ color:"#64748b", fontSize:".88rem", lineHeight:1.6, margin:0 }}>
+                    Nos offres seront disponibles très prochainement.<br />
+                    <strong>Contactez-nous</strong> pour en savoir plus.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="pm-grid2" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:18 }}>
+                    {offresEnLigne.map((o, i) => {
+                      const COLORS = [BET_BLUE, BET_NAVY, "#059669", "#d97706", "#7c3aed", "#dc2626"];
+                      const col = COLORS[i % COLORS.length];
+                      return (
+                        <div key={o.id || i} className="pm-card"
+                          onClick={() => choisirOffreEnLigne(o)}
+                          style={{ border:"2px solid #e2e8f0", borderRadius:18, padding:"18px 16px", cursor:"pointer", transition:"all .22s", background:"#fafafa", display:"flex", flexDirection:"column", gap:10 }}>
+
+                          <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8 }}>
+                            <div style={{ width:44, height:44, borderRadius:12, background:`${col}15`, border:`2px solid ${col}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.4rem", flexShrink:0 }}>
+                              {o.icon || "💻"}
+                            </div>
+                            <div style={{ textAlign:"right" }}>
+                              <div style={{ fontWeight:800, fontSize:".88rem", color:col, fontFamily:F }}>{o.prix || "Sur devis"}</div>
+                              {o.duration && <div style={{ fontSize:".68rem", color:"#94a3b8", marginTop:1 }}>{o.duration}</div>}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontWeight:800, fontSize:".88rem", color:BET_DARK, fontFamily:F, marginBottom:4, lineHeight:1.3 }}>{o.label}</div>
+                            {o.desc && <div style={{ fontSize:".74rem", color:"#64748b", lineHeight:1.5 }}>{o.desc}</div>}
+                          </div>
+
+                          {o.brochure_url && (
+                            <a href={o.brochure_url} download={o.brochure_nom || true} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ display:"flex", alignItems:"center", gap:6, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:8, padding:"6px 10px", textDecoration:"none", marginTop:"auto" }}>
+                              <span style={{ fontSize:".8rem" }}>📄</span>
+                              <span style={{ fontSize:".7rem", fontWeight:700, color:BET_BLUE, flex:1 }}>{o.brochure_nom || "Télécharger la brochure"}</span>
+                              <span style={{ fontSize:".62rem", fontWeight:700, color:"#94a3b8", background:"#f1f5f9", borderRadius:4, padding:"1px 5px" }}>PDF</span>
+                            </a>
+                          )}
+
+                          <div style={{ background:`linear-gradient(135deg,${col},${BET_NAVY})`, color:"#fff", borderRadius:999, padding:"8px 0", fontWeight:800, fontSize:".74rem", textAlign:"center", fontFamily:F, marginTop:"auto" }}>
+                            Choisir cette offre →
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+
+                  <div style={{ textAlign:"center" }}>
+                    <button onClick={() => choisirOffreEnLigne(null)}
+                      style={{ background:"none", border:"none", color:"#94a3b8", fontSize:".78rem", cursor:"pointer", textDecoration:"underline", fontFamily:F }}>
+                      Continuer sans sélectionner d'offre →
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -497,6 +690,11 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
           {step === "p1" && !loading && (
             <div style={{ animation:"pmFU .3s ease" }}>
               <button onClick={() => setStep(0)} style={backBtn}>← Retour</button>
+              <PromosBanner
+                offreType="centres"
+                accentColor={BET_NAVY}
+                onApply={(code) => { setCodePromo(code); setCodePromoApplied(null); setCodePromoError(""); }}
+              />
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, gap:8 }}>
                 <p style={{ color:"#64748b", fontSize:".82rem", margin:0, lineHeight:1.6 }}>
                   Sélectionnez un cabinet et choisissez votre formule pour continuer.
@@ -713,32 +911,75 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
             </div>
           )}
 
-          {/* ═══ STEP 2 (en ligne) ═══ */}
+          {/* ═══ STEP 2 (en ligne) : assistantes ═══ */}
           {step === 2 && !loading && (
             <div style={{ animation:"pmFU .3s ease" }}>
-              <button onClick={() => setStep(1)} style={backBtn}>← Retour</button>
-              <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:14 }}>
-                {assistantes.length} assistante{assistantes.length>1?"s":""} · Coaching {typeCoaching==="groupe"?"de groupe":"privé"}
+              <button onClick={() => setStep(1)} style={backBtn}>← Retour aux offres</button>
+
+              {/* Recap offre choisie */}
+              {offreChoisie && (
+                <div style={{ display:"flex", alignItems:"center", gap:10, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:16 }}>
+                  <span style={{ fontSize:"1.1rem" }}>{offreChoisie.icon || "💻"}</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:800, fontSize:".82rem", color:BET_DARK }}>{offreChoisie.label}</div>
+                    <div style={{ fontSize:".72rem", color:"#64748b" }}>{offreChoisie.prix}{offreChoisie.duration ? ` · ${offreChoisie.duration}` : ""}</div>
+                  </div>
+                  <button onClick={() => setStep(1)} style={{ background:"none", border:"none", fontSize:".72rem", color:"#94a3b8", cursor:"pointer", fontWeight:700 }}>Changer</button>
+                </div>
+              )}
+
+              <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:16, lineHeight:1.6 }}>
+                Choisissez l'assistante qui vous accompagnera tout au long de votre parcours en ligne.
               </p>
+
               {assistantes.length === 0 ? (
                 <div style={{ textAlign:"center", padding:"32px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0" }}>
                   <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
-                  <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6 }}>Toutes nos assistantes ont atteint leur quota aujourd'hui.<br/><strong>Contactez-nous directement.</strong></p>
+                  <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6, margin:0 }}>Toutes nos assistantes ont atteint leur quota aujourd'hui.<br/><strong>Contactez-nous directement.</strong></p>
                 </div>
               ) : (
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {assistantes.map(a => (
-                    <div key={a.id} className="pm-assist-card" onClick={() => choisirAssistante(a)}
-                      style={{ display:"flex", alignItems:"center", gap:14, border:"2px solid #e2e8f0", borderRadius:14, padding:"14px 16px", cursor:"pointer", transition:"all .2s", background:"#fff" }}>
-                      <Avatar a={a} size={46} />
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:800, fontSize:".9rem", color:BET_DARK }}>{a.prenom} {a.nom}</div>
-                        <div style={{ fontSize:".72rem", color:"#64748b", marginTop:2 }}>Assistante BET Languages</div>
-                        <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"2px 8px", fontSize:".68rem", fontWeight:700, marginTop:4, display:"inline-block" }}>✓ Disponible</span>
+                <div className="pm-assist-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+                  {assistantes.map(a => {
+                    const placesRestantes = (a.quota_jour || 5) - (a.prises_aujourd_hui || 0);
+                    const wa = a.telephone
+                      ? `https://wa.me/${a.telephone.replace(/\D/g,"")}?text=${encodeURIComponent(`Bonjour ${a.prenom}, je souhaite m'inscrire à un cours BET en ligne${offreChoisie ? ` — ${offreChoisie.label}` : ""}.`)}`
+                      : null;
+                    return (
+                      <div key={a.id} className="pm-assist-card" onClick={() => choisirAssistante(a)}
+                        style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, border:"2px solid #e2e8f0", borderRadius:18, padding:"20px 14px 16px", cursor:"pointer", transition:"all .22s", background:"#fff", textAlign:"center" }}>
+
+                        <div style={{ position:"relative" }}>
+                          <Avatar a={a} size={72} />
+                          <span style={{ position:"absolute", bottom:0, right:0, width:16, height:16, borderRadius:"50%", background:"#22c55e", border:"2.5px solid #fff" }} />
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight:800, fontSize:".88rem", color:BET_DARK, fontFamily:F, lineHeight:1.3 }}>{a.prenom} {a.nom}</div>
+                          <div style={{ fontSize:".68rem", color:"#94a3b8", marginTop:3 }}>Assistante · En ligne</div>
+                        </div>
+
+                        {a.telephone && (
+                          <div style={{ fontSize:".72rem", color:"#334155", fontWeight:600 }}>📞 {a.telephone}</div>
+                        )}
+
+                        <span style={{ background:`${BET_BLUE}14`, color:BET_BLUE, borderRadius:999, padding:"3px 10px", fontSize:".66rem", fontWeight:700 }}>
+                          {placesRestantes} place{placesRestantes > 1 ? "s" : ""} restante{placesRestantes > 1 ? "s" : ""}
+                        </span>
+
+                        {wa && (
+                          <a href={wa} target="_blank" rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:5, width:"100%", padding:"8px 0", background:"#25d366", color:"#fff", borderRadius:999, textDecoration:"none", fontWeight:700, fontSize:".74rem", fontFamily:F, marginTop:"auto" }}>
+                            <span>💬</span> WhatsApp
+                          </a>
+                        )}
+
+                        <div style={{ width:"100%", padding:"7px 0", background:`linear-gradient(135deg,${BET_BLUE},${BET_NAVY})`, color:"#fff", borderRadius:999, fontWeight:800, fontSize:".72rem", fontFamily:F }}>
+                          Choisir →
+                        </div>
                       </div>
-                      <span style={{ color:BET_BLUE, fontWeight:800, fontSize:"1.1rem", flexShrink:0 }}>→</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -746,23 +987,64 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
 
           {/* ═══ STEP 2.5 : Auth gate ═══ */}
           {step === 2.5 && (
-            <div style={{ animation:"pmFU .3s ease", textAlign:"center", padding:"8px 0" }}>
-              <div style={{ fontSize:"3rem", marginBottom:12 }}>🔐</div>
-              <h3 style={{ fontFamily:F, color:BET_DARK, fontSize:"1.1rem", fontWeight:800, margin:"0 0 10px" }}>Connexion requise</h3>
-              <p style={{ color:"#475569", fontSize:".88rem", lineHeight:1.7, margin:"0 0 20px" }}>
-                Pour finaliser votre demande, connectez-vous à votre espace BET.
-              </p>
-              <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"12px 16px", marginBottom:20, textAlign:"left", display:"flex", alignItems:"center", gap:12 }}>
-                <Avatar a={assistante} size={40} />
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:".85rem", color:BET_DARK }}>{assistante?.prenom} {assistante?.nom}</div>
-                  <div style={{ fontSize:".72rem", color:"#64748b" }}>{modeCours === "en_ligne" ? `En ligne · ${typeCoaching === "groupe" ? "Groupe" : "Privé"}` : `Présentiel · ${centreChoisi?.nom || ""}`}</div>
+            <div style={{ padding:"8px 0", animation:"pmFU .3s ease" }}>
+              {/* Progress recap */}
+              {modeCours !== "domicile" && assistante && (
+                <div style={{ display:"flex", alignItems:"center", gap:12, background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
+                  {assistante.photo_url
+                    ? <img src={assistante.photo_url} alt="" style={{ width:42, height:42, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+                    : <div style={{ width:42, height:42, borderRadius:"50%", background:"#1B3080", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, flexShrink:0 }}>{`${assistante.prenom?.[0]||""}${assistante.nom?.[0]||""}`.toUpperCase()}</div>
+                  }
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:".88rem" }}>{assistante.prenom} {assistante.nom}</div>
+                    <div style={{ fontSize:".72rem", color:"#64748b" }}>{modeCours === "en_ligne" ? "Cours en ligne" : "Présentiel"} {offreChoisie ? `· ${offreChoisie.label}` : ""}</div>
+                  </div>
+                  <span style={{ marginLeft:"auto", background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700 }}>✓ Sélectionnée</span>
                 </div>
-                <span style={{ background:"#f0fdf4", color:"#16a34a", borderRadius:999, padding:"3px 10px", fontSize:".7rem", fontWeight:700 }}>✓ Sélectionnée</span>
-              </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                <button onClick={() => { handleClose(); navigate("/mon-espace"); }} style={primaryBtn}>🔑 Se connecter / Créer mon espace →</button>
-                <button onClick={() => setStep(modeCours === "presentiel" ? "p2" : 2)} style={backBtn}>← Choisir une autre assistante</button>
+              )}
+              {modeCours === "domicile" && (
+                <div style={{ padding:"10px 14px", background:"#f0fdf4", borderRadius:10, border:"1px solid #bbf7d0", marginBottom:16, display:"flex", gap:10, alignItems:"center" }}>
+                  <span style={{ fontSize:20 }}>🏠</span>
+                  <div>
+                    <div style={{ fontSize:".82rem", fontWeight:700, color:"#15803d" }}>Cours à domicile</div>
+                    <div style={{ fontSize:".76rem", color:"#64748b" }}>Connectez-vous pour pré-remplir vos coordonnées automatiquement.</div>
+                  </div>
+                </div>
+              )}
+              {/* Inline Auth */}
+              <div style={{ background:"#fff", borderRadius:12, border:"1.5px solid #e2e8f0", padding:"16px" }}>
+                <div style={{ fontSize:".78rem", fontWeight:700, color:"#64748b", marginBottom:12, textAlign:"center" }}>Votre progression est conservée</div>
+                {/* Tabs */}
+                <div style={{ display:"flex", borderRadius:10, overflow:"hidden", border:"1.5px solid #e2e8f0", marginBottom:14 }}>
+                  {[["login","Se connecter"],["register","Créer un compte"]].map(([t,l]) => (
+                    <button key={t} onClick={() => setAuthTab(t)} style={{ flex:1, padding:"9px 0", border:"none", fontWeight:700, fontSize:".82rem", cursor:"pointer", background:authTab===t?"#1B3080":"#fff", color:authTab===t?"#fff":"#374151" }}>{l}</button>
+                  ))}
+                </div>
+                {authTab === "login" ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    <input type="email" placeholder="Email *" value={authFormPm.email} onChange={e=>setAuthFormPm(p=>({...p,email:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                    <input type="password" placeholder="Mot de passe *" value={authFormPm.password} onChange={e=>setAuthFormPm(p=>({...p,password:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                      <input placeholder="Prénom *" value={authFormPm.prenom} onChange={e=>setAuthFormPm(p=>({...p,prenom:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                      <input placeholder="Nom *" value={authFormPm.nom} onChange={e=>setAuthFormPm(p=>({...p,nom:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                    </div>
+                    <input type="email" placeholder="Email *" value={authFormPm.email} onChange={e=>setAuthFormPm(p=>({...p,email:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                    <input placeholder="Téléphone" value={authFormPm.telephone} onChange={e=>setAuthFormPm(p=>({...p,telephone:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                    <input type="password" placeholder="Mot de passe *" value={authFormPm.password} onChange={e=>setAuthFormPm(p=>({...p,password:e.target.value}))} style={{ padding:"10px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:".84rem", outline:"none", boxSizing:"border-box", width:"100%" }} />
+                  </div>
+                )}
+                {authErrPm && <p style={{ fontSize:".78rem", margin:"8px 0 0", color:"#dc2626", textAlign:"center" }}>{authErrPm}</p>}
+                <button onClick={authTab==="login" ? handleAuthLogin : handleAuthRegister} disabled={authLoadPm}
+                  style={{ width:"100%", marginTop:14, padding:"12px", background:"#1B3080", color:"#fff", border:"none", borderRadius:8, fontWeight:700, cursor:"pointer", opacity:authLoadPm?.7:1, fontSize:".88rem" }}>
+                  {authLoadPm ? "Chargement…" : authTab==="login" ? "Se connecter" : "Créer mon compte"}
+                </button>
+                <button onClick={() => setStep(modeCours === "domicile" ? 0 : modeCours === "en_ligne" ? 2 : "p2")}
+                  style={{ width:"100%", marginTop:8, padding:"9px", background:"transparent", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:8, fontWeight:600, fontSize:".8rem", cursor:"pointer" }}>
+                  ← Retour
+                </button>
               </div>
             </div>
           )}
@@ -831,6 +1113,33 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
                   <input value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))}
                     placeholder="votre@email.com" type="email" style={inputStyle} />
                 </div>
+              </div>
+
+              {/* Code promo — step p4 */}
+              <div style={{ marginBottom:16 }}>
+                <p style={{ fontSize:".78rem", fontWeight:700, color:"#374151", marginBottom:8 }}>🏷️ Code promo <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnel)</span></p>
+                {codePromoApplied ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px" }}>
+                    <span style={{ fontSize:"1.1rem" }}>✅</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:".82rem", color:"#166534" }}>{codePromoApplied.code} appliqué !</div>
+                      <div style={{ fontSize:".72rem", color:"#166534" }}>Réduction : {codePromoApplied.type_reduction === "pourcentage" ? `-${codePromoApplied.valeur}%` : `-${Number(codePromoApplied.valeur).toLocaleString("fr-FR")} FCFA`}{codePromoApplied.description && ` · ${codePromoApplied.description}`}</div>
+                    </div>
+                    <button onClick={() => { setCodePromoApplied(null); setCodePromo(""); setCodePromoError(""); }} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:16, padding:0 }}>✕</button>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input value={codePromo} onChange={e => { setCodePromo(e.target.value.toUpperCase()); setCodePromoError(""); }}
+                      onKeyDown={e => e.key === "Enter" && validerCodePromo("centres")}
+                      placeholder="Ex : BET2025"
+                      style={{ flex:1, padding:"10px 13px", border:`1.5px solid ${codePromoError?"#dc2626":"#e2e8f0"}`, borderRadius:9, fontSize:".82rem", fontFamily:"monospace", letterSpacing:1, outline:"none" }} />
+                    <button onClick={() => validerCodePromo("centres")} disabled={!codePromo.trim() || codePromoLoading}
+                      style={{ padding:"0 16px", background:BET_BLUE, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:".78rem", opacity:(!codePromo.trim()||codePromoLoading)?.5:1, whiteSpace:"nowrap" }}>
+                      {codePromoLoading ? "⏳" : "Appliquer"}
+                    </button>
+                  </div>
+                )}
+                {codePromoError && <p style={{ margin:"5px 0 0", fontSize:".72rem", color:"#dc2626" }}>{codePromoError}</p>}
               </div>
 
               {/* Paiement */}
@@ -916,6 +1225,33 @@ export default function ParcoursModal({ isOpen, onClose, user: userProp = null, 
                   <input value={form.telephone} onChange={e => { setForm(f=>({...f,telephone:e.target.value})); setFormErrors(fe=>({...fe,telephone:""})); }} placeholder="+225 07 XX XX XX" style={{ ...inputStyle, borderColor: formErrors.telephone ? "#dc2626" : "#e2e8f0" }} />
                   {formErrors.telephone && <p style={errStyle}>{formErrors.telephone}</p>}</div>
               </div>
+              {/* Code promo — step 3.5 */}
+              <div style={{ marginBottom:16 }}>
+                <p style={{ fontSize:".78rem", fontWeight:700, color:"#374151", marginBottom:8 }}>🏷️ Code promo <span style={{ fontWeight:400, color:"#94a3b8" }}>(optionnel)</span></p>
+                {codePromoApplied ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px" }}>
+                    <span style={{ fontSize:"1.1rem" }}>✅</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:".82rem", color:"#166534" }}>{codePromoApplied.code} appliqué !</div>
+                      <div style={{ fontSize:".72rem", color:"#166534" }}>Réduction : {codePromoApplied.type_reduction === "pourcentage" ? `-${codePromoApplied.valeur}%` : `-${Number(codePromoApplied.valeur).toLocaleString("fr-FR")} FCFA`}{codePromoApplied.description && ` · ${codePromoApplied.description}`}</div>
+                    </div>
+                    <button onClick={() => { setCodePromoApplied(null); setCodePromo(""); setCodePromoError(""); }} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:16, padding:0 }}>✕</button>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input value={codePromo} onChange={e => { setCodePromo(e.target.value.toUpperCase()); setCodePromoError(""); }}
+                      onKeyDown={e => e.key === "Enter" && validerCodePromo("en_ligne")}
+                      placeholder="Ex : BET2025"
+                      style={{ flex:1, padding:"10px 13px", border:`1.5px solid ${codePromoError?"#dc2626":"#e2e8f0"}`, borderRadius:9, fontSize:".82rem", fontFamily:"monospace", letterSpacing:1, outline:"none" }} />
+                    <button onClick={() => validerCodePromo("en_ligne")} disabled={!codePromo.trim() || codePromoLoading}
+                      style={{ padding:"0 16px", background:BET_BLUE, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:".78rem", opacity:(!codePromo.trim()||codePromoLoading)?.5:1, whiteSpace:"nowrap" }}>
+                      {codePromoLoading ? "⏳" : "Appliquer"}
+                    </button>
+                  </div>
+                )}
+                {codePromoError && <p style={{ margin:"5px 0 0", fontSize:".72rem", color:"#dc2626" }}>{codePromoError}</p>}
+              </div>
+
               <p style={{ fontSize:".78rem", fontWeight:700, color:"#374151", marginBottom:10 }}>Mode de paiement</p>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
                 {PAIEMENT_OPTS.map(opt => (
