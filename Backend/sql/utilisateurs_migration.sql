@@ -36,6 +36,7 @@ ALTER TABLE public.utilisateurs ADD COLUMN IF NOT EXISTS cree_par_id      UUID;
 ALTER TABLE public.utilisateurs ADD COLUMN IF NOT EXISTS date_creation    TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE public.utilisateurs ADD COLUMN IF NOT EXISTS derniere_connexion TIMESTAMPTZ;
 ALTER TABLE public.utilisateurs ADD COLUMN IF NOT EXISTS avatar_url         TEXT;
+ALTER TABLE public.utilisateurs ADD COLUMN IF NOT EXISTS coach_info         JSONB;
 
 -- Index pour les requêtes fréquentes
 CREATE INDEX IF NOT EXISTS idx_utilisateurs_role   ON public.utilisateurs(role);

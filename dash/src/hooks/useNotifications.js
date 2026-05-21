@@ -1,34 +1,48 @@
-import { useState, useEffect } from 'react';
-import {
-  collection, query, orderBy,
-  onSnapshot, updateDoc, doc, limit
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../config/supabase';
 
 export function useNotifications(userId) {
   const [notifications, setNotifications] = useState([]);
-  const [nbNonLues, setNbNonLues] = useState(0);
+  const [nbNonLues, setNbNonLues]         = useState(0);
+
+  const fetchNotifs = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (data) {
+      const mapped = data.map(n => ({ ...n, createdAt: n.created_at }));
+      setNotifications(mapped);
+      setNbNonLues(mapped.filter(n => !n.lu).length);
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
 
-    const q = query(
-      collection(db, 'notifications', userId, 'items'),
-      orderBy('createdAt', 'desc'),
-      limit(50)
-    );
+    fetchNotifs();
 
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setNotifications(data);
-      setNbNonLues(data.filter(n => !n.lu).length);
-    });
+    // Écoute en temps réel les nouvelles notifications de ce coach
+    const channel = supabase
+      .channel(`notifs_${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        () => fetchNotifs()
+      )
+      .subscribe();
 
-    return unsub;
-  }, [userId]);
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, fetchNotifs]);
 
-  const marquerLue = (id) =>
-    updateDoc(doc(db, 'notifications', userId, 'items', id), { lu: true });
+  const marquerLue = async (id) => {
+    await supabase.from('notifications').update({ lu: true }).eq('id', id);
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, lu: true } : n));
+    setNbNonLues(prev => Math.max(0, prev - 1));
+  };
 
   return { notifications, nbNonLues, marquerLue };
 }

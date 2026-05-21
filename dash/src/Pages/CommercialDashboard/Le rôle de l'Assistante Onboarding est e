@@ -308,5 +308,32 @@ dans "Mon espace " l'onglet Conseille et contact : lorsqu'il choisi son assistan
 supposons que le prospect fasse le choix de l'offre et l'assistante depuis "Mon espace" comment la page de test de niveau et les differents parcours des autres pages s'adapte t il deja 
 
 
-voir le processus de l'ajout de la formation dans le modal de paiement et de finalisation directement vu que les formations et les couts sont disponibles donc faire un select du type de cours et choisir ainsi de suite .
+voir le processus de l'ajout de la formation dans le modal de paiement et de finalisation directement vu que les formations et les couts sont disponibles donc faire un select du type de cours et le montant sera automatiquement ajouter et nous on aura juste a mettre le montant recu s'il a tout payé ou pas ainsi de suite .
+
+
+dans le cadre ou le prospect choisi son offre et paie directement par notre systeme de paiement , l'assistante recoit directement ces infos dans "prospect Parcours" avec les infos rempli deja dans le modal de paiement avant de finaliser son inscription
+
+******faut revenir sur le dashcommercial pour voir s'il fonctionne ou pas :oLe taux de participation de son apprenant
+oLe taux d’absentéisme de son apprenant
+Alertes automatiques si :
+Plus de 2 absences dans une semaine 
+3 absences consécutives ou plus
+
+retire moi cette zone dans mon espace du prospect sur le frontend : "Devenez apprenant BETAccédez à vos cours, certifications et suivi personnalis avec le bouton s'inscrire maintenant"
+
+j'ai constaté qu'on avait méné des actions dans le "prospect parcours" qui n'ont pas été enregistrées dans la BD . car je constate que les apprenants de la comerciales ont été enregistrées sans les paiements et les test de niveaux rien n'a été sauvegardé . je ne sais pas si nous en localstorage ??
+
+
+
+4.7 Pedagogical Advisor (PA)
+Rôle : Classes privées + Validation honoraires 
+Gestion classes privées	: Créer des cours particuliers (1 apprenant / 1 coach), planifier les séances, affecter les coaches
+Attribution coach privé :	Sélectionner un coach selon le niveau requis, la disponibilité et le profil de l'apprenant
+Calcul des honoraires	: Voir la grille tarifaire par coach (contrats), calculer le montant dû selon le nb de séances validées
+Validation des honoraires	: Valider le récapitulatif mensuel des séances par enseignant avant transmission RH
+Suivi pédagogique	: Tableaux de bord de progression des apprenants en cours privé
+
+ajoute l'onglet message dans le dash du responsable pedagogique pour la communication interne comme pour le superAdmindashboard et les autres..
+
+
 

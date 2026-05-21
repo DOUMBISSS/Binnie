@@ -6,6 +6,8 @@ import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
 import NotificationsTab from "../../Components/NotificationsTab";
+import MessagerieTab from "../../Components/MessagerieTab";
+import { useGroupeChat } from "../../hooks/useGroupeChat";
 
 /* ═══════════════════════════════════════════════════════
    CONSTANTES BET
@@ -375,24 +377,45 @@ const MES_HONORAIRES_SEANCES = [
 export default function EspaceProfesseur() {
   const navigate = useNavigate();
 
-  // Profil réel du coach connecté (depuis localStorage)
+  // Profil réel du coach connecté (localStorage en priorité, remplacé par fetch frais)
   const coachStored = JSON.parse(localStorage.getItem("coach_profil") || "null");
-  const coachCentreId  = coachStored?.scope?.find(s => s !== "national") || null;
+  const [profilFrais, setProfilFrais] = useState(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    if (!token) return;
+    fetch(`${API_URL}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.profil) {
+          setProfilFrais(data.profil);
+          // Mettre à jour localStorage pour les prochains rendus
+          localStorage.setItem("coach_profil", JSON.stringify(data.profil));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const coachBase = profilFrais || coachStored;
+  const coachCentreId    = coachBase?.scope?.find(s => s !== "national") || null;
   const coachCentreLabel = coachCentreId ? (CENTRES_LABELS[coachCentreId] || coachCentreId) : null;
 
-  const MON_PROFIL_REEL = coachStored ? {
-    id:              coachStored.id,
-    nom:             coachStored.nom       || "—",
-    prenom:          coachStored.prenom    || "—",
-    avatar:          ((coachStored.prenom?.[0] || "") + (coachStored.nom?.[0] || "")).toUpperCase() || "CO",
-    email:           coachStored.email     || "—",
-    phone:           coachStored.telephone || "—",
-    specialite:      coachStored.departement || "Anglais",
+  const MON_PROFIL_REEL = coachBase ? {
+    id:              coachBase.id,
+    nom:             coachBase.nom       || "—",
+    prenom:          coachBase.prenom    || "—",
+    avatar:          ((coachBase.prenom?.[0] || "") + (coachBase.nom?.[0] || "")).toUpperCase() || "CO",
+    photo_url:       coachBase.avatar_url || coachBase.coach_info?.photo_url || null,
+    email:           coachBase.email     || "—",
+    phone:           coachBase.telephone || "—",
+    specialite:      coachBase.departement || "Anglais",
     niveauxEnseignes:["B1","B2","C1"],
-    dateRecrutement: coachStored.date_creation?.slice(0,10) || "—",
+    dateRecrutement: coachBase.date_creation?.slice(0,10) || "—",
     notation: 4.8, nbAvis: 0,
     coursActifs: 0, totalEtudiants: 0, heuresMois: 0,
-    xp:"Coach", certifications:[],
+    xp:"Coach",
+    certifications: coachBase.coach_info?.certifications || [],
+    nbr_contrats_actifs: coachBase.nbr_contrats_actifs ?? null,
   } : MON_PROFIL;
 
   const handleLogout = () => {
@@ -466,6 +489,37 @@ export default function EspaceProfesseur() {
   const [showSignalModal, setShowSignalModal] = useState(false);
   const [signalForm, setSignalForm] = useState({ type:"probleme_technique", sujet:"", description:"", urgence:"normale" });
 
+  // groupes
+  const [groupes, setGroupes] = useState([]);
+  const [groupesLoading, setGroupesLoading] = useState(false);
+  const [selectedGroupe, setSelectedGroupe] = useState(null);
+  const [groupeApprenants, setGroupeApprenants] = useState([]);
+  const [groupeFichiers, setGroupeFichiers] = useState([]);
+  const [groupeSubTab, setGroupeSubTab] = useState("apprenants");
+  // détail apprenant (modal)
+  const [apprenantDetail, setApprenantDetail] = useState(null);
+  const [chatInput, setChatInput] = useState("");
+  const [fichierUploading, setFichierUploading] = useState(false);
+  const [presenceDate, setPresenceDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [presenceListe, setPresenceListe] = useState([]);
+  const [presenceSaving, setPresenceSaving] = useState(false);
+  const [presenceHistory, setPresenceHistory] = useState([]);
+  const [presenceView, setPresenceView] = useState("saisie");
+
+  // Blocage chat
+  const [chatBloque, setChatBloque]           = useState(false);
+  const [coursManquants, setCoursManquants]   = useState([]);
+
+  // historique cours
+  const [coursList, setCoursList]             = useState([]);
+  const [coursLoading, setCoursLoading]       = useState(false);
+  const [coursFiltreMois, setCoursFiltreMois] = useState(() => new Date().getMonth() + 1);
+  const [coursFiltreAnnee, setCoursFiltreAnnee] = useState(() => new Date().getFullYear());
+  const [showCoursForm, setShowCoursForm]     = useState(false);
+  const [coursEditId, setCoursEditId]         = useState(null);
+  const [coursForm, setCoursForm]             = useState({ date_cours:"", objectif:"", grammaire:"", sujet_discussion:"", statut:"dispense", commentaire:"" });
+  const [coursSaving, setCoursSaving]         = useState(false);
+
   // cours détail expandable
   const [expandedModuleInCours, setExpandedModuleInCours] = useState(null);
 
@@ -495,6 +549,151 @@ export default function EspaceProfesseur() {
       .catch(() => {})
       .finally(() => setDispoLoading(false));
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    if (!token) return;
+    setGroupesLoading(true);
+    fetch(`${API_URL}/api/groupes`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { groupes: [] })
+      .then(d => setGroupes(d.groupes || []))
+      .catch(() => {})
+      .finally(() => setGroupesLoading(false));
+  }, []);
+
+  const fetchGroupeDetail = async (groupe) => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    setSelectedGroupe(groupe);
+    setGroupeSubTab("apprenants");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupe.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setGroupeApprenants(d.apprenants || []);
+      setGroupeFichiers(d.fichiers || []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (groupeApprenants.length > 0) {
+      setPresenceListe(groupeApprenants.filter(a=>a.statut==="actif").map(a => ({
+        ga_id: a.id,
+        nom_apprenant: a.nom_apprenant,
+        prenom_apprenant: a.prenom_apprenant || "",
+        statut: "present",
+        note: "",
+      })));
+    }
+  }, [groupeApprenants]);
+
+  const fetchPresenceHistory = async () => {
+    if (!selectedGroupe) return;
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/presences`, { headers: { Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setPresenceHistory(d.presences || []);
+    } catch {}
+  };
+
+  const checkChatBlock = async (groupeId) => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    try {
+      const [rCours, rPres] = await Promise.all([
+        fetch(`${API_URL}/api/groupes/${groupeId}/cours`, { headers:{ Authorization:`Bearer ${token}` } }),
+        fetch(`${API_URL}/api/groupes/${groupeId}/presences`, { headers:{ Authorization:`Bearer ${token}` } }),
+      ]);
+      const { cours: tousLesCours = [] } = await rCours.json();
+      const { presences: toutesPresences = [] } = await rPres.json();
+      const datesAvecPresence = new Set(toutesPresences.map(p => p.date_seance));
+      // Cours dispensés/confirmés/terminés sans présences enregistrées pour cette date
+      const manquants = tousLesCours.filter(c =>
+        c.statut !== "annule" && !datesAvecPresence.has(c.date_cours)
+      );
+      setCoursManquants(manquants);
+      setChatBloque(manquants.length > 0);
+    } catch {
+      setChatBloque(false);
+      setCoursManquants([]);
+    }
+  };
+
+  const savePresences = async () => {
+    if (!selectedGroupe || !presenceDate) return;
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    setPresenceSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/presences`, {
+        method:"POST",
+        headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+        body: JSON.stringify({ date_seance: presenceDate, liste: presenceListe })
+      });
+      if (!r.ok) throw new Error();
+      toast.success("Présences enregistrées ✓");
+      fetchPresenceHistory();
+      checkChatBlock(selectedGroupe.id);
+    } catch { toast.error("Erreur enregistrement"); }
+    finally { setPresenceSaving(false); }
+  };
+
+  const signalerAbsence = async (apprenant) => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    toast.success(`Absence répétée de ${apprenant.prenom_apprenant || ""} ${apprenant.nom_apprenant} signalée à l'assistante`);
+  };
+
+  useEffect(() => {
+    if (groupeSubTab === "presences" && selectedGroupe) fetchPresenceHistory();
+    if (groupeSubTab === "chat"      && selectedGroupe) checkChatBlock(selectedGroupe.id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupeSubTab, selectedGroupe]);
+
+  const fetchCours = async (groupeId, mois, annee) => {
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    setCoursLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupeId}/cours?mois=${mois}&annee=${annee}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setCoursList(d.cours || []);
+    } catch {}
+    finally { setCoursLoading(false); }
+  };
+
+  useEffect(() => {
+    if (groupeSubTab === "cours" && selectedGroupe) {
+      fetchCours(selectedGroupe.id, coursFiltreMois, coursFiltreAnnee);
+    }
+  }, [groupeSubTab, selectedGroupe, coursFiltreMois, coursFiltreAnnee]);
+
+  const saveCours = async () => {
+    if (!coursForm.date_cours) { toast.error("La date est requise"); return; }
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    setCoursSaving(true);
+    try {
+      const url = coursEditId
+        ? `${API_URL}/api/groupes/${selectedGroupe.id}/cours/${coursEditId}`
+        : `${API_URL}/api/groupes/${selectedGroupe.id}/cours`;
+      const r = await fetch(url, {
+        method: coursEditId ? "PATCH" : "POST",
+        headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+        body: JSON.stringify(coursForm)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      toast.success(coursEditId ? "Cours mis à jour ✓" : "Cours ajouté ✓");
+      setShowCoursForm(false);
+      setCoursEditId(null);
+      setCoursForm({ date_cours:"", objectif:"", grammaire:"", sujet_discussion:"", statut:"dispense", commentaire:"" });
+      fetchCours(selectedGroupe.id, coursFiltreMois, coursFiltreAnnee);
+    } catch(e) { toast.error(e.message || "Erreur"); }
+    finally { setCoursSaving(false); }
+  };
+
+  const deleteCours = async (cid) => {
+    if (!window.confirm("Supprimer cette entrée ?")) return;
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/cours/${cid}`, { method:"DELETE", headers:{ Authorization:`Bearer ${token}` } });
+    setCoursList(prev => prev.filter(c => c.id !== cid));
+    toast.success("Supprimé ✓");
+  };
 
   const msgNonLus = messages.filter(m => !m.lu).length;
   const msgResponsable = messages.filter(m => m.type === "responsable" && !m.lu).length;
@@ -872,6 +1071,14 @@ const messagesFiltres = useMemo(() => {
 }, [messages, filterMsgType, filterMsgLu, searchMsg]);
 
 
+  const { messages: groupeMessages, sendMessage: sendGroupeMessage } = useGroupeChat(selectedGroupe?.id || null);
+
+  const sendGroupeMsg = async () => {
+    if (!chatInput.trim() || !selectedGroupe) return;
+    await sendGroupeMessage(MON_PROFIL_REEL.id, `${MON_PROFIL_REEL.prenom} ${MON_PROFIL_REEL.nom}`, chatInput.trim());
+    setChatInput("");
+  };
+
   const tabs = [
     { key:"dashboard",       label:"Tableau de bord", icon:"🏠", count:null },
     { key:"cours",           label:"Mes Cours",        icon:"📚", count:cours.length },
@@ -886,6 +1093,7 @@ const messagesFiltres = useMemo(() => {
     { key:"analytics",       label:"Analytiques",       icon:"📊", count:null },
     { key:"notifs",          label:"Notifications",     icon:"🔔", count:notifications.filter(n=>n.statut==="envoye").length||null },
     { key:"messages",        label:"Messages",          icon:"💬", count:msgNonLus||null, danger:msgNonLus>0 },
+    { key:"groupes",         label:"Mes Groupes",       icon:"👥", count: groupes.filter(g=>g.statut==="actif").length || null },
     { key:"honoraires",      label:"Honoraires",         icon:"💵", count:null },
     { key:"profil",          label:"Mon profil",        icon:"👤", count:null },
     { key:"notifs_live",     label:"Notifs live",       icon:"🔔", count:null },
@@ -904,9 +1112,13 @@ const messagesFiltres = useMemo(() => {
         <div style={{ background:BET_GRAD, padding:"26px 28px 0", color:"#fff", position:"relative", overflow:"hidden" }}>
           <div style={{ position:"absolute", top:-40, right:-30, width:180, height:180, borderRadius:"50%", background:"rgba(255,255,255,0.04)", zIndex:0 }}/>
           <div style={{ display:"flex", alignItems:"center", gap:18, marginBottom:24, position:"relative", zIndex:2 }}>
-            <div style={{ width:60, height:60, borderRadius:"50%", background:"rgba(255,255,255,0.14)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:20, color:"#fff", border:"3px solid rgba(255,255,255,0.3)", flexShrink:0 }}>
-              {MON_PROFIL_REEL.avatar}
-            </div>
+            {MON_PROFIL_REEL.photo_url
+              ? <img src={MON_PROFIL_REEL.photo_url} alt={MON_PROFIL_REEL.prenom}
+                  style={{ width:60, height:60, borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(255,255,255,0.3)", flexShrink:0 }} />
+              : <div style={{ width:60, height:60, borderRadius:"50%", background:"rgba(255,255,255,0.14)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:20, color:"#fff", border:"3px solid rgba(255,255,255,0.3)", flexShrink:0 }}>
+                  {MON_PROFIL_REEL.avatar}
+                </div>
+            }
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, color:"#7dd3fc", fontWeight:600, letterSpacing:"0.08em", marginBottom:2 }}>ESPACE COACH 🎓</div>
               <h1 style={{ margin:0, fontSize:22, fontWeight:800 }}>{MON_PROFIL_REEL.prenom} {MON_PROFIL_REEL.nom}</h1>
@@ -1758,123 +1970,684 @@ const messagesFiltres = useMemo(() => {
 
             {/* ════════ MESSAGES ════════ */}
             {activeTab==="messages" && (
-              <div>
-                <div style={tabHeader}>
-                  <div>
-                    <h2 style={tabTitle}>Messages</h2>
-                    <p style={tabSubtitle}>{messages.length} messages · {msgNonLus} non lu{msgNonLus>1?"s":""}{msgResponsable>0 && <span style={{ marginLeft:8, padding:"2px 8px", borderRadius:10, background:"#fee2e2", color:"#dc2626", fontSize:11, fontWeight:700 }}>📋 {msgResponsable} du responsable</span>}</p>
+              <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+                <MessagerieTab accentColor={BET} />
+              </div>
+            )}
+
+            {/* ════════ GROUPES ════════ */}
+            {activeTab==="groupes" && (
+  <div>
+      {/* ── Grille groupes (toujours visible) ── */}
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:17, fontWeight:800, color:"#0f172a" }}>👥 Mes Groupes</h2>
+            <p style={{ margin:"3px 0 0", fontSize:13, color:"#9ca3af" }}>{groupes.length} groupe{groupes.length>1?"s":""} assigné{groupes.length>1?"s":""} — cliquez sur un groupe pour l'ouvrir</p>
+          </div>
+        </div>
+
+        {groupesLoading && <p style={{ textAlign:"center", color:"#9ca3af", padding:40 }}>Chargement…</p>}
+
+        {!groupesLoading && groupes.length === 0 && (
+          <div style={{ textAlign:"center", padding:"60px 20px", background:"#f8fafc", borderRadius:16, border:"1px solid #e5e7eb" }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>👥</div>
+            <div style={{ fontWeight:700, fontSize:15, color:"#0f172a" }}>Aucun groupe assigné</div>
+            <p style={{ color:"#9ca3af", fontSize:13 }}>L'assistante onboarding vous assignera des groupes.</p>
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:16 }}>
+          {groupes.map(g => {
+            const statutColor = g.statut==="actif" ? "#059669" : g.statut==="suspendu" ? "#d97706" : "#6b7280";
+            const statutBg    = g.statut==="actif" ? "#d1fae5" : g.statut==="suspendu" ? "#fef3c7" : "#f1f5f9";
+            const nbApp = g.nb_apprenants || 0;
+            const cap   = g.capacite_max  || 20;
+            const pctCap = Math.round((nbApp / cap) * 100);
+            return (
+              <div key={g.id} onClick={() => fetchGroupeDetail(g)}
+                style={{ background:"#fff", borderRadius:14, border:"1.5px solid #e5e7eb", overflow:"hidden", cursor:"pointer", transition:"all .15s", boxShadow:"0 1px 4px rgba(0,0,0,0.05)" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor=BET; e.currentTarget.style.boxShadow=`0 4px 16px rgba(0,0,0,0.10)`; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor="#e5e7eb"; e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.05)"; }}>
+                <div style={{ height:4, background:BET_GRAD }}/>
+                <div style={{ padding:18 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                    <div style={{ width:46, height:46, borderRadius:12, background:BET_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>👥</div>
+                    <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:statutBg, color:statutColor }}>{g.statut}</span>
                   </div>
-                  <div style={{ display:"flex", gap:8 }}>
-                    <button onClick={()=>setShowSignalModal(true)} style={{ ...btnSecondary, background:"#fff7ed", color:"#92400e", border:"1px solid #fed7aa" }}>⚠️ Signaler un problème</button>
-                    <button onClick={()=>{ setNewMsgForm({destinataire:"etudiant",etudiantId:"",objet:"",message:""}); setShowNewMsgModal(true); }} style={btnPrimary}>+ Nouveau message</button>
+                  <div style={{ fontWeight:800, fontSize:15, color:"#0f172a", marginBottom:4 }}>{g.nom}</div>
+                  {g.niveau && <div style={{ fontSize:12, color:BET, fontWeight:600, marginBottom:8 }}>📊 {g.niveau}{g.filiere ? ` · ${g.filiere}` : ""}</div>}
+                  {/* Barre quota */}
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:4 }}>
+                      <span style={{ color:"#6b7280" }}>👤 {nbApp} / {cap} apprenants</span>
+                      <span style={{ fontWeight:700, color:pctCap>=90?"#dc2626":pctCap>=70?"#d97706":"#059669" }}>{pctCap}%</span>
+                    </div>
+                    <div style={{ height:5, background:"#e5e7eb", borderRadius:3, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.min(pctCap,100)}%`, background:pctCap>=90?"#ef4444":pctCap>=70?"#f59e0b":"#22c55e", borderRadius:3 }}/>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:10, fontSize:11, color:"#6b7280", flexWrap:"wrap" }}>
+                    {g.date_debut && <span>📅 {new Date(g.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</span>}
+                    <span>{g.type_cours === "en_ligne" ? "💻 En ligne" : g.type_cours === "domicile" ? "🏠 Domicile" : "🏢 Centre"}</span>
+                  </div>
+                  {g.horaire?.length > 0 && (
+                    <div style={{ marginTop:8, display:"flex", flexWrap:"wrap", gap:4 }}>
+                      {g.horaire.map((h,i) => (
+                        <span key={i} style={{ padding:"2px 7px", borderRadius:6, background:"#f0f9ff", color:BET, fontSize:10, fontWeight:600 }}>
+                          {h.jour} {h.debut}–{h.fin}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ marginTop:12, fontSize:11, color:BET, fontWeight:600, textAlign:"center", padding:"6px", background:BET_LIGHT, borderRadius:7 }}>
+                    Cliquer pour ouvrir →
                   </div>
                 </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-                {/* Vue conversation ouverte */}
-                {activeConvMsg ? (
-                  <div>
-                    <button onClick={()=>setActiveConvMsg(null)} style={{ ...btnSecondary, marginBottom:16, fontSize:12 }}>← Retour à la liste</button>
-                    <div style={{ borderRadius:12, border:"1px solid #e5e7eb", background:"#fff", overflow:"hidden" }}>
-                      {/* Header conversation */}
-                      <div style={{ padding:"14px 18px", borderBottom:"1px solid #e5e7eb", background:`${BET}08`, display:"flex", alignItems:"center", gap:12 }}>
-                        <div style={{ width:42,height:42,borderRadius:"50%",background:BET_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,color:BET }}>
-                          {activeConvMsg.avatar}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight:700, fontSize:15 }}>{activeConvMsg.de}</div>
-                          <div style={{ fontSize:12, color:"#9ca3af" }}>Sujet : {activeConvMsg.objet}</div>
-                        </div>
-                      </div>
-                      {/* Messages de la conversation */}
-                      <div style={{ padding:16, maxHeight:360, overflowY:"auto", display:"flex", flexDirection:"column", gap:10 }}>
-                        {/* Message original */}
-                        <div style={{ display:"flex", justifyContent:"flex-start" }}>
-                          <div style={{ maxWidth:"75%", padding:"10px 14px", borderRadius:"12px 12px 12px 0", background:"#f3f4f6", fontSize:13, lineHeight:1.6 }}>
-                            <div style={{ fontSize:11, color:"#9ca3af", marginBottom:4 }}>📅 {fmtDate(activeConvMsg.date)}</div>
-                            <div style={{ whiteSpace:"pre-wrap" }}>{activeConvMsg.msg}</div>
-                          </div>
-                        </div>
-                        {/* Réponses liées */}
-                        {messages.filter(m => m.conversationId === activeConvMsg.id).map(r => (
-                          <div key={r.id} style={{ display:"flex", justifyContent:"flex-end" }}>
-                            <div style={{ maxWidth:"75%", padding:"10px 14px", borderRadius:"12px 12px 0 12px", background:BET, color:"#fff", fontSize:13, lineHeight:1.6 }}>
-                              <div style={{ fontSize:11, color:"rgba(255,255,255,0.7)", marginBottom:4 }}>📅 {fmtDate(r.date)}</div>
-                              <div style={{ whiteSpace:"pre-wrap" }}>{r.msg}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {/* Zone de réponse */}
-                      {activeConvMsg.type !== "envoye" && (
-                        <div style={{ padding:"12px 16px", borderTop:"1px solid #e5e7eb", display:"flex", gap:10 }}>
-                          <textarea
-                            value={convReply} onChange={e=>setConvReply(e.target.value)}
-                            placeholder="Écrire votre réponse…"
-                            style={{ ...inputSt, marginBottom:0, flex:1, minHeight:60, resize:"none" }}
-                            onKeyDown={e=>{ if(e.key==="Enter"&&e.ctrlKey){ e.preventDefault(); sendConvReply(); }}}
-                          />
-                          <button onClick={sendConvReply} disabled={!convReply.trim()} style={{ ...btnPrimary, alignSelf:"flex-end", opacity:!convReply.trim()?0.5:1 }}>
-                            ✉️ Envoyer
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    {/* Filtres */}
-                    <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-                      <input type="text" placeholder="🔍 Rechercher…" value={searchMsg} onChange={e=>setSearchMsg(e.target.value)} style={{ ...inputSt, marginBottom:0, width:200 }}/>
-                      <div style={{ display:"flex", gap:5 }}>
-                        {["Tous","responsable","etudiant","envoye","admin"].map(t=>(
-                          <button key={t} onClick={()=>setFilterMsgType(t)} style={{ padding:"5px 11px",borderRadius:20,border:"1px solid",fontSize:11,cursor:"pointer", background:filterMsgType===t?BET:"#fff",color:filterMsgType===t?"#fff":"#6b7280",borderColor:filterMsgType===t?BET:"#e5e7eb",fontWeight:filterMsgType===t?700:400 }}>
-                            {t==="Tous"?"Tous":t==="responsable"?"📋 Responsable":t==="etudiant"?"👤 Étudiants":t==="envoye"?"✉️ Envoyés":"🏢 Admin"}
-                          </button>
-                        ))}
-                      </div>
-                      <select value={filterMsgLu} onChange={e=>setFilterMsgLu(e.target.value)} style={{ ...inputSt, marginBottom:0, width:"auto" }}>
-                        <option value="Tous">Tous</option>
-                        <option value="nonlu">Non lus</option>
-                        <option value="lu">Lus</option>
-                      </select>
-                    </div>
+      {/* ── Modal détail groupe ── */}
+      {selectedGroupe && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
+          onClick={()=>{ setSelectedGroupe(null); setGroupeSubTab("apprenants"); }}>
+          <div style={{ background:"#fff",borderRadius:18,width:"97vw",maxWidth:1140,height:"93vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.35)",overflow:"hidden" }}
+            onClick={e=>e.stopPropagation()}>
 
-                    {/* Liste */}
-                    {messagesFiltres.map(m => {
-                      const isResp = m.type==="responsable";
-                      const isSent = m.sens==="envoye";
-                      const bgColor = !m.lu ? (isResp?"#fff7ed":"#e0f2fe") : "#fff";
-                      const borderColor = !m.lu ? (isResp?"#fed7aa":"#bae6fd") : "#e5e7eb";
-                      const avatarBg = isResp ? "#fff7ed" : isSent ? "#f3f4f6" : BET_LIGHT;
-                      const avatarColor = isResp ? "#92400e" : BET;
-                      return (
-                        <div key={m.id}
-                          onClick={()=>{ setActiveConvMsg(m); if(!m.lu) setMessages(prev=>prev.map(x=>x.id===m.id?{...x,lu:true}:x)); }}
-                          style={{ display:"flex", gap:14, padding:"12px 16px", borderRadius:10, marginBottom:8, cursor:"pointer", background:bgColor, border:`1px solid ${borderColor}`, transition:"background .15s" }}
-                        >
-                          <div style={{ width:40,height:40,borderRadius:"50%",background:avatarBg,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,color:avatarColor,flexShrink:0 }}>
-                            {isSent ? "✉️" : m.avatar}
-                          </div>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
-                              <span style={{ fontWeight:700, fontSize:13 }}>
-                                {isSent ? `→ Envoyé` : m.de}
-                                {isResp && <span style={{ marginLeft:6, padding:"1px 7px", borderRadius:8, background:"#fef3c7", color:"#92400e", fontSize:10, fontWeight:700 }}>Responsable</span>}
-                              </span>
-                              <span style={{ fontSize:11, color:"#9ca3af", flexShrink:0 }}>{fmtDate(m.date)}</span>
-                            </div>
-                            <div style={{ fontWeight:m.lu?500:700, fontSize:13, color:m.lu?"#374151":"#0f172a", marginBottom:2 }}>{m.objet}</div>
-                            <div style={{ fontSize:12, color:"#9ca3af", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.msg}</div>
-                          </div>
-                          {!m.lu && <div style={{ width:8,height:8,borderRadius:"50%",background:isResp?"#f59e0b":BET,flexShrink:0,marginTop:8 }}/>}
-                        </div>
-                      );
-                    })}
-                    {messagesFiltres.length===0 && <p style={{ textAlign:"center", padding:30, color:"#9ca3af" }}>Aucun message trouvé</p>}
+            {/* En-tête modal */}
+            <div style={{ background:BET_GRAD,padding:"18px 24px",color:"#fff",flexShrink:0,display:"flex",gap:16,alignItems:"flex-start" }}>
+              <div style={{ flex:1,minWidth:0 }}>
+                <div style={{ fontSize:10,color:"#7dd3fc",fontWeight:700,letterSpacing:"0.08em",marginBottom:3 }}>GROUPE</div>
+                <div style={{ fontSize:19,fontWeight:900,marginBottom:5 }}>{selectedGroupe.nom}</div>
+                <div style={{ fontSize:12,color:"#bae6fd",display:"flex",gap:14,flexWrap:"wrap" }}>
+                  {selectedGroupe.niveau && <span>📊 {selectedGroupe.niveau}</span>}
+                  {selectedGroupe.filiere && <span>🎓 {selectedGroupe.filiere}</span>}
+                  <span>👤 {groupeApprenants.filter(a=>a.statut==="actif").length} apprenants actifs</span>
+                  {selectedGroupe.date_debut && <span>📅 Début : {new Date(selectedGroupe.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</span>}
+                  <span>{selectedGroupe.type_cours==="en_ligne"?"💻 En ligne":selectedGroupe.type_cours==="domicile"?"🏠 Domicile":"🏢 Centre"}</span>
+                </div>
+                {selectedGroupe.horaire?.length > 0 && (
+                  <div style={{ marginTop:8,display:"flex",gap:5,flexWrap:"wrap" }}>
+                    {selectedGroupe.horaire.map((h,i) => (
+                      <span key={i} style={{ padding:"2px 9px",borderRadius:7,background:"rgba(255,255,255,0.18)",fontSize:11,fontWeight:600 }}>
+                        {h.jour} {h.debut}–{h.fin}
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>
+              <button onClick={()=>{ setSelectedGroupe(null); setGroupeSubTab("apprenants"); }}
+                style={{ background:"rgba(255,255,255,0.18)",border:"none",color:"#fff",width:34,height:34,borderRadius:"50%",cursor:"pointer",fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2 }}>
+                ✕
+              </button>
+            </div>
+
+            {/* Onglets */}
+            <div style={{ display:"flex",gap:0,background:"#fafafa",borderBottom:"1px solid #e5e7eb",flexShrink:0,overflowX:"auto" }}>
+              {[
+                { key:"apprenants", label:`Apprenants (${groupeApprenants.filter(a=>a.statut==="actif").length})`, icon:"👤" },
+                { key:"chat",       label:"Chat groupe",  icon:"💬" },
+                { key:"fichiers",   label:`Fichiers (${groupeFichiers.length})`, icon:"📎" },
+                { key:"presences",  label:"Présences", icon:"✅" },
+                { key:"cours",      label:"Historique cours", icon:"📚" },
+              ].map(t => (
+                <button key={t.key} onClick={() => setGroupeSubTab(t.key)}
+                  style={{ padding:"12px 18px",border:"none",borderBottom:groupeSubTab===t.key?`3px solid ${BET}`:"3px solid transparent",fontSize:12,fontWeight:600,cursor:"pointer",
+                    background:"transparent",color:groupeSubTab===t.key?BET:"#64748b",whiteSpace:"nowrap",flexShrink:0 }}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Corps scrollable */}
+            <div style={{ flex:1,overflowY:"auto",padding:"20px 24px" }}>
+
+        {groupeSubTab==="apprenants" && (
+          <div>
+            {groupeApprenants.filter(a=>a.statut==="actif").length === 0
+              ? <div style={{ textAlign:"center", padding:"40px 20px", color:"#9ca3af", background:"#f8fafc", borderRadius:12 }}>Aucun apprenant dans ce groupe.</div>
+              : (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12 }}>
+                  {groupeApprenants.filter(a=>a.statut==="actif").map(a => {
+                    const initiales = [(a.prenom_apprenant||""),(a.nom_apprenant||"")].map(s=>s[0]||"").join("").toUpperCase() || "?";
+                    const NIVEAU_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+                    const nColor = NIVEAU_COLOR[a.niveau] || "#6b7280";
+                    let noteObj = null;
+                    try { noteObj = a.note ? JSON.parse(a.note) : null; } catch { noteObj = null; }
+                    return (
+                      <div key={a.id}
+                        onClick={() => setApprenantDetail(a)}
+                        style={{ background:"#fff", borderRadius:12, border:"1.5px solid #e5e7eb", overflow:"hidden", cursor:"pointer", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", transition:"all .15s" }}
+                        onMouseEnter={e=>{ e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.borderColor=BET+"60"; }}
+                        onMouseLeave={e=>{ e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.04)"; e.currentTarget.style.borderColor="#e5e7eb"; }}
+                      >
+                        <div style={{ height:3, background:`linear-gradient(90deg,${BET},#0891b2)` }}/>
+                        <div style={{ padding:"14px 16px" }}>
+                          {/* Header */}
+                          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
+                            <div style={{ width:44, height:44, borderRadius:"50%", background:`linear-gradient(135deg,#0f172a,${BET})`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:16, color:"#fff", flexShrink:0 }}>{initiales}</div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:800, color:"#0f172a", fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                {[a.prenom_apprenant, a.nom_apprenant].filter(Boolean).join(" ")}
+                              </div>
+                              <div style={{ fontSize:11, color:"#6b7280", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.email_apprenant || "—"}</div>
+                            </div>
+                            <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:800, color:"#fff", background:nColor, flexShrink:0 }}>{a.niveau || "—"}</span>
+                          </div>
+                          {/* Infos rapides */}
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:10 }}>
+                            <div style={{ padding:"5px 8px", borderRadius:6, background:"#f8fafc" }}>
+                              <div style={{ fontSize:9, color:"#9ca3af" }}>Téléphone</div>
+                              <div style={{ fontSize:11, fontWeight:700, color:"#374151" }}>{a.telephone || "—"}</div>
+                            </div>
+                            <div style={{ padding:"5px 8px", borderRadius:6, background:"#f8fafc" }}>
+                              <div style={{ fontSize:9, color:"#9ca3af" }}>Programme</div>
+                              <div style={{ fontSize:11, fontWeight:700, color:"#374151", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{noteObj?.programme || selectedGroupe?.filiere || "—"}</div>
+                            </div>
+                            {noteObj?.date_debut && (
+                              <div style={{ padding:"5px 8px", borderRadius:6, background:"#f8fafc" }}>
+                                <div style={{ fontSize:9, color:"#9ca3af" }}>Date début</div>
+                                <div style={{ fontSize:11, fontWeight:700, color:"#374151" }}>{new Date(noteObj.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</div>
+                              </div>
+                            )}
+                            {noteObj?.date_renouvellement && (
+                              <div style={{ padding:"5px 8px", borderRadius:6, background:"#f8fafc" }}>
+                                <div style={{ fontSize:9, color:"#9ca3af" }}>Renouvellement</div>
+                                <div style={{ fontSize:11, fontWeight:700, color:"#374151" }}>{new Date(noteObj.date_renouvellement).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</div>
+                              </div>
+                            )}
+                          </div>
+                          {/* Attentes (aperçu) */}
+                          {noteObj?.attentes && (
+                            <div style={{ padding:"6px 10px", borderRadius:8, background:"#fef9ee", border:"1px solid #fde68a", fontSize:11, color:"#92400e", lineHeight:1.5, marginBottom:10, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+                              🎯 {noteObj.attentes}
+                            </div>
+                          )}
+                          {/* Footer */}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                            <span style={{ fontSize:10, color:"#22c55e", fontWeight:700 }}>● Actif</span>
+                            <div style={{ display:"flex", gap:6 }}>
+                              <span style={{ fontSize:10, color:"#9ca3af" }}>Cliquer pour les détails</span>
+                              <button onClick={e=>{ e.stopPropagation(); signalerAbsence(a); }}
+                                style={{ padding:"3px 8px", background:"#fff7ed", color:"#92400e", border:"1px solid #fed7aa", borderRadius:6, fontSize:10, fontWeight:600, cursor:"pointer" }}>
+                                🚨 Absence
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            }
+          </div>
+        )}
+
+        {groupeSubTab==="chat" && (
+          <div style={{ background:"#fff", borderRadius:12, border:`1px solid ${chatBloque?"#fca5a5":"#e5e7eb"}`, overflow:"hidden" }}>
+            <div style={{ padding:"12px 16px", borderBottom:"1px solid #e5e7eb", background:`${BET}08`, fontWeight:700, fontSize:13, color:BET }}>
+              💬 Chat — {selectedGroupe.nom}
+            </div>
+
+            {/* Bannière de blocage */}
+            {chatBloque && (
+              <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:0, padding:"14px 18px" }}>
+                <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+                  <span style={{ fontSize:24, flexShrink:0 }}>🔒</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, color:"#991b1b", fontSize:14, marginBottom:6 }}>
+                      Chat bloqué — liste de présence manquante
+                    </div>
+                    <div style={{ fontSize:13, color:"#b91c1c", marginBottom:10, lineHeight:1.5 }}>
+                      Vous devez remplir la liste de présence pour le{coursManquants.length>1?"s":""} cours suivant{coursManquants.length>1?"s":""} avant de pouvoir écrire :
+                    </div>
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:12 }}>
+                      {coursManquants.map(c => (
+                        <span key={c.id} style={{ background:"#fee2e2", color:"#991b1b", borderRadius:99, padding:"3px 12px", fontSize:12, fontWeight:700 }}>
+                          📅 {new Date(c.date_cours).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}
+                          {c.objectif ? ` — ${c.objectif}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                    <button onClick={() => setGroupeSubTab("presences")}
+                      style={{ padding:"7px 16px", background:"#dc2626", color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                      → Remplir la liste de présence
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
+            <div style={{ height:380, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10 }}>
+              {groupeMessages.length === 0 && (
+                <div style={{ textAlign:"center", color:"#9ca3af", paddingTop:60 }}>Aucun message — commencez la conversation !</div>
+              )}
+              {groupeMessages.map(m => {
+                const isMe = m.auteur_id === MON_PROFIL_REEL.id;
+                return (
+                  <div key={m.id} style={{ display:"flex", justifyContent: isMe ? "flex-end" : "flex-start" }}>
+                    {!isMe && (
+                      <div style={{ width:32, height:32, borderRadius:"50%", background:BET_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:BET, flexShrink:0, marginRight:8, alignSelf:"flex-end" }}>
+                        {m.auteur_nom?.[0] || "?"}
+                      </div>
+                    )}
+                    <div style={{ maxWidth:"72%" }}>
+                      {!isMe && <div style={{ fontSize:11, color:"#9ca3af", marginBottom:2, fontWeight:600 }}>{m.auteur_nom}</div>}
+                      {m.type==="fichier" && m.fichier ? (
+                        <a href={m.fichier.url} target="_blank" rel="noreferrer"
+                          style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", borderRadius:isMe?"12px 12px 0 12px":"12px 12px 12px 0", background:isMe?BET:"#f3f4f6", color:isMe?"#fff":"#0f172a", textDecoration:"none", fontSize:13 }}>
+                          <span style={{ fontSize:20 }}>{m.fichier.type==="pdf"?"📄":m.fichier.type==="image"?"🖼️":"📎"}</span>
+                          <span style={{ fontWeight:600 }}>{m.fichier.nom}</span>
+                        </a>
+                      ) : (
+                        <div style={{ padding:"10px 14px", borderRadius:isMe?"12px 12px 0 12px":"12px 12px 12px 0", background:isMe?BET:"#f3f4f6", color:isMe?"#fff":"#0f172a", fontSize:13, lineHeight:1.5, whiteSpace:"pre-wrap" }}>
+                          {m.texte}
+                        </div>
+                      )}
+                      <div style={{ fontSize:10, color:"#9ca3af", marginTop:2, textAlign:isMe?"right":"left" }}>
+                        {m.createdAt?.toDate ? m.createdAt.toDate().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) : ""}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ padding:"10px 12px", borderTop:"1px solid #e5e7eb", display:"flex", gap:8, alignItems:"flex-end", opacity:chatBloque?0.5:1, pointerEvents:chatBloque?"none":"auto" }}>
+              <label style={{ padding:"8px 10px", background:"#f1f5f9", border:"1px solid #e5e7eb", borderRadius:8, cursor:chatBloque?"not-allowed":"pointer", fontSize:16, flexShrink:0 }} title={chatBloque?"Remplissez d'abord la liste de présence":"Partager un fichier"}>
+                📎
+                <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.pptx" style={{ display:"none" }} disabled={chatBloque}
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file || !selectedGroupe) return;
+                    setFichierUploading(true);
+                    try {
+                      const fd = new FormData(); fd.append("file", file);
+                      const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+                      const r = await fetch(`${API_URL}/api/upload/image`, { method:"POST", headers:{ Authorization:`Bearer ${token}` }, body:fd });
+                      const d = await r.json();
+                      const url = d.file?.url || d.url;
+                      if (url) {
+                        const ext = file.name.split(".").pop().toLowerCase();
+                        const type = ["jpg","jpeg","png","gif","webp"].includes(ext) ? "image" : ext === "pdf" ? "pdf" : "autre";
+                        await sendGroupeMessage(MON_PROFIL_REEL.id, `${MON_PROFIL_REEL.prenom} ${MON_PROFIL_REEL.nom}`, "", { nom: file.name, url, type });
+                        await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/fichiers`, {
+                          method:"POST", headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+                          body: JSON.stringify({ nom:file.name, url, type_fichier:type, taille_ko:Math.round(file.size/1024) })
+                        });
+                        setGroupeFichiers(prev => [{ id:Date.now(), nom:file.name, url, type_fichier:type }, ...prev]);
+                      }
+                    } catch { toast.error("Erreur upload fichier"); }
+                    finally { setFichierUploading(false); e.target.value=""; }
+                  }} />
+              </label>
+              <textarea value={chatInput} onChange={e=>setChatInput(e.target.value)}
+                placeholder={chatBloque ? "🔒 Remplissez la liste de présence avant d'écrire…" : `Message au groupe "${selectedGroupe.nom}"…`}
+                rows={1} disabled={chatBloque}
+                style={{ flex:1, padding:"9px 12px", border:`1.5px solid ${chatBloque?"#fca5a5":"#e5e7eb"}`, borderRadius:8, fontSize:13, resize:"none", fontFamily:"inherit", background:chatBloque?"#fef2f2":"#fff" }}
+                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); if(!chatBloque) sendGroupeMsg(); }}} />
+              <button onClick={sendGroupeMsg} disabled={!chatInput.trim() || fichierUploading || chatBloque}
+                style={{ padding:"9px 16px", background:chatBloque?"#9ca3af":BET, color:"#fff", border:"none", borderRadius:8, cursor:chatBloque?"not-allowed":"pointer", fontWeight:700, fontSize:13, opacity:(!chatInput.trim()||chatBloque)?0.5:1, flexShrink:0 }}>
+                ✉️
+              </button>
+            </div>
+          </div>
+        )}
+
+        {groupeSubTab==="fichiers" && (
+          <div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>📎 Fichiers partagés</div>
+              <label style={{ padding:"8px 14px", background:BET, color:"#fff", borderRadius:8, fontSize:12, fontWeight:600, cursor:fichierUploading?"not-allowed":"pointer", opacity:fichierUploading?0.6:1 }}>
+                {fichierUploading ? "⏳ Upload…" : "📤 Partager un fichier"}
+                <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.pptx,.mp4" style={{ display:"none" }} disabled={fichierUploading}
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file || !selectedGroupe) return;
+                    setFichierUploading(true);
+                    try {
+                      const fd = new FormData(); fd.append("file", file);
+                      const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+                      const r = await fetch(`${API_URL}/api/upload/image`, { method:"POST", headers:{ Authorization:`Bearer ${token}` }, body:fd });
+                      const d = await r.json();
+                      const url = d.file?.url || d.url;
+                      if (url) {
+                        const ext = file.name.split(".").pop().toLowerCase();
+                        const type = ["jpg","jpeg","png","gif","webp"].includes(ext) ? "image" : ext==="pdf" ? "pdf" : ["doc","docx"].includes(ext) ? "word" : "autre";
+                        const fr = await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/fichiers`, {
+                          method:"POST",
+                          headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+                          body: JSON.stringify({ nom:file.name, url, type_fichier:type, taille_ko:Math.round(file.size/1024) })
+                        });
+                        const fd2 = await fr.json();
+                        setGroupeFichiers(prev => [fd2.fichier || { id:Date.now(), nom:file.name, url, type_fichier:type }, ...prev]);
+                        toast.success("Fichier partagé ✓");
+                      }
+                    } catch { toast.error("Erreur upload"); }
+                    finally { setFichierUploading(false); e.target.value=""; }
+                  }} />
+              </label>
+            </div>
+            {groupeFichiers.length === 0
+              ? <div style={{ textAlign:"center", padding:"40px 20px", color:"#9ca3af", background:"#f8fafc", borderRadius:12 }}>Aucun fichier partagé dans ce groupe.</div>
+              : (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {groupeFichiers.map(f => {
+                    const icon = f.type_fichier==="pdf" ? "📄" : f.type_fichier==="image" ? "🖼️" : f.type_fichier==="word" ? "📝" : "📎";
+                    return (
+                      <div key={f.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 16px", background:"#fff", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                        <div style={{ fontSize:28, flexShrink:0 }}>{icon}</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:700, color:"#0f172a", fontSize:13 }}>{f.nom}</div>
+                          <div style={{ fontSize:11, color:"#9ca3af" }}>{f.created_at ? new Date(f.created_at).toLocaleDateString("fr-FR") : ""}{f.taille_ko ? ` · ${f.taille_ko} Ko` : ""}</div>
+                        </div>
+                        <a href={f.url} target="_blank" rel="noreferrer"
+                          style={{ padding:"6px 12px", background:BET_LIGHT, color:BET, borderRadius:8, fontSize:12, fontWeight:600, textDecoration:"none" }}>
+                          ⬇️ Télécharger
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            }
+          </div>
+        )}
+
+        {groupeSubTab==="presences" && (
+          <div>
+            {/* Toggle saisie / historique */}
+            <div style={{ display:"flex", gap:0, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+              {[{k:"saisie",label:"✏️ Saisir une séance"},{k:"historique",label:"📋 Historique"}].map(v=>(
+                <button key={v.k} onClick={()=>setPresenceView(v.k)}
+                  style={{ padding:"7px 16px", borderRadius:8, border:"none", fontSize:12, fontWeight:600, cursor:"pointer",
+                    background:presenceView===v.k?"#fff":"transparent", color:presenceView===v.k?BET:"#64748b",
+                    boxShadow:presenceView===v.k?"0 1px 4px rgba(0,0,0,0.1)":"none" }}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+
+            {presenceView==="saisie" && (
+              <div>
+                {/* Date séance */}
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20, padding:"14px 18px", background:"#f0f9ff", borderRadius:12, border:"1px solid #bae6fd" }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:"#0369a1" }}>📅 Date de la séance :</span>
+                  <input type="date" value={presenceDate} onChange={e=>setPresenceDate(e.target.value)}
+                    style={{ padding:"7px 10px", border:"1.5px solid #bae6fd", borderRadius:8, fontSize:13, fontWeight:600 }} />
+                </div>
+
+                {/* Liste apprenants */}
+                {presenceListe.length === 0
+                  ? <p style={{ textAlign:"center", color:"#9ca3af", padding:30 }}>Aucun apprenant actif dans ce groupe.</p>
+                  : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+                      {presenceListe.map((p, idx) => (
+                        <div key={p.ga_id || idx} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 16px", background:"#fff", borderRadius:10, border:"1.5px solid #e5e7eb" }}>
+                          <div style={{ width:38, height:38, borderRadius:"50%", background:BET_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700, color:BET, flexShrink:0 }}>
+                            {(p.prenom_apprenant?.[0] || p.nom_apprenant?.[0] || "?").toUpperCase()}
+                          </div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{[p.prenom_apprenant, p.nom_apprenant].filter(Boolean).join(" ")}</div>
+                          </div>
+                          {/* Statut */}
+                          <div style={{ display:"flex", gap:6 }}>
+                            {[
+                              { val:"present", label:"✅ Présent",  bg:"#d1fae5", color:"#065f46", sel:"#059669" },
+                              { val:"retard",  label:"⏰ Retard",   bg:"#fef3c7", color:"#92400e", sel:"#d97706" },
+                              { val:"absent",  label:"❌ Absent",   bg:"#fee2e2", color:"#991b1b", sel:"#dc2626" },
+                              { val:"excuse",  label:"📝 Excusé",   bg:"#ede9fe", color:"#5b21b6", sel:"#7c3aed" },
+                            ].map(s => (
+                              <button key={s.val} onClick={()=>setPresenceListe(prev=>prev.map((x,i)=>i===idx?{...x,statut:s.val}:x))}
+                                style={{ padding:"5px 10px", borderRadius:20, border:`1.5px solid ${p.statut===s.val?s.sel:"#e5e7eb"}`, fontSize:11, fontWeight:600, cursor:"pointer",
+                                  background: p.statut===s.val ? s.bg : "#fff", color: p.statut===s.val ? s.color : "#9ca3af" }}>
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                          {/* Note optionnelle */}
+                          <input value={p.note} onChange={e=>setPresenceListe(prev=>prev.map((x,i)=>i===idx?{...x,note:e.target.value}:x))}
+                            placeholder="Note…" style={{ width:120, padding:"5px 8px", border:"1px solid #e5e7eb", borderRadius:7, fontSize:11 }} />
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+
+                {/* Stats rapides */}
+                {presenceListe.length > 0 && (
+                  <div style={{ display:"flex", gap:12, marginBottom:20, padding:"12px 16px", background:"#f8fafc", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                    {[
+                      { label:"Présents",  val:presenceListe.filter(p=>p.statut==="present").length,  color:"#059669" },
+                      { label:"Retards",   val:presenceListe.filter(p=>p.statut==="retard").length,   color:"#d97706" },
+                      { label:"Absents",   val:presenceListe.filter(p=>p.statut==="absent").length,   color:"#dc2626" },
+                      { label:"Excusés",   val:presenceListe.filter(p=>p.statut==="excuse").length,   color:"#7c3aed" },
+                    ].map(s=>(
+                      <div key={s.label} style={{ textAlign:"center", flex:1 }}>
+                        <div style={{ fontSize:22, fontWeight:900, color:s.color }}>{s.val}</div>
+                        <div style={{ fontSize:11, color:"#9ca3af", fontWeight:600 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button onClick={savePresences} disabled={presenceSaving || presenceListe.length===0}
+                  style={{ padding:"11px 24px", background:BET, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:13, opacity:presenceSaving?0.6:1 }}>
+                  {presenceSaving ? "⏳ Enregistrement…" : "💾 Enregistrer la feuille de présence"}
+                </button>
+              </div>
+            )}
+
+            {presenceView==="historique" && (
+              <div>
+                {presenceHistory.length === 0
+                  ? <div style={{ textAlign:"center", padding:"40px 20px", color:"#9ca3af", background:"#f8fafc", borderRadius:12 }}>Aucune séance enregistrée.</div>
+                  : (() => {
+                      const parDate = {};
+                      presenceHistory.forEach(p => { if (!parDate[p.date_seance]) parDate[p.date_seance]=[]; parDate[p.date_seance].push(p); });
+                      return Object.entries(parDate).sort(([a],[b])=>b.localeCompare(a)).map(([date, rows]) => {
+                        const presents = rows.filter(r=>r.statut==="present").length;
+                        const total = rows.length;
+                        const taux = total ? Math.round(presents/total*100) : 0;
+                        return (
+                          <div key={date} style={{ marginBottom:16, background:"#fff", borderRadius:12, border:"1px solid #e5e7eb", overflow:"hidden" }}>
+                            <div style={{ padding:"12px 16px", background:"#f8fafc", borderBottom:"1px solid #e5e7eb", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                              <span style={{ fontWeight:700, color:"#0f172a" }}>📅 {new Date(date).toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</span>
+                              <span style={{ fontSize:12, fontWeight:700, color:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626" }}>
+                                {presents}/{total} présents — {taux}%
+                              </span>
+                            </div>
+                            <div style={{ padding:"10px 16px", display:"flex", flexWrap:"wrap", gap:6 }}>
+                              {rows.map(r=>(
+                                <span key={r.id} style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600,
+                                  background:r.statut==="present"?"#d1fae5":r.statut==="absent"?"#fee2e2":r.statut==="retard"?"#fef3c7":"#ede9fe",
+                                  color:r.statut==="present"?"#065f46":r.statut==="absent"?"#991b1b":r.statut==="retard"?"#92400e":"#5b21b6" }}>
+                                  {r.statut==="present"?"✅":r.statut==="absent"?"❌":r.statut==="retard"?"⏰":"📝"} {[r.prenom_apprenant,r.nom_apprenant].filter(Boolean).join(" ")}
+                                  {r.note && ` (${r.note})`}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()
+                }
+              </div>
+            )}
+          </div>
+        )}
+
+        {groupeSubTab==="cours" && (() => {
+          const STATUT_COURS = {
+            dispense:         { label:"Dispensé",         color:"#065f46", bg:"#d1fae5", icon:"✅" },
+            annule:           { label:"Annulé",           color:"#991b1b", bg:"#fee2e2", icon:"❌" },
+            apprenant_absent: { label:"Apprenant absent", color:"#92400e", bg:"#fef3c7", icon:"👤" },
+            coach_absent:     { label:"Coach absent",     color:"#1e40af", bg:"#dbeafe", icon:"🏃" },
+            catch_up:         { label:"Catch up",         color:"#5b21b6", bg:"#ede9fe", icon:"🔄" },
+            holiday:          { label:"Congé / Férié",    color:"#374151", bg:"#f1f5f9", icon:"🏖️" },
+          };
+          return (
+            <div>
+              {/* Header + filtres */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a" }}>📚 Historique des cours</h3>
+                  <span style={{ fontSize:12, color:"#9ca3af" }}>{coursList.length} séance{coursList.length>1?"s":""}</span>
+                </div>
+                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                  <select value={coursFiltreMois} onChange={e=>setCoursFiltreMois(Number(e.target.value))}
+                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:12, fontWeight:600 }}>
+                    {["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"].map((m,i)=>(
+                      <option key={i+1} value={i+1}>{m}</option>
+                    ))}
+                  </select>
+                  <select value={coursFiltreAnnee} onChange={e=>setCoursFiltreAnnee(Number(e.target.value))}
+                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:12, fontWeight:600 }}>
+                    {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <button onClick={()=>{ setCoursEditId(null); setCoursForm({ date_cours: new Date().toISOString().slice(0,10), objectif:"", grammaire:"", sujet_discussion:"", statut:"dispense", commentaire:"" }); setShowCoursForm(true); }}
+                    style={{ padding:"8px 14px", background:BET, color:"#fff", border:"none", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                    + Ajouter un cours
+                  </button>
+                </div>
+              </div>
+
+              {/* Formulaire ajout / édition */}
+              {showCoursForm && (
+                <div style={{ background:"#f0f9ff", border:"2px solid #bae6fd", borderRadius:14, padding:20, marginBottom:20 }}>
+                  <div style={{ fontWeight:700, fontSize:14, color:BET, marginBottom:14 }}>
+                    {coursEditId ? "✏️ Modifier le cours" : "➕ Nouveau cours"}
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                    <div>
+                      <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Date du cours *</label>
+                      <input type="date" value={coursForm.date_cours} onChange={e=>setCoursForm(p=>({...p,date_cours:e.target.value}))}
+                        style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, width:"100%", boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Statut du cours</label>
+                      <select value={coursForm.statut} onChange={e=>setCoursForm(p=>({...p,statut:e.target.value}))}
+                        style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, width:"100%", background:"#fff", boxSizing:"border-box" }}>
+                        {Object.entries(STATUT_COURS).map(([k,v])=>(
+                          <option key={k} value={k}>{v.icon} {v.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:12 }}>
+                    <div>
+                      <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Objectif du cours</label>
+                      <input value={coursForm.objectif} onChange={e=>setCoursForm(p=>({...p,objectif:e.target.value}))}
+                        placeholder="Ex : Améliorer l'expression orale B2"
+                        style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:12, width:"100%", boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Grammaire enseignée</label>
+                      <input value={coursForm.grammaire} onChange={e=>setCoursForm(p=>({...p,grammaire:e.target.value}))}
+                        placeholder="Ex : Past perfect, conditionnels"
+                        style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:12, width:"100%", boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Sujet de discussion</label>
+                      <input value={coursForm.sujet_discussion} onChange={e=>setCoursForm(p=>({...p,sujet_discussion:e.target.value}))}
+                        placeholder="Ex : Business meetings, voyages"
+                        style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:12, width:"100%", boxSizing:"border-box" }} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom:14 }}>
+                    <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Commentaire du coach</label>
+                    <textarea value={coursForm.commentaire} onChange={e=>setCoursForm(p=>({...p,commentaire:e.target.value}))}
+                      placeholder="Observations, points à retravailler, niveau général du groupe…"
+                      rows={3} style={{ padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:12, width:"100%", boxSizing:"border-box", resize:"vertical", fontFamily:"inherit" }} />
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={saveCours} disabled={coursSaving}
+                      style={{ padding:"9px 20px", background:BET, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12, opacity:coursSaving?0.6:1 }}>
+                      {coursSaving ? "⏳ Enregistrement…" : "💾 Enregistrer"}
+                    </button>
+                    <button onClick={()=>{ setShowCoursForm(false); setCoursEditId(null); }}
+                      style={{ padding:"9px 16px", background:"#f1f5f9", border:"1px solid #e5e7eb", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:12, color:"#374151" }}>
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tableau */}
+              {coursLoading && <p style={{ textAlign:"center", color:"#9ca3af", padding:30 }}>Chargement…</p>}
+              {!coursLoading && coursList.length === 0 && (
+                <div style={{ textAlign:"center", padding:"40px 20px", background:"#f8fafc", borderRadius:12, border:"1px solid #e5e7eb" }}>
+                  <div style={{ fontSize:40, marginBottom:8 }}>📚</div>
+                  <div style={{ fontWeight:700, color:"#0f172a" }}>Aucun cours ce mois-ci</div>
+                  <p style={{ color:"#9ca3af", fontSize:13 }}>Cliquez sur "+ Ajouter un cours" pour commencer.</p>
+                </div>
+              )}
+              {!coursLoading && coursList.length > 0 && (
+                <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #e5e7eb" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                    <thead>
+                      <tr style={{ background:"#f8fafc" }}>
+                        {["Date","Statut","Objectif","Grammaire","Sujet discussion","Commentaire",""].map((h,i)=>(
+                          <th key={i} style={{ padding:"10px 14px", textAlign:"left", fontWeight:700, color:"#374151", fontSize:11, borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {coursList.map((c, idx) => {
+                        const s = STATUT_COURS[c.statut] || STATUT_COURS.dispense;
+                        return (
+                          <tr key={c.id} style={{ background:idx%2===0?"#fff":"#fafafa", borderBottom:"1px solid #f1f5f9" }}>
+                            <td style={{ padding:"10px 14px", fontWeight:600, whiteSpace:"nowrap", color:"#0f172a" }}>
+                              {new Date(c.date_cours).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}
+                            </td>
+                            <td style={{ padding:"10px 14px" }}>
+                              <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:s.bg, color:s.color, whiteSpace:"nowrap" }}>
+                                {s.icon} {s.label}
+                              </span>
+                            </td>
+                            <td style={{ padding:"10px 14px", color:"#374151", maxWidth:180 }}>{c.objectif || <span style={{ color:"#d1d5db" }}>—</span>}</td>
+                            <td style={{ padding:"10px 14px", color:"#374151", maxWidth:160 }}>{c.grammaire || <span style={{ color:"#d1d5db" }}>—</span>}</td>
+                            <td style={{ padding:"10px 14px", color:"#374151", maxWidth:160 }}>{c.sujet_discussion || <span style={{ color:"#d1d5db" }}>—</span>}</td>
+                            <td style={{ padding:"10px 14px", color:"#6b7280", maxWidth:200, fontStyle:c.commentaire?"normal":"italic" }}>
+                              {c.commentaire || <span style={{ color:"#d1d5db" }}>—</span>}
+                            </td>
+                            <td style={{ padding:"10px 14px", whiteSpace:"nowrap" }}>
+                              <button onClick={()=>{ setCoursEditId(c.id); setCoursForm({ date_cours:c.date_cours, objectif:c.objectif||"", grammaire:c.grammaire||"", sujet_discussion:c.sujet_discussion||"", statut:c.statut, commentaire:c.commentaire||"" }); setShowCoursForm(true); }}
+                                style={{ padding:"4px 8px", background:"#f0f9ff", color:BET, border:`1px solid ${BET}30`, borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer", marginRight:6 }}>
+                                ✏️
+                              </button>
+                              <button onClick={()=>deleteCours(c.id)}
+                                style={{ padding:"4px 8px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {/* Résumé du mois */}
+                  <div style={{ padding:"12px 16px", background:"#f8fafc", borderTop:"1px solid #e5e7eb", display:"flex", gap:16, flexWrap:"wrap" }}>
+                    {Object.entries(STATUT_COURS).map(([k,v])=>{
+                      const n = coursList.filter(c=>c.statut===k).length;
+                      if (!n) return null;
+                      return <span key={k} style={{ fontSize:12, color:v.color, fontWeight:600 }}>{v.icon} {v.label} : {n}</span>;
+                    })}
+                    <span style={{ marginLeft:"auto", fontSize:12, color:"#9ca3af" }}>Total : {coursList.length} séance{coursList.length>1?"s":""}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+            </div>
+          </div>
+        </div>
+      )}
+  </div>
+)}
 
             {/* ════════ DISPONIBILITÉS ════════ */}
             {activeTab==="disponibilites" && (
@@ -2061,9 +2834,13 @@ const messagesFiltres = useMemo(() => {
                   {/* Infos perso */}
                   <div style={{ background:"#f8fafc", borderRadius:12, padding:20 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", borderRadius:10, background:"#fff", border:"1px solid #e5e7eb" }}>
-                      <div style={{ width:64, height:64, borderRadius:"50%", background:BET_GRAD, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:22, color:"#fff", flexShrink:0 }}>
-                        {MON_PROFIL_REEL.avatar}
-                      </div>
+                      {MON_PROFIL_REEL.photo_url
+                        ? <img src={MON_PROFIL_REEL.photo_url} alt={MON_PROFIL_REEL.prenom}
+                            style={{ width:64, height:64, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+                        : <div style={{ width:64, height:64, borderRadius:"50%", background:BET_GRAD, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:22, color:"#fff", flexShrink:0 }}>
+                            {MON_PROFIL_REEL.avatar}
+                          </div>
+                      }
                       <div>
                         <div style={{ fontSize:18, fontWeight:800 }}>Prof. {MON_PROFIL_REEL.prenom} {MON_PROFIL_REEL.nom}</div>
                         <div style={{ fontSize:13, color:"#6b7280" }}>{MON_PROFIL_REEL.specialite}</div>
@@ -2075,13 +2852,16 @@ const messagesFiltres = useMemo(() => {
                     </div>
                     <h3 style={{ ...blockTitle, marginBottom:12 }}>Informations personnelles</h3>
                     {[
-                      ["Prénom",           MON_PROFIL_REEL.prenom],
-                      ["Nom",              MON_PROFIL_REEL.nom],
-                      ["Email",            MON_PROFIL_REEL.email],
-                      ["Téléphone",        MON_PROFIL_REEL.phone],
-                      ["Spécialité",       MON_PROFIL_REEL.specialite],
-                      ["Date recrutement", fmtDate(MON_PROFIL_REEL.dateRecrutement)],
-                      ["Nombre d'avis",    `${MON_PROFIL_REEL.nbAvis} avis`],
+                      ["Prénom",              MON_PROFIL_REEL.prenom],
+                      ["Nom",                 MON_PROFIL_REEL.nom],
+                      ["Email",               MON_PROFIL_REEL.email],
+                      ["Téléphone",           MON_PROFIL_REEL.phone],
+                      ["Spécialité / Filière",coachBase?.coach_info?.filiere || MON_PROFIL_REEL.specialite],
+                      ["Matricule",           coachBase?.coach_info?.matricule || "—"],
+                      ["Date début à BET",    fmtDate(coachBase?.coach_info?.date_debut_bet || coachBase?.coach_info?.date_debut || MON_PROFIL_REEL.dateRecrutement)],
+                      ["Lieu d'habitation",   coachBase?.coach_info?.lieu_habitation || "—"],
+                      ["Contrats actifs",     MON_PROFIL_REEL.nbr_contrats_actifs !== null ? `${MON_PROFIL_REEL.nbr_contrats_actifs} groupe(s) actif(s)` : "—"],
+                      ["Nombre d'avis",       `${MON_PROFIL_REEL.nbAvis} avis`],
                     ].map(([l,v])=>(
                       <div key={l} style={{ display:"flex", padding:"6px 0", borderBottom:"1px solid #f3f4f6", fontSize:13 }}>
                         <span style={{ color:"#9ca3af", width:140, fontWeight:500 }}>{l}</span>
@@ -2109,6 +2889,7 @@ const messagesFiltres = useMemo(() => {
                     <div style={{ background:"#f8fafc", borderRadius:12, padding:20 }}>
                       <h3 style={{ ...blockTitle, marginBottom:14 }}>Performance ce mois</h3>
                       {[
+                        { l:"Contrats actifs",      v:MON_PROFIL_REEL.nbr_contrats_actifs !== null ? MON_PROFIL_REEL.nbr_contrats_actifs : groupes.length, c:"#dc2626" },
                         { l:"Cours dispensés",     v:cours.length,              c:BET },
                         { l:"Heures de cours",     v:`${MON_PROFIL_REEL.heuresMois}h`,c:"#7c3aed" },
                         { l:"Étudiants suivis",    v:etudiants.length,          c:"#059669" },
@@ -3301,6 +4082,123 @@ const messagesFiltres = useMemo(() => {
             </div>
           </Modal>
         )}
+
+        {/* ══ MODAL DÉTAIL APPRENANT (groupe) ══ */}
+      {apprenantDetail && (() => {
+        const a = apprenantDetail;
+        const nomComplet = [a.prenom_apprenant, a.nom_apprenant].filter(Boolean).join(" ");
+        const initiales  = [a.prenom_apprenant||"", a.nom_apprenant||""].map(s=>s[0]||"").join("").toUpperCase() || "?";
+        const NIVEAU_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+        const nColor = NIVEAU_COLOR[a.niveau] || BET;
+        let noteObj = null;
+        try { noteObj = a.note ? JSON.parse(a.note) : null; } catch { noteObj = null; }
+        const NIVEAUX_LBL = { A1:"Débutant",A2:"Élémentaire",B1:"Intermédiaire",B2:"Interm. Sup.",C1:"Avancé",C2:"Maîtrise" };
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}
+            onClick={()=>setApprenantDetail(null)}>
+            <div style={{ background:"#fff",borderRadius:18,width:580,maxWidth:"96vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 60px rgba(0,0,0,0.3)" }}
+              onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ background:`linear-gradient(135deg,#0f172a,${BET})`,padding:"22px 26px",borderRadius:"18px 18px 0 0",display:"flex",gap:16,alignItems:"center" }}>
+                <div style={{ width:56,height:56,borderRadius:"50%",background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",flexShrink:0,border:"3px solid rgba(255,255,255,0.3)" }}>{initiales}</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontSize:11,color:"rgba(255,255,255,0.6)",fontWeight:600,marginBottom:2 }}>Fiche apprenant — {selectedGroupe?.nom}</div>
+                  <div style={{ fontSize:19,fontWeight:900,color:"#fff" }}>{nomComplet}</div>
+                  <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap" }}>
+                    {a.niveau && <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:800,color:"#fff",background:nColor }}>{a.niveau} — {NIVEAUX_LBL[a.niveau]||a.niveau}</span>}
+                    <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,background:"rgba(255,255,255,0.2)",color:"#fff" }}>● Actif</span>
+                  </div>
+                </div>
+                <button onClick={()=>setApprenantDetail(null)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>✕</button>
+              </div>
+
+              <div style={{ padding:"22px 26px" }}>
+                {/* Coordonnées */}
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>COORDONNÉES</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                    {[
+                      { icon:"📧", label:"Email",     value:a.email_apprenant||"—" },
+                      { icon:"📞", label:"Téléphone", value:a.telephone||"—" },
+                    ].map(r=>(
+                      <div key={r.label} style={{ padding:"10px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
+                        <span style={{ fontSize:18,flexShrink:0 }}>{r.icon}</span>
+                        <div>
+                          <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
+                          <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",wordBreak:"break-all" }}>{r.value}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Informations pédagogiques */}
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>FORMATION</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                    {[
+                      { icon:"📊", label:"Niveau",     value:a.niveau?(a.niveau+" — "+(NIVEAUX_LBL[a.niveau]||"")):"—" },
+                      { icon:"📚", label:"Programme",  value:noteObj?.programme||selectedGroupe?.filiere||"—" },
+                      { icon:"👥", label:"Groupe",     value:selectedGroupe?.nom||"—" },
+                      { icon:"📅", label:"Date début", value:noteObj?.date_debut?new Date(noteObj.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):selectedGroupe?.date_debut?new Date(selectedGroupe.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
+                      { icon:"🔄", label:"Renouvellement prévu", value:noteObj?.date_renouvellement?new Date(noteObj.date_renouvellement).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
+                      { icon:"👩‍💼", label:"Onboarding",value:a.assistante_nom||"—" },
+                    ].map(r=>(
+                      <div key={r.label} style={{ padding:"9px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
+                        <span style={{ fontSize:16,flexShrink:0 }}>{r.icon}</span>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
+                          <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.value}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Description apprenant */}
+                {noteObj?.description && (
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>PROFIL DE L'APPRENANT</div>
+                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#f0f9ff",border:"1px solid #bae6fd",fontSize:13,color:"#374151",lineHeight:1.7 }}>
+                      {noteObj.description}
+                    </div>
+                  </div>
+                )}
+
+                {/* Attentes */}
+                {noteObj?.attentes && (
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>ATTENTES / OBJECTIFS</div>
+                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#fef9ee",border:"1px solid #fde68a",fontSize:13,color:"#374151",lineHeight:1.7 }}>
+                      🎯 {noteObj.attentes}
+                    </div>
+                  </div>
+                )}
+
+                {/* Note libre */}
+                {a.note && !noteObj && (
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>NOTES</div>
+                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:13,color:"#374151",lineHeight:1.7 }}>{a.note}</div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{ display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #e5e7eb" }}>
+                  <button onClick={()=>{ signalerAbsence(a); setApprenantDetail(null); }}
+                    style={{ padding:"9px 16px",background:"#fff7ed",color:"#92400e",border:"1px solid #fed7aa",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                    🚨 Signaler absence répétée
+                  </button>
+                  <button onClick={()=>setApprenantDetail(null)}
+                    style={{ padding:"9px 20px",background:BET,color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
         {/* ══ MODAL MESSAGE ══ */}
       {showMsgModal&&selectedMsg&&(

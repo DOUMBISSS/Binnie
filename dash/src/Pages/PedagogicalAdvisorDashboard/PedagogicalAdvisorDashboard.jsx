@@ -195,6 +195,26 @@ const authHeaders = () => ({ "Content-Type":"application/json", Authorization:`B
 const formatMoney = (v) => (v||0).toLocaleString("fr-FR") + " FCFA";
 const formatDate  = (d) => d ? new Date(d).toLocaleDateString("fr-FR", { day:"numeric", month:"short", year:"numeric" }) : "—";
 
+const CONTRAT_TYPE = {
+  en_ligne:       { label:"En ligne",       icon:"💻", color:"#0891b2", bg:"#e0f2fe" },
+  presentiel_bet: { label:"Présentiel BET", icon:"🏢", color:"#7c3aed", bg:"#ede9fe" },
+  domicile:       { label:"À domicile",     icon:"🏠", color:"#d97706", bg:"#fef3c7" },
+};
+const CONTRAT_STATUT = {
+  en_attente:   { label:"En attente",   color:"#d97706", bg:"#fef3c7" },
+  actif:        { label:"Actif",        color:"#16a34a", bg:"#dcfce7" },
+  suspendu:     { label:"Suspendu",     color:"#6b7280", bg:"#f3f4f6" },
+  termine:      { label:"Terminé",      color:"#475569", bg:"#f1f5f9" },
+  renouvele:    { label:"Renouvelé",    color:"#7c3aed", bg:"#ede9fe" },
+  non_renouvele:{ label:"Non renouvelé",color:"#dc2626", bg:"#fee2e2" },
+};
+const RENOUV_STATUT = {
+  en_attente: { label:"Demandé",  color:"#d97706", bg:"#fef3c7" },
+  confirme:   { label:"Confirmé", color:"#16a34a", bg:"#dcfce7" },
+  refuse:     { label:"Refusé",   color:"#dc2626", bg:"#fee2e2" },
+};
+const CONTRAT_FORM_INIT = { apprenant_nom:"", apprenant_prenom:"", apprenant_email:"", apprenant_telephone:"", type_contrat:"en_ligne", niveau:"B1", objectif:"", prix_h:"", nb_seances_total:"", duree_seance_h:"1.5", date_debut:"", date_fin:"", note:"" };
+
 /* ═══════════════════════════════════════════════════════
    COMPOSANT PRINCIPAL
 ═══════════════════════════════════════════════════════ */
@@ -247,6 +267,19 @@ export default function PedagogicalAdvisorDashboard() {
   useEffect(() => {
     if (activeTab === "prospects" || activeTab === "apprenants") fetchProspects();
   }, [activeTab, fetchProspects]);
+
+  /* ── Tous les contrats privés (pour onglet apprenants) ── */
+  const [allContratsPrives,        setAllContratsPrives]        = useState([]);
+  const [allContratsPrivesLoading, setAllContratsPrivesLoading] = useState(false);
+  useEffect(() => {
+    if (activeTab !== "apprenants") return;
+    setAllContratsPrivesLoading(true);
+    fetch(`${API_URL}/api/contrats-prives`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : { contrats:[] })
+      .then(d => setAllContratsPrives(d.contrats || []))
+      .catch(() => {})
+      .finally(() => setAllContratsPrivesLoading(false));
+  }, [activeTab]);
 
   const updateProspectStatut = async (id, statut) => {
     try {
@@ -319,6 +352,7 @@ export default function PedagogicalAdvisorDashboard() {
   const [apprenantTab,     setApprenantTab]     = useState("infos");
   const [appSearchQ,       setAppSearchQ]       = useState("");
   const [appNiveau,        setAppNiveau]        = useState("tous");
+  const [appType,          setAppType]          = useState("tous");
   const [chatApprenant,    setChatApprenant]    = useState(null);
   const [progNotes,        setProgNotes]        = useState({});
   const [addingSession,    setAddingSession]    = useState(false);
@@ -330,6 +364,49 @@ export default function PedagogicalAdvisorDashboard() {
   const [versementForm,      setVersementForm]       = useState({ montant:"", date:new Date().toISOString().slice(0,10), mode:"Mobile Money", ref:"", notes:"" });
   const [addingVersement,    setAddingVersement]    = useState(false);
   const [savingVersement,    setSavingVersement]    = useState(false);
+
+  /* ── Signaler un problème ── */
+  const [plainteModal,     setPlainteModal]     = useState(null); // apprenant cible
+  const [plainteForm,      setPlainteForm]      = useState({ objet:"", description:"", priorite:"normale" });
+  const [plainteSaving,    setPlainteSaving]    = useState(false);
+  const OBJETS_PLAINTE = [
+    "Absence/retard du coach",
+    "Qualité des cours insuffisante",
+    "Problème de communication avec le coach",
+    "Problème technique (cours en ligne)",
+    "Facturation / paiement incorrect",
+    "Non-respect des horaires",
+    "Comportement inapproprié",
+    "Contenu du cours non adapté",
+    "Demande de remboursement",
+    "Autre",
+  ];
+  const signalerPlainte = async () => {
+    if (!plainteForm.objet) { toast.error("Veuillez sélectionner un objet"); return; }
+    setPlainteSaving(true);
+    try {
+      const a = plainteModal;
+      const isPrive = a._type === "prive";
+      const body = {
+        ref_type:            a._type || "general",
+        ref_id:              String(a.id),
+        apprenant_nom:       isPrive ? `${a.apprenant_prenom||""} ${a.apprenant_nom}`.trim() : (a.prospect_nom || ""),
+        apprenant_email:     isPrive ? a.apprenant_email : a.prospect_email,
+        apprenant_telephone: isPrive ? a.apprenant_telephone : a.prospect_telephone,
+        coach_id:            isPrive ? a.coach_id : null,
+        coach_nom:           isPrive ? (paCoachsList.find(c=>c.id===a.coach_id) ? `${paCoachsList.find(c=>c.id===a.coach_id).prenom} ${paCoachsList.find(c=>c.id===a.coach_id).nom}` : null) : null,
+        objet:               plainteForm.objet,
+        description:         plainteForm.description,
+        priorite:            plainteForm.priorite,
+      };
+      const r = await fetch(`${API_URL}/api/plaintes`, { method:"POST", headers: authHeaders(), body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      toast.success("Plainte signalée ✓ — transmise au Customer Care");
+      setPlainteModal(null);
+      setPlainteForm({ objet:"", description:"", priorite:"normale" });
+    } catch { toast.error("Erreur lors du signalement"); }
+    finally { setPlainteSaving(false); }
+  };
 
   const fetchPaiementsApprenant = useCallback(async (assignationId) => {
     setLoadingPaiements(true);
@@ -391,6 +468,168 @@ export default function PedagogicalAdvisorDashboard() {
       toast.success("Suivi mis à jour ✓");
     } catch { toast.error("Erreur sauvegarde suivi présences"); }
   }, []);
+
+  /* ── Groupes (consultation lecture seule) ── */
+  const [paGroupes,          setPaGroupes]          = useState([]);
+  const [paGroupesLoading,   setPaGroupesLoading]   = useState(false);
+  const [paSelectedGroupe,   setPaSelectedGroupe]   = useState(null);
+  const [paGroupeDetail,     setPaGroupeDetail]     = useState({ apprenants:[], fichiers:[] });
+  const [paCoursListe,       setPaCoursListe]       = useState([]);
+  const [paCoursLoading,     setPaCoursLoading]     = useState(false);
+  const [paPresences,        setPaPresences]        = useState([]);
+  const [paFiltreCoach,      setPaFiltreCoach]      = useState("tous");
+  const [paSubTab,           setPaSubTab]           = useState("apprenants");
+  const [paCoursFiltreMois,  setPaCoursFiltreMois]  = useState(() => new Date().getMonth() + 1);
+  const [paCoursAnnee,       setPaCoursAnnee]       = useState(() => new Date().getFullYear());
+
+  useEffect(() => {
+    if (activeTab !== "groupes") return;
+    const token = localStorage.getItem("admin_token");
+    setPaGroupesLoading(true);
+    fetch(`${API_URL}/api/groupes`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { groupes:[] })
+      .then(d => setPaGroupes(d.groupes || []))
+      .catch(() => {})
+      .finally(() => setPaGroupesLoading(false));
+  }, [activeTab]);
+
+  const fetchPaGroupeDetail = async (groupe) => {
+    const token = localStorage.getItem("admin_token");
+    setPaSelectedGroupe(groupe);
+    setPaSubTab("apprenants");
+    setPaCoursListe([]);
+    setPaPresences([]);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupe.id}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setPaGroupeDetail({ apprenants: d.apprenants || [], fichiers: d.fichiers || [] });
+    } catch {}
+  };
+
+  const fetchPaCours = async () => {
+    if (!paSelectedGroupe) return;
+    const token = localStorage.getItem("admin_token");
+    setPaCoursLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${paSelectedGroupe.id}/cours?mois=${paCoursFiltreMois}&annee=${paCoursAnnee}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setPaCoursListe(d.cours || []);
+    } catch {}
+    finally { setPaCoursLoading(false); }
+  };
+
+  const fetchPaPresences = async () => {
+    if (!paSelectedGroupe) return;
+    const token = localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${paSelectedGroupe.id}/presences`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setPaPresences(d.presences || []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (paSubTab === "cours"     && paSelectedGroupe) fetchPaCours();
+    if (paSubTab === "presences" && paSelectedGroupe) fetchPaPresences();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paSubTab, paSelectedGroupe, paCoursFiltreMois, paCoursAnnee]);
+
+  /* ── Coachs (depuis API) ── */
+  const [paCoachsList,         setPaCoachsList]         = useState([]);
+  const [paCoachsLoading,      setPaCoachsLoading]      = useState(false);
+  const [paSelectedCoach,      setPaSelectedCoach]      = useState(null);
+  const [paCoachGroupes,       setPaCoachGroupes]       = useState([]);
+  const [paCoachGroupesLoading,setPaCoachGroupesLoading] = useState(false);
+  const [paCoachSearch,        setPaCoachSearch]        = useState("");
+  const [paCoachModalTab,      setPaCoachModalTab]      = useState("infos");
+  const [paCoachContrats,      setPaCoachContrats]      = useState([]);
+  const [paCoachContratsLoading,setPaCoachContratsLoading] = useState(false);
+  const [paShowContratForm,    setPaShowContratForm]    = useState(false);
+  const [paContratEditId,      setPaContratEditId]      = useState(null);
+  const [paContratSaving,      setPaContratSaving]      = useState(false);
+  const [paContratForm,        setPaContratForm]        = useState(CONTRAT_FORM_INIT);
+
+  useEffect(() => {
+    if (activeTab !== "coachs") return;
+    const token = localStorage.getItem("admin_token");
+    setPaCoachsLoading(true);
+    fetch(`${API_URL}/api/admin/utilisateurs?role=coach`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { utilisateurs:[] })
+      .then(d => setPaCoachsList(d.utilisateurs || []))
+      .catch(() => {})
+      .finally(() => setPaCoachsLoading(false));
+  }, [activeTab]);
+
+  const openPaCoachModal = (coach) => {
+    setPaSelectedCoach(coach);
+    setPaCoachModalTab("infos");
+    setPaCoachContrats([]);
+    setPaCoachGroupes([]);
+    setPaShowContratForm(false);
+    setPaContratEditId(null);
+    setPaContratForm(CONTRAT_FORM_INIT);
+    fetchPaCoachContrats(coach.id);
+    fetchPaCoachGroupes(coach.id);
+  };
+
+  const fetchPaCoachContrats = async (coachId) => {
+    setPaCoachContratsLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/contrats-prives?coach_id=${coachId}`, { headers: authHeaders() });
+      const d = await r.json();
+      setPaCoachContrats(d.contrats || []);
+    } catch {}
+    finally { setPaCoachContratsLoading(false); }
+  };
+
+  const fetchPaCoachGroupes = async (coachId) => {
+    setPaCoachGroupesLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes?coach_id=${coachId}`, { headers: authHeaders() });
+      const d = await r.json();
+      setPaCoachGroupes(d.groupes || []);
+    } catch { setPaCoachGroupes([]); }
+    finally { setPaCoachGroupesLoading(false); }
+  };
+
+  const paSaveContrat = async () => {
+    if (!paContratForm.apprenant_nom || !paContratForm.prix_h) {
+      toast.error("Nom apprenant et prix/h sont requis"); return;
+    }
+    setPaContratSaving(true);
+    try {
+      const url = paContratEditId
+        ? `${API_URL}/api/contrats-prives/${paContratEditId}`
+        : `${API_URL}/api/contrats-prives`;
+      const method = paContratEditId ? "PATCH" : "POST";
+      const body = paContratEditId ? paContratForm : { ...paContratForm, coach_id: paSelectedCoach.id };
+      const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      toast.success(paContratEditId ? "Contrat mis à jour ✓" : "Contrat créé ✓");
+      setPaShowContratForm(false);
+      setPaContratEditId(null);
+      setPaContratForm(CONTRAT_FORM_INIT);
+      fetchPaCoachContrats(paSelectedCoach.id);
+    } catch { toast.error("Erreur sauvegarde contrat"); }
+    finally { setPaContratSaving(false); }
+  };
+
+  const paPatchContrat = async (id, updates) => {
+    try {
+      const r = await fetch(`${API_URL}/api/contrats-prives/${id}`, { method:"PATCH", headers: authHeaders(), body: JSON.stringify(updates) });
+      if (!r.ok) throw new Error();
+      fetchPaCoachContrats(paSelectedCoach.id);
+    } catch { toast.error("Erreur mise à jour"); }
+  };
+
+  const paDeleteContrat = async (id) => {
+    if (!window.confirm("Supprimer ce contrat ?")) return;
+    try {
+      await fetch(`${API_URL}/api/contrats-prives/${id}`, { method:"DELETE", headers: authHeaders() });
+      toast.success("Contrat supprimé");
+      fetchPaCoachContrats(paSelectedCoach.id);
+    } catch { toast.error("Erreur suppression"); }
+  };
 
   /* ── Modals ── */
   const [modalCours,       setModalCours]       = useState(false);
@@ -482,6 +721,17 @@ export default function PedagogicalAdvisorDashboard() {
   /* ══════════════════════════════════════════════════════
      RENDU
   ══════════════════════════════════════════════════════ */
+  const STATUT_COURS_CFG = {
+    dispense:         { label:"Dispensé",         color:"#065f46", bg:"#d1fae5", icon:"✅" },
+    annule:           { label:"Annulé",           color:"#991b1b", bg:"#fee2e2", icon:"❌" },
+    apprenant_absent: { label:"Apprenant absent", color:"#92400e", bg:"#fef3c7", icon:"👤" },
+    coach_absent:     { label:"Coach absent",     color:"#1e40af", bg:"#dbeafe", icon:"🏃" },
+    catch_up:         { label:"Catch up",         color:"#5b21b6", bg:"#ede9fe", icon:"🔄" },
+    holiday:          { label:"Congé / Férié",    color:"#374151", bg:"#f1f5f9", icon:"🏖️" },
+  };
+
+  const MOIS_LABELS = ["","Jan","Fév","Mar","Avr","Mai","Juin","Juil","Aoû","Sep","Oct","Nov","Déc"];
+
   const TABS = [
     { id:"dashboard",   icon:"🏠", label:"Tableau de bord"   },
     { id:"prospects",   icon:"📋", label:"Prospects parcours" },
@@ -491,6 +741,8 @@ export default function PedagogicalAdvisorDashboard() {
     { id:"honoraires",  icon:"💰", label:"Honoraires"         },
     { id:"validation",  icon:"✅", label:"Validation"         },
     { id:"suivi",       icon:"📈", label:"Suivi pédago"       },
+    { id:"coachs",      icon:"👨‍🏫", label:"Coachs"              },
+    { id:"groupes",     icon:"👥", label:"Groupes"             },
     { id:"messages",    icon:"💬", label:"Messages"            },
     { id:"notifications", icon:"🔔", label:"Notifications"     },
   ];
@@ -708,17 +960,29 @@ export default function PedagogicalAdvisorDashboard() {
           ══════════════════════════════════ */}
           {activeTab === "apprenants" && (() => {
             const NIVEAU_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
-            const apprenants = prospects.filter(p => p.statut === "converti");
+            const apprenantsParcours = prospects.filter(p => p.statut === "converti").map(a => ({ ...a, _type:"parcours" }));
+            const apprenantsPrive    = allContratsPrives.map(c => ({ ...c, _type:"prive" }));
 
-            const appFiltered = apprenants.filter(a => {
+            const allApprenants = [
+              ...(appType === "prives"  ? [] : apprenantsParcours),
+              ...(appType === "parcours" ? [] : apprenantsPrive),
+            ];
+
+            const appFiltered = allApprenants.filter(a => {
               const q = appSearchQ.toLowerCase();
-              if (q && !`${a.prospect_nom} ${a.prospect_email} ${a.prospect_telephone}`.toLowerCase().includes(q)) return false;
+              const searchStr = a._type === "parcours"
+                ? `${a.prospect_nom} ${a.prospect_email} ${a.prospect_telephone}`
+                : `${a.apprenant_nom} ${a.apprenant_prenom} ${a.apprenant_email} ${a.apprenant_telephone}`;
+              if (q && !searchStr.toLowerCase().includes(q)) return false;
               if (appNiveau !== "tous") {
-                const sd = a.suivi_demarrage || {};
-                if (sd.niveau_prospect !== appNiveau) return false;
+                const niv = a._type === "parcours" ? (a.suivi_demarrage||{}).niveau_prospect : a.niveau;
+                if (niv !== appNiveau) return false;
               }
               return true;
             });
+
+            // KPIs — on garde uniquement sur les parcours pour les totaux financiers
+            const apprenants = apprenantsParcours;
 
             const totalTranchesGlobal = apprenants.reduce((s,a) => {
               const t = (a.plan_paiement?.tranches || []);
@@ -736,147 +1000,221 @@ export default function PedagogicalAdvisorDashboard() {
                 {/* Header */}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                   <div>
-                    <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>🎓 Mes apprenants</h2>
-                    <p style={{ margin:"4px 0 0", fontSize:12, color:"#9ca3af" }}>Prospects convertis en apprenants — cours à domicile privés</p>
+                    <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>🎓 Apprenants BET</h2>
+                    <p style={{ margin:"4px 0 0", fontSize:12, color:"#9ca3af" }}>
+                      {apprenantsParcours.length} parcours · {apprenantsPrive.length} privés · {allApprenants.length} au total
+                    </p>
                   </div>
                   <Btn small outline onClick={()=>setActiveTab("prospects")}>← Retour aux prospects</Btn>
                 </div>
 
                 {/* KPIs */}
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:22 }}>
-                  <StatCard label="Total apprenants"   value={apprenants.length}     icon="🎓" color={PA_COLOR}   sub="convertis" />
-                  <StatCard label="Avec plan paiement" value={nbAvecPlan}            icon="💳" color="#0891b2"   sub={`sur ${apprenants.length}`} />
-                  <StatCard label="Encaissé"           value={formatMoney(totalPayeGlobal)}   icon="✅" color="#22c55e" />
-                  <StatCard label="Reste à percevoir"  value={formatMoney(Math.max(0,totalTranchesGlobal-totalPayeGlobal))} icon="⏳" color={totalTranchesGlobal-totalPayeGlobal>0?"#ef4444":"#22c55e"} />
+                  <StatCard label="Total apprenants"      value={allApprenants.length}         icon="🎓" color={PA_COLOR}   sub={`${apprenantsParcours.length} parcours + ${apprenantsPrive.length} privés`} />
+                  <StatCard label="Contrats privés actifs" value={apprenantsPrive.filter(c=>c.statut==="actif").length} icon="📋" color="#7c3aed" sub="en cours" />
+                  <StatCard label="Encaissé (parcours)"   value={formatMoney(totalPayeGlobal)} icon="✅" color="#22c55e" />
+                  <StatCard label="Reste (parcours)"      value={formatMoney(Math.max(0,totalTranchesGlobal-totalPayeGlobal))} icon="⏳" color={totalTranchesGlobal-totalPayeGlobal>0?"#ef4444":"#22c55e"} />
                 </div>
 
                 {/* Filtres */}
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:18, padding:"10px 14px", background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0" }}>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:18, padding:"12px 14px", background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0" }}>
+                  {/* Filtre type — pills */}
+                  <div style={{ display:"flex", gap:4, background:"#e2e8f0", borderRadius:8, padding:3 }}>
+                    {[
+                      { val:"tous",     label:"Tous",     count: apprenantsParcours.length + apprenantsPrive.length },
+                      { val:"parcours", label:"🏫 Parcours", count: apprenantsParcours.length },
+                      { val:"prives",   label:"🔒 Privés",   count: apprenantsPrive.length },
+                    ].map(opt => (
+                      <button key={opt.val} onClick={()=>setAppType(opt.val)}
+                        style={{ padding:"5px 12px", borderRadius:6, border:"none", cursor:"pointer", fontSize:12, fontWeight:700, transition:"all .15s",
+                          background: appType===opt.val ? "#fff" : "transparent",
+                          color: appType===opt.val ? PA_COLOR : "#6b7280",
+                          boxShadow: appType===opt.val ? "0 1px 4px rgba(0,0,0,.10)" : "none",
+                        }}>
+                        {opt.label} <span style={{ fontSize:10, fontWeight:600, color: appType===opt.val ? PA_COLOR : "#9ca3af" }}>({opt.count})</span>
+                      </button>
+                    ))}
+                  </div>
                   <input
                     value={appSearchQ} onChange={e=>setAppSearchQ(e.target.value)}
                     placeholder="🔍 Rechercher un apprenant…"
-                    style={{ padding:"8px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, outline:"none", width:220 }}
+                    style={{ padding:"8px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, outline:"none", width:200 }}
                   />
                   <select value={appNiveau} onChange={e=>setAppNiveau(e.target.value)}
                     style={{ padding:"8px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, outline:"none", background:"#fff" }}>
                     <option value="tous">Tous niveaux</option>
                     {NIVEAUX.map(n=><option key={n} value={n}>{n}</option>)}
                   </select>
-                  {(appSearchQ||appNiveau!=="tous") && (
-                    <button onClick={()=>{setAppSearchQ("");setAppNiveau("tous");}} style={{ padding:"6px 12px", borderRadius:8, border:"1px solid #e2e8f0", background:"#f1f5f9", fontSize:12, cursor:"pointer", color:"#6b7280" }}>✕ Effacer</button>
+                  {(appSearchQ || appNiveau!=="tous" || appType!=="tous") && (
+                    <button onClick={()=>{setAppSearchQ("");setAppNiveau("tous");setAppType("tous");}} style={{ padding:"6px 12px", borderRadius:8, border:"1px solid #e2e8f0", background:"#f1f5f9", fontSize:12, cursor:"pointer", color:"#6b7280" }}>✕ Effacer</button>
                   )}
                   <span style={{ marginLeft:"auto", fontSize:11, color:"#6b7280" }}>{appFiltered.length} apprenant{appFiltered.length!==1?"s":""}</span>
                 </div>
 
+                {/* Chargement */}
+                {allContratsPrivesLoading && (
+                  <div style={{ textAlign:"center", padding:"16px 0", fontSize:12, color:"#9ca3af" }}>Chargement des contrats privés…</div>
+                )}
+
                 {/* Vide */}
-                {apprenants.length === 0 && (
+                {allApprenants.length === 0 && !allContratsPrivesLoading && (
                   <div style={{ textAlign:"center", padding:"60px 24px", background:"#f8fafc", borderRadius:16, border:"2px dashed #e2e8f0" }}>
                     <div style={{ fontSize:"3.5rem", marginBottom:12 }}>🎓</div>
                     <div style={{ fontSize:15, fontWeight:800, color:"#0f172a", marginBottom:6 }}>Aucun apprenant pour l'instant</div>
                     <div style={{ fontSize:13, color:"#9ca3af", maxWidth:360, margin:"0 auto 20px" }}>
-                      Lorsqu'un prospect est marqué <strong>Converti</strong> dans l'onglet Prospects, il apparaîtra automatiquement ici.
+                      Les prospects convertis et les contrats privés apparaîtront ici.
                     </div>
                     <Btn onClick={()=>setActiveTab("prospects")}>Voir les prospects →</Btn>
                   </div>
                 )}
 
-                {apprenants.length > 0 && appFiltered.length === 0 && (
+                {allApprenants.length > 0 && appFiltered.length === 0 && (
                   <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:13 }}>Aucun apprenant ne correspond aux filtres.</div>
                 )}
 
                 {/* Grille cards */}
                 {appFiltered.length > 0 && (
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))", gap:16 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:16 }}>
                     {appFiltered.map(a => {
-                      const initiales = (a.prospect_nom||"?").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
-                      const sd = a.suivi_demarrage || {};
-                      const niveauColor = NIVEAU_COLOR[sd.niveau_prospect] || "#6b7280";
-                      const plan = a.plan_paiement || {};
-                      const tranches = plan.tranches || [];
-                      const today2 = new Date(); today2.setHours(0,0,0,0);
-                      const tranchesPaye  = tranches.filter(t=>t.statut==="payé").reduce((s,t)=>s+(t.montant||0),0);
-                      const tranchesTotal = tranches.reduce((s,t)=>s+(t.montant||0),0);
-                      const pctTranches = tranchesTotal>0?Math.round((tranchesPaye/tranchesTotal)*100):0;
-                      const hasAlertePmt = tranches.some(t=>{
-                        if(t.statut!=="en_attente") return false;
-                        const d=new Date(t.date_echeance); d.setHours(0,0,0,0);
-                        return d<today2;
-                      });
-                      const hasAlerteCritique = tranches.some(t=>{
-                        if(t.statut!=="en_attente") return false;
-                        const d=new Date(t.date_echeance); d.setHours(0,0,0,0);
-                        return Math.ceil((today2-d)/86400000)>7;
-                      });
-                      const sp = a.suivi_presences || {};
-                      const sessions = sp.sessions || [];
-                      const seancesCnt = sp.seances_effectuees || sessions.length || 0;
-                      const presences = sp.presences || 0;
-                      const tauxPart = seancesCnt>0?Math.round((presences/seancesCnt)*100):null;
-                      const now2=new Date(); const monday=new Date(now2); monday.setDate(now2.getDate()-((now2.getDay()+6)%7)); monday.setHours(0,0,0,0);
-                      const absWeek=sessions.filter(s=>new Date(s.date)>=monday&&s.statut==="absent").length;
-                      const alertSem=absWeek>2;
-                      const sorted2=[...sessions].sort((x,y)=>x.date.localeCompare(y.date));
-                      let c2=0,mc2=0; for(const s of sorted2){if(s.statut==="absent"){c2++;if(c2>mc2)mc2=c2;}else c2=0;}
-                      const alertCons=mc2>=3;
-                      const hasAlerteAss=alertSem||alertCons;
+                      /* ── Carte PARCOURS ── */
+                      if (a._type === "parcours") {
+                        const initiales = (a.prospect_nom||"?").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
+                        const sd = a.suivi_demarrage || {};
+                        const niveauColor = NIVEAU_COLOR[sd.niveau_prospect] || "#6b7280";
+                        const tranches = (a.plan_paiement?.tranches) || [];
+                        const today2 = new Date(); today2.setHours(0,0,0,0);
+                        const tranchesPaye  = tranches.filter(t=>t.statut==="payé").reduce((s,t)=>s+(t.montant||0),0);
+                        const tranchesTotal = tranches.reduce((s,t)=>s+(t.montant||0),0);
+                        const pctTranches = tranchesTotal>0?Math.round((tranchesPaye/tranchesTotal)*100):0;
+                        const hasAlertePmt = tranches.some(t=>{ if(t.statut!=="en_attente") return false; const d=new Date(t.date_echeance); d.setHours(0,0,0,0); return d<today2; });
+                        const hasAlerteCritique = tranches.some(t=>{ if(t.statut!=="en_attente") return false; const d=new Date(t.date_echeance); d.setHours(0,0,0,0); return Math.ceil((today2-d)/86400000)>7; });
+                        const sp = a.suivi_presences || {};
+                        const sessions = sp.sessions || [];
+                        const seancesCnt = sp.seances_effectuees || sessions.length || 0;
+                        const presences = sp.presences || 0;
+                        const tauxPart = seancesCnt>0?Math.round((presences/seancesCnt)*100):null;
+                        const now2=new Date(); const monday=new Date(now2); monday.setDate(now2.getDate()-((now2.getDay()+6)%7)); monday.setHours(0,0,0,0);
+                        const absWeek=sessions.filter(s=>new Date(s.date)>=monday&&s.statut==="absent").length;
+                        const sorted2=[...sessions].sort((x,y)=>x.date.localeCompare(y.date));
+                        let c2=0,mc2=0; for(const s of sorted2){if(s.statut==="absent"){c2++;if(c2>mc2)mc2=c2;}else c2=0;}
+                        const hasAlerteAss = absWeek>2 || mc2>=3;
+                        return (
+                          <div key={`p-${a.id}`}
+                            onClick={()=>{ setApprenantModal(a); setApprenantTab("infos"); setAddingSession(false); setAddingVersement(false); setSessionForm({date:new Date().toISOString().slice(0,10),statut:"present"}); setVersementForm({montant:"",date:new Date().toISOString().slice(0,10),mode:"Mobile Money",ref:"",notes:""}); setProgNote((a.suivi_presences||{}).notes_progression||""); fetchPaiementsApprenant(a.id); }}
+                            style={{ cursor:"pointer", background:"#fff", borderRadius:14, border:`1.5px solid ${hasAlerteCritique?"#fca5a5":hasAlertePmt?"#fed7aa":hasAlerteAss?"#fde68a":"#e2e8f0"}`, overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.05)", transition:"box-shadow .2s" }}
+                            onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,0.10)"}
+                            onMouseLeave={e=>e.currentTarget.style.boxShadow="0 1px 6px rgba(0,0,0,0.05)"}
+                          >
+                            <div style={{ height:3, background:hasAlerteCritique?"#dc2626":hasAlertePmt?"#f97316":hasAlerteAss?"#eab308":"#22c55e" }} />
+                            <div style={{ padding:"14px 16px" }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
+                                <div style={{ width:42, height:42, borderRadius:"50%", background:"linear-gradient(135deg,#0f172a,#7c3aed)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:14, color:"#fff", flexShrink:0 }}>{initiales}</div>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_nom||"—"}</div>
+                                  {a.prospect_email && <div style={{ fontSize:11, color:"#64748b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_email}</div>}
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+                                  {hasAlertePmt && <span title="Retard paiement" style={{ fontSize:14 }}>💳</span>}
+                                  {hasAlerteAss && <span title="Alerte assiduité" style={{ fontSize:14 }}>⚠️</span>}
+                                </div>
+                              </div>
+                              <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:8 }}>
+                                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#dbeafe", color:"#1d4ed8" }}>🏫 Parcours</span>
+                                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f0fdf4", color:"#15803d" }}>🏠 À domicile</span>
+                                {sd.niveau_prospect && <span style={{ fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:999, color:"#fff", background:niveauColor }}>{sd.niveau_prospect}</span>}
+                                {sd.formation_souhaitee && <span style={{ fontSize:10, padding:"2px 8px", borderRadius:999, background:"#f1f5f9", color:"#64748b" }}>{sd.formation_souhaitee}</span>}
+                              </div>
+                              {tranches.length > 0 ? (
+                                <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:5 }}>
+                                  <div style={{ flex:1, height:4, borderRadius:999, background:"#e5e7eb", overflow:"hidden" }}>
+                                    <div style={{ height:"100%", borderRadius:999, background:pctTranches>=100?"#22c55e":"#7c3aed", width:`${Math.min(100,pctTranches)}%` }} />
+                                  </div>
+                                  <span style={{ fontSize:10, fontWeight:700, color:(tranchesTotal-tranchesPaye)>0?"#ef4444":"#22c55e", whiteSpace:"nowrap" }}>
+                                    {(tranchesTotal-tranchesPaye)>0?`${Number(tranchesTotal-tranchesPaye).toLocaleString("fr-FR")} F restants`:"✓ Soldé"}
+                                  </span>
+                                </div>
+                              ) : <div style={{ fontSize:10, color:"#94a3b8", marginBottom:5 }}>💳 Aucun plan de paiement</div>}
+                              {seancesCnt > 0 && (
+                                <div style={{ fontSize:10, color:"#64748b", display:"flex", gap:10 }}>
+                                  <span>📅 {seancesCnt} séance{seancesCnt>1?"s":""}</span>
+                                  <span style={{ color:tauxPart>=80?"#15803d":tauxPart>=60?"#d97706":"#ef4444", fontWeight:700 }}>✅ {tauxPart}%</span>
+                                </div>
+                              )}
+                              <div style={{ marginTop:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                <button onClick={e=>{ e.stopPropagation(); setPlainteModal(a); setPlainteForm({ objet:"", description:"", priorite:"normale" }); }}
+                                  style={{ padding:"4px 10px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:6, fontSize:10, fontWeight:700, cursor:"pointer" }}>
+                                  🚨 Signaler
+                                </button>
+                                <span style={{ fontSize:10, color:PA_COLOR, fontWeight:700 }}>Voir le dossier →</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
 
+                      /* ── Carte PRIVÉ (contrat_prive) ── */
+                      const nom = `${a.apprenant_prenom||""} ${a.apprenant_nom}`.trim();
+                      const initiales = nom.split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase() || "?";
+                      const niveauColor = NIVEAU_COLOR[a.niveau] || "#6b7280";
+                      const type = CONTRAT_TYPE[a.type_contrat] || CONTRAT_TYPE.en_ligne;
+                      const stCfg = CONTRAT_STATUT[a.statut] || CONTRAT_STATUT.en_attente;
+                      const montant = (a.prix_h||0)*(a.duree_seance_h||1.5)*(a.nb_seances_total||0);
+                      const realise = (a.prix_h||0)*(a.duree_seance_h||1.5)*(a.nb_seances_realisees||0);
+                      const pct = montant>0?Math.round((realise/montant)*100):0;
+                      const coachInfo = paCoachsList.find(c=>c.id===a.coach_id);
                       return (
-                        <div key={a.id}
-                          onClick={()=>{ setApprenantModal(a); setApprenantTab("infos"); setAddingSession(false); setAddingVersement(false); setSessionForm({date:new Date().toISOString().slice(0,10),statut:"present"}); setVersementForm({montant:"",date:new Date().toISOString().slice(0,10),mode:"Mobile Money",ref:"",notes:""}); setProgNote((a.suivi_presences||{}).notes_progression||""); fetchPaiementsApprenant(a.id); }}
-                          style={{ cursor:"pointer", background:"#fff", borderRadius:14, border:`1.5px solid ${hasAlerteCritique?"#fca5a5":hasAlertePmt?"#fed7aa":hasAlerteAss?"#fde68a":"#e2e8f0"}`, overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.05)", transition:"all .2s" }}
+                        <div key={`c-${a.id}`}
+                          style={{ cursor:"default", background:"#fff", borderRadius:14, border:"1.5px solid #e2e8f0", overflow:"hidden", boxShadow:"0 1px 6px rgba(0,0,0,0.05)", transition:"box-shadow .2s" }}
                           onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,0.10)"}
                           onMouseLeave={e=>e.currentTarget.style.boxShadow="0 1px 6px rgba(0,0,0,0.05)"}
                         >
-                          <div style={{ height:3, background:hasAlerteCritique?"#dc2626":hasAlertePmt?"#f97316":hasAlerteAss?"#eab308":"#22c55e" }} />
+                          <div style={{ height:3, background:type.color }} />
                           <div style={{ padding:"14px 16px" }}>
-                            {/* Row 1: avatar + nom + alertes */}
                             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-                              <div style={{ width:44, height:44, borderRadius:"50%", background:"linear-gradient(135deg,#0f172a,#7c3aed)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:15, color:"#fff", flexShrink:0 }}>
-                                {initiales}
-                              </div>
+                              <div style={{ width:42, height:42, borderRadius:"50%", background:`linear-gradient(135deg,#0f172a,${type.color})`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:14, color:"#fff", flexShrink:0 }}>{initiales}</div>
                               <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_nom||"—"}</div>
-                                {a.prospect_email && <div style={{ fontSize:11, color:"#64748b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.prospect_email}</div>}
-                                {a.prospect_telephone && <div style={{ fontSize:11, color:"#64748b" }}>📞 {a.prospect_telephone}</div>}
+                                <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nom||"—"}</div>
+                                {a.apprenant_email && <div style={{ fontSize:11, color:"#64748b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.apprenant_email}</div>}
+                                {a.apprenant_telephone && <div style={{ fontSize:11, color:"#64748b" }}>📞 {a.apprenant_telephone}</div>}
                               </div>
-                              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
-                                {hasAlertePmt && <span title="Retard paiement" style={{ fontSize:15 }}>💳</span>}
-                                {hasAlerteAss && <span title="Alerte assiduité" style={{ fontSize:15 }}>⚠️</span>}
+                              <span style={{ background:stCfg.bg, color:stCfg.color, borderRadius:99, padding:"2px 8px", fontSize:10, fontWeight:800, whiteSpace:"nowrap" }}>{stCfg.label}</span>
+                            </div>
+                            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:8 }}>
+                              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f3e8ff", color:"#7c3aed" }}>🔒 Privé</span>
+                              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:type.bg, color:type.color }}>{type.icon} {type.label}</span>
+                              {a.niveau && <span style={{ fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:999, color:"#fff", background:niveauColor }}>{a.niveau}</span>}
+                              {a.objectif && <span style={{ fontSize:10, padding:"2px 8px", borderRadius:999, background:"#f1f5f9", color:"#64748b" }}>🎯 {a.objectif}</span>}
+                            </div>
+                            {coachInfo && (
+                              <div style={{ fontSize:11, color:"#64748b", marginBottom:6 }}>
+                                👨‍🏫 {coachInfo.prenom} {coachInfo.nom}
                               </div>
-                            </div>
-
-                            {/* Row 2: badges */}
-                            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
-                              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f0fdf4", color:"#15803d" }}>🏠 À domicile</span>
-                              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:999, background:"#f3e8ff", color:"#7c3aed" }}>👤 Privé</span>
-                              {sd.niveau_prospect && <span style={{ fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:999, color:"#fff", background:niveauColor }}>{sd.niveau_prospect}</span>}
-                              {sd.formation_souhaitee && <span style={{ fontSize:10, padding:"2px 8px", borderRadius:999, background:"#f1f5f9", color:"#64748b" }}>{sd.formation_souhaitee}</span>}
-                            </div>
-
-                            {/* Row 3: barre paiement */}
-                            {tranches.length > 0 ? (
-                              <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6 }}>
-                                <div style={{ flex:1, height:5, borderRadius:999, background:"#e5e7eb", overflow:"hidden" }}>
-                                  <div style={{ height:"100%", borderRadius:999, background:pctTranches>=100?"#22c55e":pctTranches>0?"#7c3aed":"#e5e7eb", width:`${Math.min(100,pctTranches)}%`, transition:"width .4s" }} />
+                            )}
+                            {montant > 0 && (
+                              <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:5 }}>
+                                <div style={{ flex:1, height:4, borderRadius:999, background:"#e5e7eb", overflow:"hidden" }}>
+                                  <div style={{ height:"100%", borderRadius:999, background:pct>=100?"#22c55e":type.color, width:`${Math.min(100,pct)}%` }} />
                                 </div>
-                                <span style={{ fontSize:10, fontWeight:700, color:(tranchesTotal-tranchesPaye)>0?"#ef4444":"#22c55e", whiteSpace:"nowrap" }}>
-                                  {(tranchesTotal-tranchesPaye)>0?`${Number(tranchesTotal-tranchesPaye).toLocaleString("fr-FR")} F restants`:"✓ Soldé"}
-                                </span>
-                              </div>
-                            ) : (
-                              <div style={{ fontSize:10, color:"#94a3b8", marginBottom:6 }}>💳 Aucun plan de paiement</div>
-                            )}
-
-                            {/* Row 4: séances */}
-                            {seancesCnt > 0 && (
-                              <div style={{ fontSize:10, color:"#64748b", display:"flex", gap:12, marginBottom:6 }}>
-                                <span>📅 {seancesCnt} séance{seancesCnt>1?"s":""}</span>
-                                <span style={{ color:tauxPart>=80?"#15803d":tauxPart>=60?"#d97706":"#ef4444", fontWeight:700 }}>✅ {tauxPart}%</span>
-                                {sd.nb_seances_souhaitees && <span>/ {sd.nb_seances_souhaitees} prévues</span>}
+                                <span style={{ fontSize:10, fontWeight:700, color:"#16a34a", whiteSpace:"nowrap" }}>{formatMoney(realise)} / {formatMoney(montant)}</span>
                               </div>
                             )}
-
-                            <div style={{ marginTop:8, textAlign:"right", fontSize:10, color:PA_COLOR, fontWeight:700 }}>Voir le dossier →</div>
+                            <div style={{ fontSize:10, color:"#64748b", display:"flex", gap:10 }}>
+                              <span>📅 {a.nb_seances_realisees||0}/{a.nb_seances_total||0} séances</span>
+                              <span style={{ color: a.paiement_confirme?"#15803d":"#d97706", fontWeight:700 }}>
+                                {a.paiement_confirme?"✅ Paiement confirmé":"⏳ Paiement en attente"}
+                              </span>
+                            </div>
+                            {(a.date_debut||a.date_fin) && (
+                              <div style={{ fontSize:10, color:"#94a3b8", marginTop:4 }}>
+                                📆 {formatDate(a.date_debut)} → {formatDate(a.date_fin)}
+                              </div>
+                            )}
+                            <div style={{ marginTop:10 }}>
+                              <button onClick={e=>{ e.stopPropagation(); setPlainteModal(a); setPlainteForm({ objet:"", description:"", priorite:"normale" }); }}
+                                style={{ padding:"4px 10px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:6, fontSize:10, fontWeight:700, cursor:"pointer" }}>
+                                🚨 Signaler un problème
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -894,6 +1232,63 @@ export default function PedagogicalAdvisorDashboard() {
               </div>
             );
           })()}
+
+          {/* ── MODAL SIGNALER UN PROBLÈME ── */}
+          {plainteModal && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:16 }}
+              onClick={e=>{ if(e.target===e.currentTarget) setPlainteModal(null); }}>
+              <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:520, boxShadow:"0 24px 64px rgba(0,0,0,.2)", overflow:"hidden" }}>
+                <div style={{ background:"linear-gradient(135deg,#7f1d1d,#dc2626)", padding:"18px 24px", color:"#fff" }}>
+                  <div style={{ fontSize:18, fontWeight:800 }}>🚨 Signaler un problème</div>
+                  <div style={{ fontSize:12, color:"#fecaca", marginTop:3 }}>
+                    {plainteModal._type === "prive"
+                      ? `${plainteModal.apprenant_prenom||""} ${plainteModal.apprenant_nom}`.trim()
+                      : plainteModal.prospect_nom}
+                    {" "}— sera transmis au Customer Care
+                  </div>
+                </div>
+                <div style={{ padding:24, display:"flex", flexDirection:"column", gap:14 }}>
+                  <div>
+                    <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Objet de la plainte *</label>
+                    <select value={plainteForm.objet} onChange={e=>setPlainteForm(p=>({...p,objet:e.target.value}))}
+                      style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, background:"#fff", outline:"none" }}>
+                      <option value="">— Sélectionner un objet —</option>
+                      {OBJETS_PLAINTE.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Priorité</label>
+                    <div style={{ display:"flex", gap:6 }}>
+                      {[
+                        { val:"faible",   label:"🟢 Faible",   bg:"#dcfce7", c:"#16a34a" },
+                        { val:"normale",  label:"🔵 Normale",  bg:"#e0f2fe", c:"#0891b2" },
+                        { val:"haute",    label:"🟡 Haute",    bg:"#fef3c7", c:"#d97706" },
+                        { val:"critique", label:"🔴 Critique", bg:"#fee2e2", c:"#dc2626" },
+                      ].map(opt=>(
+                        <button key={opt.val} onClick={()=>setPlainteForm(p=>({...p,priorite:opt.val}))}
+                          style={{ flex:1, padding:"6px 4px", border:`1.5px solid ${plainteForm.priorite===opt.val?opt.c:"#e2e8f0"}`, borderRadius:7, background:plainteForm.priorite===opt.val?opt.bg:"#fff", color:plainteForm.priorite===opt.val?opt.c:"#9ca3af", fontWeight:700, fontSize:10, cursor:"pointer" }}>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Description du problème</label>
+                    <textarea value={plainteForm.description} onChange={e=>setPlainteForm(p=>({...p,description:e.target.value}))}
+                      placeholder="Décrivez le problème en détail…"
+                      rows={4} style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, resize:"vertical", outline:"none", boxSizing:"border-box" }} />
+                  </div>
+                  <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:4 }}>
+                    <button onClick={()=>setPlainteModal(null)} style={{ padding:"9px 18px", background:"#f3f4f6", color:"#374151", border:"none", borderRadius:8, fontSize:13, cursor:"pointer" }}>Annuler</button>
+                    <button onClick={signalerPlainte} disabled={plainteSaving||!plainteForm.objet}
+                      style={{ padding:"9px 20px", background:"#dc2626", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", opacity:plainteSaving||!plainteForm.objet?.6:1 }}>
+                      {plainteSaving ? "⏳ Envoi…" : "🚨 Signaler"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ══════════════════════════════════
               ONGLET DASHBOARD
@@ -1325,9 +1720,6 @@ export default function PedagogicalAdvisorDashboard() {
               </div>
             </div>
           )}
-          </div>{/* fin padding 24 */}
-        </div>{/* fin white card */}
-      </div>{/* fin outer padding */}
 
       {/* ══ MODAL APPRENANT ══ */}
       {apprenantModal && (() => {
@@ -2092,6 +2484,813 @@ export default function PedagogicalAdvisorDashboard() {
         );
       })()}
 
+          {/* ══════════════════════════════════
+              ONGLET GROUPES (lecture seule)
+          ══════════════════════════════════ */}
+          {activeTab === "groupes" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+
+              {/* ── VUE LISTE ── */}
+              {!paSelectedGroupe && (
+                <>
+                  {/* Header */}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+                    <h3 style={{ margin:0, fontSize:17, fontWeight:800, color:"#0f172a" }}>👥 Groupes de cours — Vue d'ensemble</h3>
+                    <span style={{ fontSize:12, color:"#9ca3af" }}>{paGroupes.length} groupe{paGroupes.length!==1?"s":""}</span>
+                  </div>
+
+                  {/* Filtre par coach */}
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {["tous", ...Array.from(new Set(paGroupes.map(g => g.coach_nom).filter(Boolean)))].map(coach => (
+                      <button key={coach} onClick={() => setPaFiltreCoach(coach)}
+                        style={{ padding:"6px 14px", borderRadius:8, fontSize:12, fontWeight:700, border:"1.5px solid", cursor:"pointer",
+                          background: paFiltreCoach === coach ? PA_COLOR : "transparent",
+                          borderColor: paFiltreCoach === coach ? PA_COLOR : "#e2e8f0",
+                          color: paFiltreCoach === coach ? "#fff" : "#6b7280" }}>
+                        {coach === "tous" ? "Tous" : coach}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Liste */}
+                  {paGroupesLoading ? (
+                    <div style={{ textAlign:"center", padding:"48px 0", color:"#9ca3af" }}>Chargement…</div>
+                  ) : paGroupes.filter(g => paFiltreCoach === "tous" || g.coach_nom === paFiltreCoach).length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"48px 0", color:"#9ca3af" }}>
+                      <div style={{ fontSize:36, marginBottom:12 }}>👥</div>
+                      <div style={{ fontWeight:600 }}>Aucun groupe trouvé</div>
+                    </div>
+                  ) : (
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:16 }}>
+                      {paGroupes
+                        .filter(g => paFiltreCoach === "tous" || g.coach_nom === paFiltreCoach)
+                        .map(g => {
+                          const statutCfg = g.statut === "actif"
+                            ? { label:"Actif",    color:"#16a34a", bg:"#dcfce7" }
+                            : g.statut === "terminé"
+                            ? { label:"Terminé",  color:"#6b7280", bg:"#f3f4f6" }
+                            : { label:"Suspendu", color:"#f59e0b", bg:"#fef3c7" };
+                          return (
+                            <div key={g.id} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 8px rgba(0,0,0,.06)", border:"1px solid #f1f5f9", overflow:"hidden", transition:"box-shadow .15s" }}
+                              onMouseOver={e => e.currentTarget.style.boxShadow="0 4px 16px rgba(124,58,237,.12)"}
+                              onMouseOut={e  => e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,.06)"}>
+                              {/* Card top strip */}
+                              <div style={{ height:5, background:PA_COLOR }} />
+                              <div style={{ padding:"16px 18px" }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                                  <div>
+                                    <div style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>{g.nom || "—"}</div>
+                                    {g.niveau && <div style={{ fontSize:11, color:PA_COLOR, fontWeight:700, marginTop:2 }}>Niveau {g.niveau}</div>}
+                                  </div>
+                                  <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:99, fontSize:10, fontWeight:700, color:statutCfg.color, background:statutCfg.bg }}>
+                                    {statutCfg.label}
+                                  </span>
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", gap:5, fontSize:12, color:"#64748b" }}>
+                                  {g.filiere && <span>📂 {g.filiere}</span>}
+                                  {g.coach_nom && <span>👨‍🏫 {g.coach_nom}</span>}
+                                  {(g.nb_apprenants !== undefined && g.nb_apprenants !== null) && (
+                                    <span>👤 {g.nb_apprenants} apprenant{g.nb_apprenants!==1?"s":""}</span>
+                                  )}
+                                </div>
+                                {g.horaires && (
+                                  <div style={{ marginTop:10, display:"flex", gap:4, flexWrap:"wrap" }}>
+                                    {(Array.isArray(g.horaires) ? g.horaires : [g.horaires]).map((h,i) => (
+                                      <span key={i} style={{ background:"#ede9fe", color:PA_COLOR, borderRadius:6, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{h}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                <button onClick={() => fetchPaGroupeDetail(g)}
+                                  style={{ marginTop:14, width:"100%", padding:"8px 0", background:"transparent", border:`1.5px solid ${PA_COLOR}`, borderRadius:8, color:PA_COLOR, fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                                  Voir le détail →
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── VUE DÉTAIL ── */}
+              {paSelectedGroupe && (
+                <>
+                  {/* Back button */}
+                  <button onClick={() => { setPaSelectedGroupe(null); setPaGroupeDetail({ apprenants:[], fichiers:[] }); setPaCoursListe([]); setPaPresences([]); }}
+                    style={{ alignSelf:"flex-start", display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:"transparent", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:12, fontWeight:700, color:"#6b7280", cursor:"pointer" }}>
+                    ← Retour aux groupes
+                  </button>
+
+                  {/* Group info header */}
+                  <div style={{ background:`linear-gradient(135deg,#0f172a 0%,${PA_COLOR} 100%)`, borderRadius:14, padding:"20px 24px", color:"#fff" }}>
+                    <div style={{ fontSize:20, fontWeight:800, marginBottom:6 }}>{paSelectedGroupe.nom || "—"}</div>
+                    <div style={{ display:"flex", gap:12, flexWrap:"wrap", fontSize:12, color:"rgba(255,255,255,0.75)", alignItems:"center" }}>
+                      {paSelectedGroupe.niveau && (
+                        <span style={{ background:"rgba(255,255,255,0.15)", borderRadius:6, padding:"2px 10px", fontWeight:700, color:"#fff" }}>
+                          Niveau {paSelectedGroupe.niveau}
+                        </span>
+                      )}
+                      {paSelectedGroupe.statut && (
+                        <span style={{ background:"rgba(255,255,255,0.15)", borderRadius:6, padding:"2px 10px" }}>{paSelectedGroupe.statut}</span>
+                      )}
+                      {paSelectedGroupe.nb_apprenants !== undefined && (
+                        <span>👤 {paSelectedGroupe.nb_apprenants} apprenant{paSelectedGroupe.nb_apprenants!==1?"s":""}</span>
+                      )}
+                      {paSelectedGroupe.coach_nom && (
+                        <span>👨‍🏫 {paSelectedGroupe.coach_nom}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sub-tabs */}
+                  <div style={{ display:"flex", borderBottom:"2px solid #e2e8f0", background:"#f8fafc", borderRadius:"10px 10px 0 0", overflowX:"auto" }}>
+                    {[
+                      { id:"apprenants", label:"🎓 Apprenants" },
+                      { id:"cours",      label:"📚 Historique cours" },
+                      { id:"presences",  label:"✅ Présences" },
+                    ].map(t => (
+                      <button key={t.id} onClick={() => setPaSubTab(t.id)}
+                        style={{ padding:"12px 20px", border:"none", background:"none", cursor:"pointer", fontSize:13,
+                          fontWeight: paSubTab===t.id ? 800 : 500,
+                          color: paSubTab===t.id ? PA_COLOR : "#64748b",
+                          borderBottom: paSubTab===t.id ? `2.5px solid ${PA_COLOR}` : "2.5px solid transparent",
+                          marginBottom:-2, whiteSpace:"nowrap" }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* ─ Apprenants sub-tab ─ */}
+                  {paSubTab === "apprenants" && (
+                    <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", overflow:"auto" }}>
+                      {paGroupeDetail.apprenants.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Aucun apprenant dans ce groupe.</div>
+                      ) : (
+                        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                          <thead>
+                            <tr style={{ background:"#f8fafc", borderBottom:"2px solid #e2e8f0" }}>
+                              {["Prénom Nom","Email","Niveau","Assistante","Statut"].map(h => (
+                                <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:".04em" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paGroupeDetail.apprenants.map((ap, i) => (
+                              <tr key={ap.id || i} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                                <td style={{ padding:"10px 14px", fontWeight:600, color:"#0f172a" }}>{ap.prenom || ""} {ap.nom || ""}</td>
+                                <td style={{ padding:"10px 14px", color:"#6b7280" }}>{ap.email || "—"}</td>
+                                <td style={{ padding:"10px 14px" }}>
+                                  {ap.niveau ? (
+                                    <span style={{ background:"#ede9fe", color:PA_COLOR, borderRadius:6, padding:"2px 8px", fontSize:11, fontWeight:700 }}>{ap.niveau}</span>
+                                  ) : "—"}
+                                </td>
+                                <td style={{ padding:"10px 14px", color:"#6b7280" }}>{ap.assistante_nom || "—"}</td>
+                                <td style={{ padding:"10px 14px" }}>
+                                  {(() => {
+                                    const s = ap.statut;
+                                    const cfg = s === "actif"
+                                      ? { color:"#16a34a", bg:"#dcfce7", label:"Actif" }
+                                      : s === "terminé"
+                                      ? { color:"#6b7280", bg:"#f3f4f6", label:"Terminé" }
+                                      : { color:"#f59e0b", bg:"#fef3c7", label:s||"—" };
+                                    return (
+                                      <span style={{ background:cfg.bg, color:cfg.color, borderRadius:99, padding:"2px 10px", fontSize:10, fontWeight:700 }}>{cfg.label}</span>
+                                    );
+                                  })()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ─ Historique cours sub-tab ─ */}
+                  {paSubTab === "cours" && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                      {/* Filtres mois/année */}
+                      <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+                        <select value={paCoursFiltreMois} onChange={e => setPaCoursFiltreMois(Number(e.target.value))}
+                          style={{ padding:"8px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, outline:"none", background:"#fff", cursor:"pointer" }}>
+                          {MOIS_LABELS.slice(1).map((m,i) => (
+                            <option key={i+1} value={i+1}>{m}</option>
+                          ))}
+                        </select>
+                        <select value={paCoursAnnee} onChange={e => setPaCoursAnnee(Number(e.target.value))}
+                          style={{ padding:"8px 12px", border:"1.5px solid #e2e8f0", borderRadius:8, fontSize:13, outline:"none", background:"#fff", cursor:"pointer" }}>
+                          {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                      </div>
+
+                      {paCoursLoading ? (
+                        <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement…</div>
+                      ) : paCoursListe.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Aucun cours pour cette période.</div>
+                      ) : (
+                        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", overflow:"auto" }}>
+                          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                            <thead>
+                              <tr style={{ background:"#f8fafc", borderBottom:"2px solid #e2e8f0" }}>
+                                {["Date","Coach","Durée","Statut","Notes"].map(h => (
+                                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:".04em" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paCoursListe.map((c, i) => {
+                                const cfg = STATUT_COURS_CFG[c.statut] || { label:c.statut||"—", color:"#6b7280", bg:"#f3f4f6", icon:"" };
+                                return (
+                                  <tr key={c.id || i} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                                    <td style={{ padding:"10px 14px", color:"#0f172a", fontWeight:600 }}>{formatDate(c.date)}</td>
+                                    <td style={{ padding:"10px 14px", color:"#6b7280" }}>{c.coach_nom || "—"}</td>
+                                    <td style={{ padding:"10px 14px", color:"#6b7280" }}>{c.duree_h ? `${c.duree_h}h` : "—"}</td>
+                                    <td style={{ padding:"10px 14px" }}>
+                                      <span style={{ background:cfg.bg, color:cfg.color, borderRadius:99, padding:"2px 10px", fontSize:10, fontWeight:700 }}>
+                                        {cfg.icon} {cfg.label}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding:"10px 14px", color:"#9ca3af", fontSize:12 }}>{c.notes || "—"}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ─ Présences sub-tab ─ */}
+                  {paSubTab === "presences" && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                      {paPresences.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Aucune donnée de présence disponible.</div>
+                      ) : (
+                        paPresences.map((session, si) => {
+                          const apprenants = session.apprenants || [];
+                          const presents = apprenants.filter(a => a.statut === "present").length;
+                          const total    = apprenants.length;
+                          const taux     = total > 0 ? Math.round((presents / total) * 100) : null;
+                          return (
+                            <div key={si} style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", overflow:"hidden" }}>
+                              <div style={{ padding:"12px 18px", background:"#f8fafc", borderBottom:"1px solid #e2e8f0", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
+                                <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>📅 {formatDate(session.date)}</span>
+                                {taux !== null && (
+                                  <span style={{ fontSize:12, fontWeight:700, color: taux>=80?"#16a34a":taux>=50?"#f59e0b":"#ef4444" }}>
+                                    Taux présence : {taux}% ({presents}/{total})
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ padding:"10px 4px" }}>
+                                {apprenants.map((ap, ai) => {
+                                  const pCfg = ap.statut === "present"
+                                    ? { label:"Présent",  color:"#16a34a", bg:"#dcfce7" }
+                                    : ap.statut === "absent"
+                                    ? { label:"Absent",   color:"#ef4444", bg:"#fee2e2" }
+                                    : { label:ap.statut||"—", color:"#6b7280", bg:"#f3f4f6" };
+                                  return (
+                                    <div key={ai} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 14px", borderBottom: ai < apprenants.length-1 ? "1px solid #f1f5f9" : "none" }}>
+                                      <span style={{ fontSize:13, color:"#0f172a" }}>{ap.prenom || ""} {ap.nom || ""}</span>
+                                      <span style={{ background:pCfg.bg, color:pCfg.color, borderRadius:99, padding:"2px 10px", fontSize:10, fontWeight:700 }}>{pCfg.label}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── ONGLET COACHS ── */}
+          {activeTab === "coachs" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:20, fontWeight:800, color:"#0f172a" }}>👨‍🏫 Coachs BET</h2>
+                  <p style={{ margin:"4px 0 0", fontSize:13, color:"#64748b" }}>Consultation lecture seule — {paCoachsList.length} coach{paCoachsList.length!==1?"s":""} enregistré{paCoachsList.length!==1?"s":""}</p>
+                </div>
+                <input
+                  placeholder="Rechercher un coach…"
+                  value={paCoachSearch}
+                  onChange={e => setPaCoachSearch(e.target.value)}
+                  style={{ padding:"9px 14px", borderRadius:9, border:"1.5px solid #e2e8f0", fontSize:13, width:220, outline:"none" }}
+                />
+              </div>
+
+              {paCoachsLoading ? (
+                <div style={{ textAlign:"center", padding:"60px 0", color:"#9ca3af" }}>Chargement…</div>
+              ) : (
+                /* ── GRILLE COACHS ── */
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:16 }}>
+                  {paCoachsList
+                    .filter(c => {
+                      const q = paCoachSearch.toLowerCase();
+                      return !q || `${c.prenom} ${c.nom} ${c.email} ${c.coach_info?.filiere||""}`.toLowerCase().includes(q);
+                    })
+                    .map(c => (
+                      <div key={c.id} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 8px rgba(0,0,0,.06)", border:"1px solid #f1f5f9", overflow:"hidden", transition:"box-shadow .15s", cursor:"pointer" }}
+                        onClick={() => openPaCoachModal(c)}
+                        onMouseOver={e => e.currentTarget.style.boxShadow=`0 4px 16px rgba(124,58,237,.12)`}
+                        onMouseOut={e  => e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,.06)"}>
+                        <div style={{ height:5, background:PA_COLOR }} />
+                        <div style={{ padding:"18px 20px" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:14 }}>
+                            {c.avatar_url || c.coach_info?.photo_url ? (
+                              <img src={c.avatar_url || c.coach_info?.photo_url} alt={c.prenom}
+                                style={{ width:52, height:52, borderRadius:"50%", objectFit:"cover", border:`2px solid ${PA_COLOR}30` }} />
+                            ) : (
+                              <div style={{ width:52, height:52, borderRadius:"50%", background:PA_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:800, color:PA_COLOR }}>
+                                {(c.prenom?.[0]||"")+(c.nom?.[0]||"")}
+                              </div>
+                            )}
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>{c.prenom} {c.nom}</div>
+                              <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{c.coach_info?.filiere || c.departement || "—"}</div>
+                            </div>
+                            <span style={{ background: c.actif?"#dcfce7":"#fee2e2", color: c.actif?"#16a34a":"#ef4444", borderRadius:99, padding:"2px 10px", fontSize:10, fontWeight:700 }}>
+                              {c.actif ? "Actif" : "Inactif"}
+                            </span>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, fontSize:12, color:"#64748b" }}>
+                            <span>📧 {c.email}</span>
+                            {c.coach_info?.matricule && <span>🪪 {c.coach_info.matricule}</span>}
+                            {c.nbr_contrats_actifs !== undefined && (
+                              <span style={{ color: c.nbr_contrats_actifs > 0 ? PA_COLOR : "#9ca3af", fontWeight: c.nbr_contrats_actifs > 0 ? 700 : 400 }}>
+                                📋 {c.nbr_contrats_actifs} contrat{c.nbr_contrats_actifs!==1?"s":""} actif{c.nbr_contrats_actifs!==1?"s":""}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ marginTop:14, width:"100%", padding:"8px 0", textAlign:"center", background:PA_LIGHT, borderRadius:8, color:PA_COLOR, fontWeight:700, fontSize:12 }}>
+                            Gérer le profil →
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  {paCoachsList.filter(c => {
+                    const q = paCoachSearch.toLowerCase();
+                    return !q || `${c.prenom} ${c.nom} ${c.email} ${c.coach_info?.filiere||""}`.toLowerCase().includes(q);
+                  }).length === 0 && (
+                    <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"60px 0", color:"#9ca3af" }}>
+                      <div style={{ fontSize:40, marginBottom:12 }}>👨‍🏫</div>
+                      <div style={{ fontWeight:600 }}>Aucun coach trouvé</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── MODAL COACH COMPLET ── */}
+          {paSelectedCoach && (() => {
+            const coach = paSelectedCoach;
+            const photoUrl = coach.avatar_url || coach.coach_info?.photo_url || null;
+            const initiales = ((coach.prenom?.[0]||"")+(coach.nom?.[0]||"")).toUpperCase();
+            const centre = (coach.scope?.filter(s=>s!=="national")||[]).join(", ") || "National";
+            const totalDu = paCoachContrats.reduce((s,c)=>s+(c.prix_h||0)*(c.duree_seance_h||1.5)*(c.nb_seances_total||0),0);
+            const totalRealise = paCoachContrats.reduce((s,c)=>s+(c.prix_h||0)*(c.duree_seance_h||1.5)*(c.nb_seances_realisees||0),0);
+            const contratsActifs = paCoachContrats.filter(c=>c.statut==="actif").length;
+            const today = new Date(); today.setHours(0,0,0,0);
+            const contratsARenouveler = paCoachContrats.filter(c => {
+              if (!c.date_fin) return false;
+              const fin = new Date(c.date_fin);
+              const j = Math.ceil((fin-today)/86400000);
+              return (j<=60 && c.statut==="actif") || c.renouvellement_statut;
+            });
+            const PA_TABS = [
+              { id:"infos",          label:"Infos",                                                              icon:"👤" },
+              { id:"contrats",       label:`Contrats (${paCoachContrats.length})`,                               icon:"📋" },
+              { id:"honoraires",     label:"Honoraires",                                                         icon:"💰" },
+              { id:"groupes",        label:`Groupes (${paCoachGroupes.length})`,                                  icon:"👥" },
+              { id:"renouvellement", label:`Renouvellement${contratsARenouveler.length>0?` 🔴${contratsARenouveler.length}`:""}`, icon:"🔄" },
+            ];
+            return (
+              <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:16 }}
+                onClick={e=>{ if(e.target===e.currentTarget) setPaSelectedCoach(null); }}>
+                <div style={{ background:"#fff", borderRadius:16, width:"95%", maxWidth:900, maxHeight:"92vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+
+                  {/* HEADER */}
+                  <div style={{ background:PA_GRADIENT, padding:"20px 24px", flexShrink:0, position:"relative" }}>
+                    <button onClick={()=>setPaSelectedCoach(null)} style={{ position:"absolute", top:14, right:16, background:"rgba(255,255,255,0.2)", border:"none", borderRadius:"50%", width:32, height:32, cursor:"pointer", color:"#fff", fontSize:18, lineHeight:1 }}>✕</button>
+                    <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                      {photoUrl
+                        ? <img src={photoUrl} alt={coach.prenom} style={{ width:64, height:64, borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(255,255,255,0.4)", flexShrink:0 }} />
+                        : <div style={{ width:64, height:64, borderRadius:"50%", background:"rgba(255,255,255,0.2)", color:"#fff", fontWeight:800, fontSize:22, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                      }
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:11, color:"#c4b5fd", fontWeight:600, marginBottom:2 }}>👨‍🏫 Formateur BET</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>{coach.prenom} {coach.nom}</div>
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:4, fontSize:12, color:"rgba(255,255,255,.75)" }}>
+                          <span>{coach.coach_info?.filiere || coach.departement || "—"}</span>
+                          <span style={{ background:"rgba(255,255,255,.18)", borderRadius:6, padding:"1px 8px", color:"#fff", fontWeight:700 }}>{coach.actif ? "✅ Actif" : "🔴 Inactif"}</span>
+                          <span>📋 {contratsActifs} contrat{contratsActifs!==1?"s":""} actif{contratsActifs!==1?"s":""}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ONGLETS */}
+                  <div style={{ display:"flex", borderBottom:"2px solid #e5e7eb", background:"#fafafa", flexShrink:0, overflowX:"auto" }}>
+                    {PA_TABS.map(t => (
+                      <button key={t.id} onClick={()=>setPaCoachModalTab(t.id)}
+                        style={{ padding:"12px 18px", border:"none", borderBottom:`3px solid ${paCoachModalTab===t.id?PA_COLOR:"transparent"}`,
+                          background:"transparent", cursor:"pointer", fontWeight:paCoachModalTab===t.id?700:400,
+                          color:paCoachModalTab===t.id?PA_COLOR:"#6b7280", fontSize:12, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+                        <span>{t.icon}</span>{t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* CONTENU */}
+                  <div style={{ flex:1, overflowY:"auto", padding:"20px 24px" }}>
+
+                    {/* ════ INFOS ════ */}
+                    {paCoachModalTab === "infos" && (
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+                        <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                          <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:800 }}>Informations personnelles</h3>
+                          {[
+                            ["Prénom",          coach.prenom || "—"],
+                            ["Nom",             coach.nom    || "—"],
+                            ["Email",           coach.email  || "—"],
+                            ["Téléphone",       coach.telephone || "—"],
+                            ["Matricule",       coach.coach_info?.matricule || "—"],
+                            ["Filière",         coach.coach_info?.filiere || coach.departement || "—"],
+                            ["Lieu habitation", coach.coach_info?.lieu_habitation || "—"],
+                            ["Date début BET",  formatDate(coach.coach_info?.date_debut_bet || coach.date_creation)],
+                            ["Centre",          centre],
+                            ["Statut",          coach.actif ? "✅ Actif" : "🔴 Inactif"],
+                          ].map(([l,v])=>(
+                            <div key={l} style={{ display:"flex", padding:"6px 0", borderBottom:"1px solid #f1f5f9", fontSize:13 }}>
+                              <span style={{ color:"#9ca3af", width:140, flexShrink:0, fontWeight:500 }}>{l}</span>
+                              <span style={{ fontWeight:600 }}>{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                          <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                            <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:800 }}>Certifications</h3>
+                            {(() => {
+                              const certs = coach.coach_info?.certifications;
+                              const list = Array.isArray(certs) ? certs : (typeof certs==="string" ? certs.split(",").map(s=>s.trim()).filter(Boolean) : []);
+                              return list.length ? (
+                                <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+                                  {list.map((c,i)=><span key={i} style={{ padding:"4px 12px", borderRadius:99, background:PA_LIGHT, color:PA_COLOR, fontSize:12, fontWeight:700 }}>🏆 {c}</span>)}
+                                </div>
+                              ) : <p style={{ fontSize:13, color:"#9ca3af" }}>Aucune certification</p>;
+                            })()}
+                          </div>
+                          <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                            <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:800 }}>Résumé activité</h3>
+                            {[
+                              { l:"Contrats actifs",  v:contratsActifs,           c:PA_COLOR },
+                              { l:"Total contrats",   v:paCoachContrats.length,   c:"#6b7280" },
+                              { l:"Groupes de cours", v:paCoachGroupes.length,    c:"#7c3aed" },
+                              { l:"Montant total dû", v:formatMoney(totalDu),     c:"#16a34a" },
+                              { l:"Montant réalisé",  v:formatMoney(totalRealise),c:"#0891b2" },
+                            ].map(s=>(
+                              <div key={s.l} style={{ display:"flex", justifyContent:"space-between", padding:"7px 0", borderBottom:"1px solid #f1f5f9", fontSize:13 }}>
+                                <span style={{ color:"#6b7280" }}>{s.l}</span>
+                                <span style={{ fontWeight:800, color:s.c }}>{s.v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ════ CONTRATS ════ */}
+                    {paCoachModalTab === "contrats" && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <div>
+                            <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Contrats privés</h3>
+                            <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>En ligne · Présentiel BET · À domicile</p>
+                          </div>
+                          <button onClick={()=>{ setPaShowContratForm(true); setPaContratEditId(null); setPaContratForm(CONTRAT_FORM_INIT); }}
+                            style={{ padding:"9px 18px", background:PA_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                            ➕ Nouveau contrat
+                          </button>
+                        </div>
+
+                        {paShowContratForm && (
+                          <div style={{ background:"#faf5ff", border:"1.5px solid #c4b5fd", borderRadius:12, padding:18 }}>
+                            <h4 style={{ margin:"0 0 14px", fontSize:14, fontWeight:800, color:PA_COLOR }}>{paContratEditId ? "✏️ Modifier le contrat" : "➕ Nouveau contrat"}</h4>
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Nom apprenant *</label>
+                                <input value={paContratForm.apprenant_nom} onChange={e=>setPaContratForm(p=>({...p,apprenant_nom:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Prénom apprenant</label>
+                                <input value={paContratForm.apprenant_prenom} onChange={e=>setPaContratForm(p=>({...p,apprenant_prenom:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Email apprenant</label>
+                                <input value={paContratForm.apprenant_email} onChange={e=>setPaContratForm(p=>({...p,apprenant_email:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Téléphone apprenant</label>
+                                <input value={paContratForm.apprenant_telephone} onChange={e=>setPaContratForm(p=>({...p,apprenant_telephone:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Type de contrat</label>
+                                <select value={paContratForm.type_contrat} onChange={e=>setPaContratForm(p=>({...p,type_contrat:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                                  <option value="en_ligne">💻 En ligne</option>
+                                  <option value="presentiel_bet">🏢 Présentiel BET</option>
+                                  <option value="domicile">🏠 À domicile</option>
+                                </select></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Niveau</label>
+                                <select value={paContratForm.niveau} onChange={e=>setPaContratForm(p=>({...p,niveau:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                                  {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n} value={n}>{n}</option>)}
+                                </select></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Prix / heure (F CFA) *</label>
+                                <input type="number" min="0" value={paContratForm.prix_h} onChange={e=>setPaContratForm(p=>({...p,prix_h:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Nb séances total</label>
+                                <input type="number" min="0" value={paContratForm.nb_seances_total} onChange={e=>setPaContratForm(p=>({...p,nb_seances_total:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Durée / séance (h)</label>
+                                <select value={paContratForm.duree_seance_h} onChange={e=>setPaContratForm(p=>({...p,duree_seance_h:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                                  {["0.5","1","1.5","2","2.5","3"].map(v=><option key={v} value={v}>{v}h</option>)}
+                                </select></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Objectif</label>
+                                <input value={paContratForm.objectif} onChange={e=>setPaContratForm(p=>({...p,objectif:e.target.value}))} placeholder="TOEIC, Général…" style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Date début</label>
+                                <input type="date" value={paContratForm.date_debut} onChange={e=>setPaContratForm(p=>({...p,date_debut:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                              <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Date fin</label>
+                                <input type="date" value={paContratForm.date_fin} onChange={e=>setPaContratForm(p=>({...p,date_fin:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                            </div>
+                            {paContratForm.prix_h && paContratForm.nb_seances_total && (
+                              <div style={{ marginTop:10, padding:"8px 14px", background:"#dcfce7", borderRadius:8, fontSize:13, fontWeight:700, color:"#15803d" }}>
+                                💰 Montant total : {formatMoney(parseFloat(paContratForm.prix_h)*parseFloat(paContratForm.duree_seance_h||1.5)*parseInt(paContratForm.nb_seances_total))}
+                              </div>
+                            )}
+                            <div style={{ marginTop:10 }}><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Note interne</label>
+                              <textarea value={paContratForm.note} onChange={e=>setPaContratForm(p=>({...p,note:e.target.value}))} rows={2} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #c4b5fd", borderRadius:7, fontSize:13, resize:"vertical", boxSizing:"border-box" }} /></div>
+                            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                              <button onClick={paSaveContrat} disabled={paContratSaving} style={{ padding:"9px 20px", background:PA_COLOR, color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:13, cursor:"pointer", opacity:paContratSaving?.6:1 }}>{paContratSaving?"⏳ Sauvegarde…":"✅ Enregistrer"}</button>
+                              <button onClick={()=>setPaShowContratForm(false)} style={{ padding:"9px 16px", background:"#f3f4f6", color:"#374151", border:"none", borderRadius:7, fontSize:13, cursor:"pointer" }}>Annuler</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {paCoachContratsLoading ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement…</div>
+                        ) : paCoachContrats.length===0 ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                            <div style={{ fontSize:36, marginBottom:8 }}>📋</div>
+                            <div style={{ fontWeight:600 }}>Aucun contrat privé</div>
+                            <div style={{ fontSize:12, marginTop:4 }}>Cliquez sur "Nouveau contrat" pour en créer un.</div>
+                          </div>
+                        ) : (
+                          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                            {paCoachContrats.map(c => {
+                              const type = CONTRAT_TYPE[c.type_contrat] || CONTRAT_TYPE.en_ligne;
+                              const stCfg = CONTRAT_STATUT[c.statut] || CONTRAT_STATUT.en_attente;
+                              const montant = (c.prix_h||0)*(c.duree_seance_h||1.5)*(c.nb_seances_total||0);
+                              return (
+                                <div key={c.id} style={{ background:"#fff", border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                                  <div style={{ height:4, background:type.color }} />
+                                  <div style={{ padding:"14px 16px" }}>
+                                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                                      <div>
+                                        <div style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>{c.apprenant_prenom||""} {c.apprenant_nom}</div>
+                                        <div style={{ display:"flex", gap:8, marginTop:4 }}>
+                                          <span style={{ background:type.bg, color:type.color, borderRadius:99, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{type.icon} {type.label}</span>
+                                          {c.niveau && <span style={{ background:"#f3f4f6", color:"#374151", borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700 }}>Niv. {c.niveau}</span>}
+                                          {c.objectif && <span style={{ fontSize:11, color:"#6b7280" }}>🎯 {c.objectif}</span>}
+                                        </div>
+                                      </div>
+                                      <span style={{ background:stCfg.bg, color:stCfg.color, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>{stCfg.label}</span>
+                                    </div>
+                                    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, fontSize:12, color:"#6b7280", marginBottom:10 }}>
+                                      <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Prix/heure</div><div style={{ fontWeight:700, color:"#0f172a" }}>{formatMoney(c.prix_h)}</div></div>
+                                      <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Séances</div><div style={{ fontWeight:700, color:"#0f172a" }}>{c.nb_seances_realisees||0}/{c.nb_seances_total||0}</div></div>
+                                      <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Durée/séance</div><div style={{ fontWeight:700, color:"#0f172a" }}>{c.duree_seance_h||1.5}h</div></div>
+                                      <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Montant total</div><div style={{ fontWeight:700, color:"#16a34a" }}>{formatMoney(montant)}</div></div>
+                                    </div>
+                                    {(c.date_debut||c.date_fin) && (
+                                      <div style={{ fontSize:12, color:"#6b7280", marginBottom:10 }}>📅 {formatDate(c.date_debut)} → {formatDate(c.date_fin)}</div>
+                                    )}
+                                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:c.paiement_confirme?"#dcfce7":"#fef3c7", borderRadius:8, marginBottom:10 }}>
+                                      <span style={{ fontSize:12, fontWeight:700, color:c.paiement_confirme?"#15803d":"#92400e" }}>
+                                        {c.paiement_confirme ? "✅ Paiement confirmé" : "⏳ Paiement en attente"}
+                                        {c.paiement_date ? ` — ${formatDate(c.paiement_date)}` : ""}
+                                      </span>
+                                      {!c.paiement_confirme && (
+                                        <button onClick={()=>paPatchContrat(c.id,{ paiement_confirme:true, paiement_date:new Date().toISOString().slice(0,10), paiement_montant:montant })}
+                                          style={{ padding:"5px 12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                                          ✅ Confirmer paiement
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                      {c.statut==="en_attente" && c.paiement_confirme && (
+                                        <button onClick={()=>paPatchContrat(c.id,{statut:"actif"})} style={{ padding:"5px 12px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Activer</button>
+                                      )}
+                                      {c.statut==="actif" && (
+                                        <button onClick={()=>paPatchContrat(c.id,{statut:"suspendu"})} style={{ padding:"5px 12px", background:"#f3f4f6", color:"#374151", border:"1px solid #d1d5db", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>⏸ Suspendre</button>
+                                      )}
+                                      {c.statut==="suspendu" && (
+                                        <button onClick={()=>paPatchContrat(c.id,{statut:"actif"})} style={{ padding:"5px 12px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Reprendre</button>
+                                      )}
+                                      {["actif","suspendu"].includes(c.statut) && (
+                                        <button onClick={()=>paPatchContrat(c.id,{statut:"termine"})} style={{ padding:"5px 12px", background:"#f1f5f9", color:"#475569", border:"1px solid #cbd5e1", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>⏹ Terminer</button>
+                                      )}
+                                      <button onClick={()=>{ setPaContratEditId(c.id); setPaContratForm({ apprenant_nom:c.apprenant_nom||"", apprenant_prenom:c.apprenant_prenom||"", apprenant_email:c.apprenant_email||"", apprenant_telephone:c.apprenant_telephone||"", type_contrat:c.type_contrat||"en_ligne", niveau:c.niveau||"B1", objectif:c.objectif||"", prix_h:c.prix_h||"", nb_seances_total:c.nb_seances_total||"", duree_seance_h:c.duree_seance_h||"1.5", date_debut:c.date_debut||"", date_fin:c.date_fin||"", note:c.note||"" }); setPaShowContratForm(true); }}
+                                        style={{ padding:"5px 12px", background:"#eff6ff", color:"#2563eb", border:"1px solid #bfdbfe", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>✏️ Modifier</button>
+                                      <button onClick={()=>paDeleteContrat(c.id)} style={{ padding:"5px 12px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>🗑 Supprimer</button>
+                                      <button onClick={()=>{ const nb=parseInt(window.prompt("Nb séances réalisées :",c.nb_seances_realisees||0)); if(!isNaN(nb)) paPatchContrat(c.id,{nb_seances_realisees:nb}); }}
+                                        style={{ padding:"5px 12px", background:"#fef3c7", color:"#92400e", border:"1px solid #fcd34d", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>📝 Séances réalisées</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ════ HONORAIRES ════ */}
+                    {paCoachModalTab === "honoraires" && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                        <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Honoraires — {coach.prenom} {coach.nom}</h3>
+                        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+                          {[
+                            { l:"Montant total dû",  v:formatMoney(totalDu),              c:"#16a34a", bg:"#dcfce7" },
+                            { l:"Montant réalisé",   v:formatMoney(totalRealise),          c:"#0891b2", bg:"#e0f2fe" },
+                            { l:"Reste à réaliser",  v:formatMoney(totalDu-totalRealise),  c:"#d97706", bg:"#fef3c7" },
+                          ].map(s=>(
+                            <div key={s.l} style={{ background:s.bg, borderRadius:12, padding:"14px 16px" }}>
+                              <div style={{ fontSize:11, color:s.c, fontWeight:600, marginBottom:4 }}>{s.l}</div>
+                              <div style={{ fontSize:22, fontWeight:900, color:s.c }}>{s.v}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {paCoachContrats.length===0 ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Aucun contrat — pas d'honoraires calculés.</div>
+                        ) : (
+                          <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                              <thead>
+                                <tr style={{ background:"#f8fafc" }}>
+                                  {["Apprenant","Type","Prix/h","Durée/séance","Séances","Montant total","Réalisé","Statut"].map(h=>(
+                                    <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#6b7280", borderBottom:"1px solid #e5e7eb" }}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {paCoachContrats.map(c => {
+                                  const mt = (c.prix_h||0)*(c.duree_seance_h||1.5)*(c.nb_seances_total||0);
+                                  const mr = (c.prix_h||0)*(c.duree_seance_h||1.5)*(c.nb_seances_realisees||0);
+                                  const type = CONTRAT_TYPE[c.type_contrat]||CONTRAT_TYPE.en_ligne;
+                                  const stCfg = CONTRAT_STATUT[c.statut]||CONTRAT_STATUT.en_attente;
+                                  return (
+                                    <tr key={c.id} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                                      <td style={{ padding:"10px 12px", fontWeight:600 }}>{c.apprenant_prenom||""} {c.apprenant_nom}</td>
+                                      <td style={{ padding:"10px 12px" }}><span style={{ background:type.bg, color:type.color, borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700 }}>{type.icon} {type.label}</span></td>
+                                      <td style={{ padding:"10px 12px", fontWeight:700 }}>{formatMoney(c.prix_h)}</td>
+                                      <td style={{ padding:"10px 12px" }}>{c.duree_seance_h||1.5}h</td>
+                                      <td style={{ padding:"10px 12px" }}>{c.nb_seances_realisees||0}/{c.nb_seances_total||0}</td>
+                                      <td style={{ padding:"10px 12px", fontWeight:800, color:"#16a34a" }}>{formatMoney(mt)}</td>
+                                      <td style={{ padding:"10px 12px", fontWeight:700, color:"#0891b2" }}>{formatMoney(mr)}</td>
+                                      <td style={{ padding:"10px 12px" }}><span style={{ background:stCfg.bg, color:stCfg.color, borderRadius:99, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{stCfg.label}</span></td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot>
+                                <tr style={{ background:"#f0fdf4" }}>
+                                  <td colSpan={5} style={{ padding:"10px 12px", fontWeight:800, fontSize:13 }}>Total</td>
+                                  <td style={{ padding:"10px 12px", fontWeight:900, color:"#16a34a", fontSize:14 }}>{formatMoney(totalDu)}</td>
+                                  <td style={{ padding:"10px 12px", fontWeight:900, color:"#0891b2", fontSize:14 }}>{formatMoney(totalRealise)}</td>
+                                  <td />
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ════ GROUPES ════ */}
+                    {paCoachModalTab === "groupes" && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                        <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Groupes de cours assignés</h3>
+                        {paCoachGroupesLoading ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement…</div>
+                        ) : paCoachGroupes.length===0 ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                            <div style={{ fontSize:36, marginBottom:8 }}>👥</div>
+                            <div style={{ fontWeight:600 }}>Aucun groupe assigné</div>
+                          </div>
+                        ) : (
+                          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14 }}>
+                            {paCoachGroupes.map(g => {
+                              const sCol = g.statut==="actif" ? { c:"#16a34a", bg:"#dcfce7" } : { c:"#6b7280", bg:"#f3f4f6" };
+                              return (
+                                <div key={g.id} style={{ background:"#fff", border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                                  <div style={{ height:4, background:PA_COLOR }} />
+                                  <div style={{ padding:"14px 16px" }}>
+                                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                                      <div style={{ fontSize:14, fontWeight:800 }}>{g.nom}</div>
+                                      <span style={{ background:sCol.bg, color:sCol.c, borderRadius:99, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{g.statut}</span>
+                                    </div>
+                                    <div style={{ fontSize:12, color:"#6b7280", display:"flex", flexDirection:"column", gap:3 }}>
+                                      {g.niveau && <span>📊 Niveau {g.niveau}</span>}
+                                      {g.filiere && <span>📂 {g.filiere}</span>}
+                                      {g.nb_apprenants!==undefined && <span>👤 {g.nb_apprenants} apprenant{g.nb_apprenants!==1?"s":""}</span>}
+                                      {g.type_cours && <span>{g.type_cours==="en_ligne"?"💻 En ligne":g.type_cours==="domicile"?"🏠 Domicile":"🏢 Présentiel"}</span>}
+                                      {g.date_debut && <span>📅 Début : {formatDate(g.date_debut)}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ════ RENOUVELLEMENT ════ */}
+                    {paCoachModalTab === "renouvellement" && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Gestion des renouvellements</h3>
+                          <p style={{ margin:"4px 0 0", fontSize:12, color:"#9ca3af" }}>Contrats arrivant à échéance dans les 60 jours ou en cours de renouvellement</p>
+                        </div>
+                        {contratsARenouveler.length===0 ? (
+                          <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                            <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
+                            <div style={{ fontWeight:600 }}>Aucun contrat à renouveler</div>
+                            <div style={{ fontSize:12, marginTop:4 }}>Tous les contrats actifs ont plus de 60 jours restants.</div>
+                          </div>
+                        ) : contratsARenouveler.map(c => {
+                          const fin = new Date(c.date_fin);
+                          const joursRestants = Math.ceil((fin-today)/86400000);
+                          const rCfg = c.renouvellement_statut ? (RENOUV_STATUT[c.renouvellement_statut]||RENOUV_STATUT.en_attente) : null;
+                          const urgence = joursRestants<=0?"expired":joursRestants<=14?"critical":joursRestants<=30?"warning":"ok";
+                          const urgCfg = { expired:{bg:"#fee2e2",c:"#dc2626",label:"Expiré"}, critical:{bg:"#fee2e2",c:"#dc2626",label:`${joursRestants}j restants`}, warning:{bg:"#fef3c7",c:"#d97706",label:`${joursRestants}j restants`}, ok:{bg:"#dcfce7",c:"#16a34a",label:`${joursRestants}j restants`} }[urgence];
+                          return (
+                            <div key={c.id} style={{ background:"#fff", border:`1.5px solid ${urgence==="expired"||urgence==="critical"?"#fca5a5":"#e5e7eb"}`, borderRadius:12, padding:"16px 18px" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                                <div>
+                                  <div style={{ fontSize:15, fontWeight:800 }}>{c.apprenant_prenom||""} {c.apprenant_nom}</div>
+                                  <div style={{ fontSize:12, color:"#6b7280", marginTop:3 }}>
+                                    📅 {formatDate(c.date_debut)} → {formatDate(c.date_fin)} · {CONTRAT_TYPE[c.type_contrat]?.label||c.type_contrat}
+                                  </div>
+                                </div>
+                                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                                  <span style={{ background:urgCfg.bg, color:urgCfg.c, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>{urgCfg.label}</span>
+                                  {rCfg && <span style={{ background:rCfg.bg, color:rCfg.color, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>🔄 {rCfg.label}</span>}
+                                </div>
+                              </div>
+                              <div style={{ background:"#f8fafc", borderRadius:8, padding:"12px 14px", marginBottom:10 }}>
+                                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>Décision de renouvellement</div>
+                                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                                  {!c.renouvellement_statut && (
+                                    <button onClick={()=>paPatchContrat(c.id,{ renouvellement_statut:"en_attente", renouvellement_demande_date:new Date().toISOString().slice(0,10) })}
+                                      style={{ padding:"6px 14px", background:"#fef3c7", color:"#92400e", border:"1px solid #fcd34d", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                      ⏳ Demander renouvellement
+                                    </button>
+                                  )}
+                                  {c.renouvellement_statut==="en_attente" && (<>
+                                    <button onClick={()=>paPatchContrat(c.id,{ renouvellement_statut:"confirme", renouvellement_decision_date:new Date().toISOString().slice(0,10), statut:"renouvele" })}
+                                      style={{ padding:"6px 14px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                      ✅ Confirmer — Renouveler
+                                    </button>
+                                    <button onClick={()=>paPatchContrat(c.id,{ renouvellement_statut:"refuse", renouvellement_decision_date:new Date().toISOString().slice(0,10), statut:"non_renouvele" })}
+                                      style={{ padding:"6px 14px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                      ❌ Refuser — Arrêter le contrat
+                                    </button>
+                                  </>)}
+                                  {c.renouvellement_statut==="confirme" && (
+                                    <div style={{ fontSize:12, color:"#15803d", fontWeight:700 }}>✅ Contrat renouvelé · Décidé le {formatDate(c.renouvellement_decision_date)}</div>
+                                  )}
+                                  {c.renouvellement_statut==="refuse" && (
+                                    <div style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>❌ Contrat non renouvelé · Décidé le {formatDate(c.renouvellement_decision_date)}</div>
+                                  )}
+                                </div>
+                              </div>
+                              {c.renouvellement_note!==undefined && (
+                                <div style={{ marginTop:6 }}>
+                                  <label style={{ fontSize:11, fontWeight:600, color:"#374151", display:"block", marginBottom:3 }}>Note renouvellement</label>
+                                  <textarea defaultValue={c.renouvellement_note||""}
+                                    onBlur={e=>paPatchContrat(c.id,{renouvellement_note:e.target.value})}
+                                    rows={2} placeholder="Motif, conditions…"
+                                    style={{ width:"100%", padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, resize:"vertical", boxSizing:"border-box" }} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                  </div>{/* fin contenu */}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── ONGLET MESSAGES ── */}
           {activeTab === "messages" && (
             <div style={{ padding:"0 0 32px" }}>
@@ -2105,6 +3304,10 @@ export default function PedagogicalAdvisorDashboard() {
               <NotificationsTab userId={profil?.id} accentColor="#7c3aed" />
             </div>
           )}
+
+          </div>{/* fin padding 24 */}
+        </div>{/* fin white card */}
+      </div>{/* fin outer padding */}
 
     </div>
   );

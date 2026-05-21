@@ -189,6 +189,8 @@ router.post("/login", async (req, res) => {
       mdp_temporaire:     profil.mdp_temporaire ?? false,
       derniere_connexion: profil.derniere_connexion,
       date_creation:      profil.date_creation,
+      avatar_url:         profil.avatar_url  || null,
+      coach_info:         profil.coach_info  || null,
     };
 
     // Si 2FA désactivée en DB → connexion directe, ignorer l'état Supabase MFA
@@ -239,8 +241,17 @@ router.post("/login", async (req, res) => {
    GET /api/admin/me
    Profil de l'admin connecté.
 ══════════════════════════════════════════════════════════════ */
-router.get("/me", authenticateAdmin, (req, res) => {
-  res.json({ profil: req.profil });
+router.get("/me", authenticateAdmin, async (req, res) => {
+  const profil = { ...req.profil };
+  if (profil.role === "coach") {
+    const { count } = await supabase
+      .from("groupes")
+      .select("id", { count: "exact", head: true })
+      .eq("coach_id", profil.id)
+      .eq("statut", "actif");
+    profil.nbr_contrats_actifs = count || 0;
+  }
+  res.json({ profil });
 });
 
 
@@ -610,6 +621,8 @@ router.post("/mfa/verify", async (req, res) => {
         mdp_temporaire:     profil.mdp_temporaire,
         derniere_connexion: profil.derniere_connexion,
         date_creation:      profil.date_creation,
+        avatar_url:         profil.avatar_url  || null,
+        coach_info:         profil.coach_info  || null,
       },
     });
   } catch (err) {
@@ -625,12 +638,29 @@ router.post("/mfa/verify", async (req, res) => {
 ══════════════════════════════════════════════════════════════ */
 router.get("/utilisateurs", authenticateAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let q = supabase
       .from("utilisateurs")
-      .select("id,email,nom,prenom,telephone,role,scope,departement,actif,twofa_active,mdp_temporaire,date_creation,derniere_connexion,note,cree_par_id,avatar_url")
+      .select("id,email,nom,prenom,telephone,role,scope,departement,actif,twofa_active,mdp_temporaire,date_creation,derniere_connexion,note,cree_par_id,avatar_url,coach_info")
       .order("date_creation", { ascending: false });
+    if (req.query.role) q = q.eq("role", req.query.role);
+    const { data, error } = await q;
     if (error) throw error;
-    res.json({ utilisateurs: data });
+
+    // Pour les coachs, enrichir avec le nombre de groupes actifs
+    let utilisateurs = data || [];
+    const coachIds = utilisateurs.filter(u => u.role === "coach").map(u => u.id);
+    if (coachIds.length > 0) {
+      const { data: groupesData } = await supabase
+        .from("groupes")
+        .select("coach_id")
+        .in("coach_id", coachIds)
+        .eq("statut", "actif");
+      const countMap = {};
+      (groupesData || []).forEach(g => { countMap[g.coach_id] = (countMap[g.coach_id] || 0) + 1; });
+      utilisateurs = utilisateurs.map(u => u.role === "coach" ? { ...u, nbr_contrats_actifs: countMap[u.id] || 0 } : u);
+    }
+
+    res.json({ utilisateurs });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur récupération utilisateurs" });
@@ -639,7 +669,7 @@ router.get("/utilisateurs", authenticateAdmin, async (req, res) => {
 
 router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, res) => {
   try {
-    const { nom, prenom, email, telephone, role, scope, departement, note, planning } = req.body;
+    const { nom, prenom, email, telephone, role, scope, departement, note, planning, coach_info, avatar_url } = req.body;
     if (!nom || !prenom || !email || !role) {
       return res.status(400).json({ error: "Champs requis : nom, prenom, email, role" });
     }
@@ -684,6 +714,8 @@ router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, r
         mdp_initial: mdpTemp,
         cree_par_id: req.profil.id,
         note: note || null,
+        avatar_url: avatar_url || coach_info?.photo_url || null,
+        coach_info: coach_info || null,
       })
       .select().single();
 

@@ -28,6 +28,9 @@ import corporateRouter    from "./routes/corporate.js";
 import marqueeRouter      from "./routes/marquee.js";
 import codesPromoRouter   from "./routes/codesPromo.js";
 import avisRouter         from "./routes/avis.js";
+import groupesRouter      from "./routes/groupes.js";
+import contratsPrivesRouter from "./routes/contratsPrives.js";
+import plaintesRouter       from "./routes/plaintes.js";
 
 const app = express();
 
@@ -76,5 +79,8 @@ app.use("/api/corporate",   corporateRouter);
 app.use("/api/marquee",      marqueeRouter);
 app.use("/api/codes-promo",  codesPromoRouter);
 app.use("/api/avis",         avisRouter);
+app.use("/api/groupes",         groupesRouter);
+app.use("/api/contrats-prives", contratsPrivesRouter);
+app.use("/api/plaintes",        plaintesRouter);
 
 export default app;

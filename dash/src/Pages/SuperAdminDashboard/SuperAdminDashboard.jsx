@@ -846,8 +846,8 @@ export default function SuperAdminDashboard() {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [tempPasswords, setTempPasswords] = useState({}); // { [userId]: mdp }
-  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", coach_photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0 });
-  const [inviteCoachPhotoUploading, setInviteCoachPhotoUploading] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0, coach_certifications:[], coach_certif_input:"" });
+  const [invitePhotoUploading, setInvitePhotoUploading] = useState(false);
   const [assistanteProfilFilter, setAssistanteProfilFilter] = useState("b2c"); // "b2c" | "b2b"
   const [editingUser, setEditingUser] = useState(null);
   const [userToRevoke, setUserToRevoke] = useState(null);
@@ -1345,16 +1345,18 @@ export default function SuperAdminDashboard() {
         role: inviteForm.role,
         scope,
         note: inviteForm.note,
+        avatar_url: inviteForm.photo || null,
       };
       // Pour les coachs : inclure les infos spécifiques
       if (inviteForm.role === "coach") {
         payload.coach_info = {
-          photo_url:           inviteForm.coach_photo          || null,
+          photo_url:           inviteForm.photo               || null,
           matricule:           inviteForm.coach_matricule      || null,
           filiere:             inviteForm.coach_filiere        || null,
           lieu_habitation:     inviteForm.coach_lieu_habitation || null,
           date_debut_bet:      inviteForm.coach_date_debut     || null,
           nb_contrats_actifs:  inviteForm.coach_nb_contrats    || 0,
+          certifications:      inviteForm.coach_certifications.length ? inviteForm.coach_certifications : null,
         };
       }
       // Pour les assistantes commerciales : inclure le planning
@@ -1384,21 +1386,94 @@ export default function SuperAdminDashboard() {
       }
       await chargerUtilisateurs();
       setShowInviteModal(false);
-      setInviteForm({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", coach_photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0 });
+      setInviteForm({ nom:"", email:"", telephone:"", role:"manager", centre_id:"", accessTemp:"", note:"", type_cours:"en_ligne", quota_jour:10, jours_travail:["lundi","mardi","mercredi","jeudi","vendredi"], profil_assistante:"b2c", photo:"", coach_matricule:"", coach_filiere:"", coach_lieu_habitation:"", coach_date_debut:"", coach_nb_contrats:0, coach_certifications:[], coach_certif_input:"" });
     } catch { toast.error("Impossible de joindre le serveur"); }
   };
 
-  const uploadInviteCoachPhoto = async (file) => {
-    setInviteCoachPhotoUploading(true);
+  const uploadInvitePhoto = async (file) => {
+    setInvitePhotoUploading(true);
     try {
       const fd = new FormData(); fd.append("file", file);
-      const r = await fetch(`${API_URL}/api/upload/image`, { method:"POST", headers:{ Authorization:`Bearer ${localStorage.getItem("admin_token")}` }, body:fd });
+      const r = await fetch(`${API_URL}/api/upload/avatar`, { method:"POST", headers:{ Authorization:`Bearer ${localStorage.getItem("admin_token")}` }, body:fd });
       const d = await r.json();
+      if (!r.ok) { toast.error(d.error || `Erreur ${r.status} — upload photo`); return; }
       const url = d.file?.url || d.url || "";
-      if (url) setInviteForm(p => ({ ...p, coach_photo: url }));
-      else toast.error("Upload échoué");
-    } catch { toast.error("Erreur upload photo"); }
-    finally { setInviteCoachPhotoUploading(false); }
+      if (url) setInviteForm(p => ({ ...p, photo: url }));
+      else toast.error("Upload échoué — URL manquante");
+    } catch (e) { toast.error("Erreur réseau upload photo"); }
+    finally { setInvitePhotoUploading(false); }
+  };
+
+  const openCoachModal = (coach) => {
+    setSelectedCoach(coach);
+    setCoachModalTab("infos");
+    setCoachContrats([]);
+    setCoachGroupes([]);
+    setShowContratForm(false);
+    setContratEditId(null);
+    fetchCoachContrats(coach.id);
+    fetchCoachGroupes(coach.id);
+  };
+
+  const fetchCoachContrats = async (coachId) => {
+    setCoachContratsLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/contrats-prives?coach_id=${coachId}`, { headers: authHeaders() });
+      const d = await r.json();
+      setCoachContrats(d.contrats || []);
+    } catch {}
+    finally { setCoachContratsLoading(false); }
+  };
+
+  const fetchCoachGroupes = async (coachId) => {
+    setCoachGroupesLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes?coach_id=${coachId}`, { headers: authHeaders() });
+      const d = await r.json();
+      setCoachGroupes(d.groupes || []);
+    } catch {}
+    finally { setCoachGroupesLoading(false); }
+  };
+
+  const saveContrat = async () => {
+    if (!contratForm.apprenant_nom || !contratForm.prix_h) {
+      toast.error("Nom apprenant et prix/h sont requis"); return;
+    }
+    setContratSaving(true);
+    try {
+      const url = contratEditId
+        ? `${API_URL}/api/contrats-prives/${contratEditId}`
+        : `${API_URL}/api/contrats-prives`;
+      const method = contratEditId ? "PATCH" : "POST";
+      const body = contratEditId
+        ? contratForm
+        : { ...contratForm, coach_id: selectedCoach.id };
+      const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      toast.success(contratEditId ? "Contrat mis à jour ✓" : "Contrat créé ✓");
+      setShowContratForm(false);
+      setContratEditId(null);
+      setContratForm({ apprenant_nom:"", apprenant_prenom:"", apprenant_email:"", apprenant_telephone:"", type_contrat:"en_ligne", niveau:"B1", objectif:"", prix_h:"", nb_seances_total:"", duree_seance_h:"1.5", date_debut:"", date_fin:"", note:"" });
+      fetchCoachContrats(selectedCoach.id);
+    } catch { toast.error("Erreur sauvegarde contrat"); }
+    finally { setContratSaving(false); }
+  };
+
+  const patchContrat = async (id, updates) => {
+    try {
+      const r = await fetch(`${API_URL}/api/contrats-prives/${id}`, { method:"PATCH", headers: authHeaders(), body: JSON.stringify(updates) });
+      if (!r.ok) throw new Error();
+      fetchCoachContrats(selectedCoach.id);
+    } catch { toast.error("Erreur mise à jour"); }
+  };
+
+  const deleteContrat = async (id) => {
+    if (!window.confirm("Supprimer ce contrat ?")) return;
+    try {
+      await fetch(`${API_URL}/api/contrats-prives/${id}`, { method:"DELETE", headers: authHeaders() });
+      toast.success("Contrat supprimé");
+      fetchCoachContrats(selectedCoach.id);
+    } catch { toast.error("Erreur suppression"); }
   };
 
   const renvoyerAcces = async (userId) => {
@@ -1621,6 +1696,19 @@ export default function SuperAdminDashboard() {
 
   // États pour les onglets Coachs & Apprenants
   const [selectedCoach,     setSelectedCoach]     = useState(null);
+  const [coachModalTab,     setCoachModalTab]     = useState("infos");
+  const [coachContrats,     setCoachContrats]     = useState([]);
+  const [coachContratsLoading, setCoachContratsLoading] = useState(false);
+  const [coachGroupes,      setCoachGroupes]      = useState([]);
+  const [coachGroupesLoading, setCoachGroupesLoading] = useState(false);
+  const [showContratForm,   setShowContratForm]   = useState(false);
+  const [contratEditId,     setContratEditId]     = useState(null);
+  const [contratSaving,     setContratSaving]     = useState(false);
+  const [contratForm,       setContratForm]       = useState({
+    apprenant_nom:"", apprenant_prenom:"", apprenant_email:"", apprenant_telephone:"",
+    type_contrat:"en_ligne", niveau:"B1", objectif:"", prix_h:"",
+    nb_seances_total:"", duree_seance_h:"1.5", date_debut:"", date_fin:"", note:"",
+  });
   const [selectedApprenant, setSelectedApprenant] = useState(null);
   const [coachSubTab,       setCoachSubTab]       = useState("liste");
   const [apprenantFiltre,   setApprenantFiltre]   = useState({ type_cours:"Tous", centre:"Tous", statut:"Tous", search:"" });
@@ -1651,6 +1739,69 @@ export default function SuperAdminDashboard() {
   };
   useEffect(() => { if (activeTab === "paiements") fetchPaiements(); }, [activeTab]);
 
+  // ── Groupes admin ────────────────────────────────────────────────────────
+  const [adminGroupes, setAdminGroupes]         = useState([]);
+  const [adminGroupesLoading, setAdminGroupesLoading] = useState(false);
+  const [adminSelectedGroupe, setAdminSelectedGroupe] = useState(null);
+  const [adminGroupeDetail, setAdminGroupeDetail]     = useState({ apprenants:[], fichiers:[] });
+  const [adminCoursListe, setAdminCoursListe]   = useState([]);
+  const [adminCoursLoading, setAdminCoursLoading] = useState(false);
+  const [adminPresences, setAdminPresences]     = useState([]);
+  const [adminGroupeSubTab, setAdminGroupeSubTab] = useState("apprenants");
+  const [adminCoursFiltreMois, setAdminCoursFiltreMois] = useState(() => new Date().getMonth()+1);
+  const [adminCoursAnnee, setAdminCoursAnnee]   = useState(() => new Date().getFullYear());
+  const [adminFiltreCoach, setAdminFiltreCoach] = useState("tous");
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (activeTab !== "groupes_admin") return;
+    const token = localStorage.getItem("admin_token");
+    setAdminGroupesLoading(true);
+    fetch(`${API_URL}/api/groupes`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r=>r.ok?r.json():{groupes:[]})
+      .then(d=>setAdminGroupes(d.groupes||[]))
+      .catch(()=>{})
+      .finally(()=>setAdminGroupesLoading(false));
+  }, [activeTab]);
+
+  const fetchAdminGroupeDetail = async (groupe) => {
+    const token = localStorage.getItem("admin_token");
+    setAdminSelectedGroupe(groupe);
+    setAdminGroupeSubTab("apprenants");
+    setAdminCoursListe([]); setAdminPresences([]);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupe.id}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setAdminGroupeDetail({ apprenants: d.apprenants||[], fichiers: d.fichiers||[] });
+    } catch {}
+  };
+
+  const fetchAdminCours = async (groupeId, mois, annee) => {
+    const token = localStorage.getItem("admin_token");
+    setAdminCoursLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupeId}/cours?mois=${mois}&annee=${annee}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setAdminCoursListe(d.cours||[]);
+    } catch {} finally { setAdminCoursLoading(false); }
+  };
+
+  const fetchAdminPresences = async (groupeId) => {
+    const token = localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${groupeId}/presences`, { headers:{ Authorization:`Bearer ${token}` } });
+      const d = await r.json();
+      setAdminPresences(d.presences||[]);
+    } catch {}
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!adminSelectedGroupe) return;
+    if (adminGroupeSubTab === "cours") fetchAdminCours(adminSelectedGroupe.id, adminCoursFiltreMois, adminCoursAnnee);
+    if (adminGroupeSubTab === "presences") fetchAdminPresences(adminSelectedGroupe.id);
+  }, [adminGroupeSubTab, adminSelectedGroupe, adminCoursFiltreMois, adminCoursAnnee]);
+
   // Onglets principaux (élargis)
   const tabs = [
     { key: "overview",      label: "Vue d'ensemble", icon: "🏠" },
@@ -1666,6 +1817,7 @@ export default function SuperAdminDashboard() {
     { key: "suivi_apprenants", label: "Apprenants", icon: "🎓", badge: apprenants.length || null },
     { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
+    { key: "groupes_admin", label: "Groupes de cours",       icon: "👥" },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
     { key: "notifications", label: "Notifications",          icon: "🔔" },
@@ -4666,6 +4818,9 @@ export default function SuperAdminDashboard() {
                             <td style={{ padding:"12px", fontSize:12, color:"#6b7280" }}>{u.derniere_connexion ? new Date(u.derniere_connexion).toLocaleDateString("fr-FR") : "—"}</td>
                             <td style={{ padding:"12px" }}>
                               <div style={{ display:"flex", gap:5 }}>
+                                {u.role === "coach" && (
+                                  <button onClick={()=>openCoachModal(u)} title="Profil coach complet" style={{ padding:"5px 10px", background:"#ede9fe", color:"#6d28d9", border:"1px solid #c4b5fd", borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:700 }}>👁 Profil</button>
+                                )}
                                 <button onClick={()=>{setEditingUser(u);setShowUserModal(true);}} title="Modifier" style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>✏️</button>
                                 <button onClick={()=>renvoyerAcces(u.id)} title="Afficher les accès" style={{ padding:"5px 10px", background:"#f0fdf4", color:"#16a34a", border:"1px solid #bbf7d0", borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>✉️</button>
                                 <button onClick={()=>{setEditingRole(u.role);setPermSubTab("matrice");}} title="Permissions" style={{ padding:"5px 10px", background:BET_LIGHT, color:BET_DARK, border:`1px solid ${BET_COLOR}40`, borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:600 }}>🔐</button>
@@ -5523,6 +5678,234 @@ export default function SuperAdminDashboard() {
               );
             })()}
 
+            {/* ══ ONGLET GROUPES DE COURS (Super Admin — vue globale) ══ */}
+            {activeTab === "groupes_admin" && (
+              <div>
+                {!adminSelectedGroupe ? (
+                  <div>
+                    {/* Header */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                      <div>
+                        <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>👥 Groupes de cours — Vue globale</h2>
+                        <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Consultation de tous les groupes d'apprenants</p>
+                      </div>
+                    </div>
+
+                    {/* Filtre par coach */}
+                    {adminGroupes.length > 0 && (
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
+                        {["tous", ...Array.from(new Set(adminGroupes.map(g=>g.coach_nom||g.nom_coach||"Sans coach")))].map(coach=>(
+                          <button key={coach} onClick={()=>setAdminFiltreCoach(coach)}
+                            style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", fontSize:12, fontWeight:600, cursor:"pointer",
+                              background:adminFiltreCoach===coach?BET_COLOR:"#fff",
+                              color:adminFiltreCoach===coach?"#fff":"#374151",
+                              borderColor:adminFiltreCoach===coach?BET_COLOR:"#e5e7eb" }}>
+                            {coach==="tous"?"Tous les coachs":coach}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {adminGroupesLoading && <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:13 }}>Chargement des groupes…</div>}
+                    {!adminGroupesLoading && adminGroupes.length === 0 && (
+                      <div style={{ textAlign:"center", padding:60, color:"#9ca3af", fontSize:13 }}>Aucun groupe trouvé.</div>
+                    )}
+                    {!adminGroupesLoading && adminGroupes.length > 0 && (
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+                        {adminGroupes
+                          .filter(g => adminFiltreCoach === "tous" || (g.coach_nom||g.nom_coach||"Sans coach") === adminFiltreCoach)
+                          .map(g => (
+                            <div key={g.id} style={{ background:"#fff", borderRadius:14, border:"1px solid #e5e7eb", padding:"16px 18px", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                                <div style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>{g.nom}</div>
+                                <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700,
+                                  color:g.statut==="actif"?"#166534":"#6b7280",
+                                  background:g.statut==="actif"?"#dcfce7":"#f1f5f9" }}>{g.statut==="actif"?"Actif":"Inactif"}</span>
+                              </div>
+                              <div style={{ fontSize:11, color:"#6b7280", marginBottom:10 }}>
+                                {g.filiere||"—"} · Niveau {g.niveau||"—"} · {g.type_cours==="en_ligne"?"💻 En ligne":g.type_cours==="domicile"?"🏠 Domicile":"🏢 Centre"}
+                              </div>
+                              <div style={{ fontSize:11, color:"#374151", marginBottom:4 }}>👨‍🏫 {g.coach_nom||g.nom_coach||"Sans coach"}</div>
+                              <div style={{ fontSize:11, color:"#374151", marginBottom:12 }}>👥 {g.nb_apprenants||0} apprenant(s)</div>
+                              <button onClick={()=>fetchAdminGroupeDetail(g)}
+                                style={{ width:"100%", padding:"7px 0", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                                Voir détail →
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* ── DETAIL VIEW ── */
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+                      <button onClick={()=>{ setAdminSelectedGroupe(null); setAdminGroupeDetail({ apprenants:[], fichiers:[] }); }}
+                        style={{ padding:"8px 14px", background:"#f1f5f9", color:"#374151", border:"1px solid #e5e7eb", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:13 }}>
+                        ← Retour
+                      </button>
+                      <div>
+                        <h2 style={{ margin:0, fontSize:17, fontWeight:800, color:"#0f172a" }}>{adminSelectedGroupe.nom}</h2>
+                        <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>
+                          {adminSelectedGroupe.filiere||"—"} · Niveau {adminSelectedGroupe.niveau||"—"} · {adminSelectedGroupe.type_cours==="en_ligne"?"💻 En ligne":adminSelectedGroupe.type_cours==="domicile"?"🏠 Domicile":"🏢 Centre"}
+                        </div>
+                      </div>
+                      <span style={{ marginLeft:"auto", padding:"3px 12px", borderRadius:99, fontSize:11, fontWeight:700,
+                        color:adminSelectedGroupe.statut==="actif"?"#166534":"#6b7280",
+                        background:adminSelectedGroupe.statut==="actif"?"#dcfce7":"#f1f5f9" }}>
+                        {adminSelectedGroupe.statut==="actif"?"Actif":"Inactif"}
+                      </span>
+                    </div>
+
+                    {/* Info cards */}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10, marginBottom:20 }}>
+                      {[
+                        { l:"Coach assigné", v: adminSelectedGroupe.coach_nom||adminSelectedGroupe.nom_coach||"—" },
+                        { l:"Apprenants", v: adminSelectedGroupe.nb_apprenants||0 },
+                        { l:"Date début", v: adminSelectedGroupe.date_debut ? new Date(adminSelectedGroupe.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "—" },
+                        { l:"Date fin", v: adminSelectedGroupe.date_fin ? new Date(adminSelectedGroupe.date_fin).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "—" },
+                      ].map(s=>(
+                        <div key={s.l} style={{ padding:"10px 12px", borderRadius:10, background:"#f8fafc", border:"1px solid #e5e7eb" }}>
+                          <div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>{s.l}</div>
+                          <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Sub-tabs */}
+                    <div style={{ display:"flex", gap:4, borderBottom:"2px solid #e5e7eb", marginBottom:20 }}>
+                      {[
+                        { k:"apprenants", l:"Apprenants" },
+                        { k:"cours", l:"Historique cours" },
+                        { k:"presences", l:"Présences" },
+                      ].map(t=>(
+                        <button key={t.k} onClick={()=>setAdminGroupeSubTab(t.k)}
+                          style={{ padding:"8px 16px", border:"none", background:"none", fontWeight:700, fontSize:13, cursor:"pointer",
+                            color:adminGroupeSubTab===t.k?BET_COLOR:"#64748b",
+                            borderBottom:adminGroupeSubTab===t.k?`2px solid ${BET_COLOR}`:"2px solid transparent",
+                            marginBottom:-2 }}>
+                          {t.l}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Apprenants sub-tab */}
+                    {adminGroupeSubTab === "apprenants" && (
+                      <div style={{ background:"#fff", borderRadius:14, border:"1px solid #e5e7eb", overflow:"hidden" }}>
+                        <div style={{ padding:"14px 18px", borderBottom:"1px solid #e5e7eb", background:"#fafafa", fontSize:13, fontWeight:700, color:"#0f172a" }}>
+                          Apprenants ({adminGroupeDetail.apprenants.filter(a=>a.statut!=="retire").length})
+                        </div>
+                        {adminGroupeDetail.apprenants.length === 0 && (
+                          <div style={{ textAlign:"center", padding:32, color:"#9ca3af", fontSize:12 }}>Aucun apprenant dans ce groupe</div>
+                        )}
+                        {adminGroupeDetail.apprenants.filter(a=>a.statut!=="retire").map(a=>(
+                          <div key={a.id} style={{ display:"flex", alignItems:"center", padding:"12px 18px", borderBottom:"1px solid #f1f5f9", gap:10 }}>
+                            <div style={{ width:36, height:36, borderRadius:"50%", background:BET_COLOR+"20", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13, color:BET_COLOR, flexShrink:0 }}>
+                              {(a.prenom_apprenant||a.nom_apprenant||"?")[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{a.prenom_apprenant} {a.nom_apprenant}</div>
+                              <div style={{ fontSize:11, color:"#6b7280" }}>{a.email_apprenant||"—"} {a.niveau ? `· Niveau ${a.niveau}` : ""}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Cours sub-tab */}
+                    {adminGroupeSubTab === "cours" && (() => {
+                      const STATUT_COURS_CFG = {
+                        dispense:{label:"Dispensé",color:"#065f46",bg:"#d1fae5",icon:"✅"},
+                        annule:{label:"Annulé",color:"#991b1b",bg:"#fee2e2",icon:"❌"},
+                        apprenant_absent:{label:"Apprenant absent",color:"#92400e",bg:"#fef3c7",icon:"👤"},
+                        coach_absent:{label:"Coach absent",color:"#1e40af",bg:"#dbeafe",icon:"🏃"},
+                        catch_up:{label:"Catch up",color:"#5b21b6",bg:"#ede9fe",icon:"🔄"},
+                        holiday:{label:"Congé / Férié",color:"#374151",bg:"#f1f5f9",icon:"🏖️"},
+                      };
+                      return (
+                        <div>
+                          <div style={{ display:"flex", gap:8, marginBottom:16, alignItems:"center" }}>
+                            <select value={adminCoursFiltreMois} onChange={e=>setAdminCoursFiltreMois(Number(e.target.value))}
+                              style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:12 }}>
+                              {["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"].map((m,i)=>(
+                                <option key={i+1} value={i+1}>{m}</option>
+                              ))}
+                            </select>
+                            <select value={adminCoursAnnee} onChange={e=>setAdminCoursAnnee(Number(e.target.value))}
+                              style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:12 }}>
+                              {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+                            </select>
+                          </div>
+                          {adminCoursLoading && <p style={{ color:"#9ca3af", textAlign:"center" }}>Chargement…</p>}
+                          {!adminCoursLoading && adminCoursListe.length === 0 && <p style={{ color:"#9ca3af", textAlign:"center", padding:20 }}>Aucun cours ce mois-ci.</p>}
+                          {!adminCoursLoading && adminCoursListe.length > 0 && (
+                            <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                                <thead>
+                                  <tr style={{ background:"#f8fafc" }}>
+                                    {["Date","Statut","Objectif","Grammaire","Sujet discussion","Commentaire"].map((h,i)=>(
+                                      <th key={i} style={{ padding:"9px 12px", textAlign:"left", fontWeight:700, color:"#374151", fontSize:11, borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {adminCoursListe.map((c,idx)=>{
+                                    const s = STATUT_COURS_CFG[c.statut] || STATUT_COURS_CFG.dispense;
+                                    return (
+                                      <tr key={c.id} style={{ background:idx%2===0?"#fff":"#fafafa", borderBottom:"1px solid #f1f5f9" }}>
+                                        <td style={{ padding:"9px 12px", fontWeight:600, whiteSpace:"nowrap" }}>{new Date(c.date_cours).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</td>
+                                        <td style={{ padding:"9px 12px" }}><span style={{ padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:700, background:s.bg, color:s.color }}>{s.icon} {s.label}</span></td>
+                                        <td style={{ padding:"9px 12px", color:"#374151" }}>{c.objectif||"—"}</td>
+                                        <td style={{ padding:"9px 12px", color:"#374151" }}>{c.grammaire||"—"}</td>
+                                        <td style={{ padding:"9px 12px", color:"#374151" }}>{c.sujet_discussion||"—"}</td>
+                                        <td style={{ padding:"9px 12px", color:"#6b7280" }}>{c.commentaire||"—"}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Présences sub-tab */}
+                    {adminGroupeSubTab === "presences" && (
+                      <div>
+                        {adminPresences.length === 0 && <p style={{ color:"#9ca3af", textAlign:"center", padding:20 }}>Aucune présence enregistrée.</p>}
+                        {(() => {
+                          const parDate = {};
+                          adminPresences.forEach(p=>{ if(!parDate[p.date_seance]) parDate[p.date_seance]=[]; parDate[p.date_seance].push(p); });
+                          return Object.entries(parDate).sort(([a],[b])=>b.localeCompare(a)).map(([date,rows])=>{
+                            const presents = rows.filter(r=>r.statut==="present").length;
+                            const taux = rows.length ? Math.round(presents/rows.length*100) : 0;
+                            return (
+                              <div key={date} style={{ marginBottom:12, background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", overflow:"hidden" }}>
+                                <div style={{ padding:"10px 14px", background:"#f8fafc", borderBottom:"1px solid #e5e7eb", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                  <span style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>📅 {new Date(date).toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</span>
+                                  <span style={{ fontSize:11, fontWeight:700, color:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626" }}>{presents}/{rows.length} — {taux}%</span>
+                                </div>
+                                <div style={{ padding:"10px 14px", display:"flex", flexWrap:"wrap", gap:6 }}>
+                                  {rows.map(r=>(
+                                    <span key={r.id} style={{ padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:600,
+                                      background:r.statut==="present"?"#d1fae5":r.statut==="absent"?"#fee2e2":r.statut==="retard"?"#fef3c7":"#ede9fe",
+                                      color:r.statut==="present"?"#065f46":r.statut==="absent"?"#991b1b":r.statut==="retard"?"#92400e":"#5b21b6" }}>
+                                      {r.statut==="present"?"✅":r.statut==="absent"?"❌":r.statut==="retard"?"⏰":"📝"} {[r.prenom_apprenant,r.nom_apprenant].filter(Boolean).join(" ")}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ================= ONGLET APPRENANTS — liste ================= */}
             {activeTab === "suivi_apprenants" && apprenantSubTab === "liste" && (() => {
               const STATUT_LABEL = { nouveau:"Nouveau", contacte:"Contacté", en_cours:"En cours", converti:"Converti", annule:"Annulé", termine:"Terminé" };
@@ -5925,6 +6308,33 @@ export default function SuperAdminDashboard() {
         {/* MODALES (invitation, utilisateur, révocation, clone, demande) identiques à AdminDashboard */}
         {showInviteModal && (
           <Modal title="Créer un utilisateur" subtitle="Un mot de passe temporaire sera généré automatiquement" onClose={()=>setShowInviteModal(false)}>
+            {/* Photo de profil — commune à tous les rôles */}
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16, padding:"14px 16px", background:"#f8fafc", borderRadius:10, border:"1px solid #e5e7eb" }}>
+              <div style={{ width:72, height:72, borderRadius:"50%", overflow:"hidden", background:"#e5e7eb", border:"2px solid #d1d5db", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                {inviteForm.photo
+                  ? <img src={inviteForm.photo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                  : <span style={{ fontSize:30 }}>👤</span>
+                }
+              </div>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:6 }}>Photo de profil</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <label style={{ padding:"7px 14px", background:invitePhotoUploading?"#9ca3af":"#0f172a", color:"#fff", borderRadius:7, fontSize:12, fontWeight:600, cursor:invitePhotoUploading?"not-allowed":"pointer", display:"inline-block" }}>
+                    {invitePhotoUploading ? "⏳ Upload…" : "📷 Choisir une photo"}
+                    <input type="file" accept="image/*" style={{ display:"none" }} disabled={invitePhotoUploading}
+                      onChange={e => { if (e.target.files?.[0]) uploadInvitePhoto(e.target.files[0]); }} />
+                  </label>
+                  {inviteForm.photo && (
+                    <button onClick={()=>setInviteForm(p=>({...p,photo:""}))}
+                      style={{ padding:"6px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, fontSize:11, cursor:"pointer", fontWeight:600 }}>
+                      ✕ Retirer
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize:11, color:"#9ca3af", marginTop:4 }}>Optionnel — JPG, PNG recommandé</div>
+              </div>
+            </div>
+
             {/* Identité */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
               <div><label style={{ display:"block", fontSize:12, fontWeight:600, color:"#374151", marginBottom:4 }}>Nom complet *</label><input value={inviteForm.nom} onChange={e=>setInviteForm({...inviteForm,nom:e.target.value})} style={{ padding:9, borderRadius:6, border:"1px solid #d1d5db", fontSize:13, width:"100%" }} placeholder="Prénom Nom"/></div>
@@ -6039,30 +6449,6 @@ export default function SuperAdminDashboard() {
                   🎓 Profil coach
                 </div>
 
-                {/* Photo */}
-                <div style={{ marginBottom:14, display:"flex", alignItems:"center", gap:14 }}>
-                  <div style={{ width:72, height:72, borderRadius:12, overflow:"hidden", background:"#e0e7ff", border:"2px solid #c7d2fe", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    {inviteForm.coach_photo
-                      ? <img src={inviteForm.coach_photo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                      : <span style={{ fontSize:28, color:"#6366f1" }}>👤</span>
-                    }
-                  </div>
-                  <div>
-                    <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginBottom:6 }}>Photo du coach</div>
-                    <label style={{ padding:"7px 14px", background:inviteCoachPhotoUploading?"#e0e7ff":"#6366f1", color:"#fff", borderRadius:7, fontSize:12, fontWeight:600, cursor:inviteCoachPhotoUploading?"not-allowed":"pointer", display:"inline-block" }}>
-                      {inviteCoachPhotoUploading ? "⏳ Upload…" : "📷 Choisir une photo"}
-                      <input type="file" accept="image/*" style={{ display:"none" }} disabled={inviteCoachPhotoUploading}
-                        onChange={e => { if (e.target.files?.[0]) uploadInviteCoachPhoto(e.target.files[0]); }} />
-                    </label>
-                    {inviteForm.coach_photo && (
-                      <button onClick={()=>setInviteForm(p=>({...p,coach_photo:""}))}
-                        style={{ marginLeft:8, padding:"6px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, fontSize:11, cursor:"pointer", fontWeight:600 }}>
-                        ✕ Retirer
-                      </button>
-                    )}
-                  </div>
-                </div>
-
                 {/* Matricule + Filière */}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
                   <div>
@@ -6099,11 +6485,69 @@ export default function SuperAdminDashboard() {
                 </div>
 
                 {/* Nb contrats actifs */}
-                <div>
+                <div style={{ marginBottom:14 }}>
                   <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:4 }}>Nombre de contrats actifs</label>
                   <input type="number" min={0} value={inviteForm.coach_nb_contrats}
                     onChange={e=>setInviteForm(p=>({...p,coach_nb_contrats:parseInt(e.target.value)||0}))}
                     style={{ width:100, padding:"8px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:14, fontWeight:700, textAlign:"center" }} />
+                </div>
+
+                {/* Certifications */}
+                <div>
+                  <label style={{ display:"block", fontSize:11, fontWeight:600, color:"#374151", marginBottom:6 }}>🏆 Certifications</label>
+                  {/* Quick-add badges */}
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+                    {["CELTA","DELTA","TEFL","TOEIC Expert","IELTS 7+","TOEFL iBT","Cambridge TKT","Diplôme universitaire"].map(cert => {
+                      const active = inviteForm.coach_certifications.includes(cert);
+                      return (
+                        <button key={cert} type="button"
+                          onClick={() => setInviteForm(p => ({
+                            ...p,
+                            coach_certifications: active
+                              ? p.coach_certifications.filter(c=>c!==cert)
+                              : [...p.coach_certifications, cert]
+                          }))}
+                          style={{ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:600, cursor:"pointer", border:`1.5px solid ${active?"#6366f1":"#c7d2fe"}`, background:active?"#6366f1":"#fff", color:active?"#fff":"#6366f1" }}>
+                          {active ? "✓ " : "+ "}{cert}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Saisie libre */}
+                  <div style={{ display:"flex", gap:6 }}>
+                    <input value={inviteForm.coach_certif_input}
+                      onChange={e=>setInviteForm(p=>({...p,coach_certif_input:e.target.value}))}
+                      onKeyDown={e=>{
+                        if ((e.key==="Enter"||e.key===",") && inviteForm.coach_certif_input.trim()) {
+                          e.preventDefault();
+                          const v=inviteForm.coach_certif_input.trim().replace(/,$/,"");
+                          if (v && !inviteForm.coach_certifications.includes(v))
+                            setInviteForm(p=>({...p,coach_certifications:[...p.coach_certifications,v],coach_certif_input:""}));
+                          else setInviteForm(p=>({...p,coach_certif_input:""}));
+                        }
+                      }}
+                      placeholder="Autre certification… (Entrée pour ajouter)"
+                      style={{ flex:1, padding:"7px 10px", border:"1.5px solid #c7d2fe", borderRadius:7, fontSize:12 }} />
+                    <button type="button"
+                      onClick={()=>{
+                        const v=inviteForm.coach_certif_input.trim();
+                        if (v && !inviteForm.coach_certifications.includes(v))
+                          setInviteForm(p=>({...p,coach_certifications:[...p.coach_certifications,v],coach_certif_input:""}));
+                      }}
+                      style={{ padding:"7px 12px", background:"#6366f1", color:"#fff", border:"none", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer" }}>+ Ajouter</button>
+                  </div>
+                  {/* Tags ajoutés */}
+                  {inviteForm.coach_certifications.length > 0 && (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:8 }}>
+                      {inviteForm.coach_certifications.map(c => (
+                        <span key={c} style={{ display:"flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:20, background:"#ede9fe", color:"#5b21b6", fontSize:11, fontWeight:600 }}>
+                          🏆 {c}
+                          <button type="button" onClick={()=>setInviteForm(p=>({...p,coach_certifications:p.coach_certifications.filter(x=>x!==c)}))}
+                            style={{ background:"none", border:"none", cursor:"pointer", color:"#7c3aed", fontWeight:800, fontSize:12, padding:0, lineHeight:1 }}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -6218,83 +6662,484 @@ export default function SuperAdminDashboard() {
         )}
 
         {/* ── MODALE DÉTAIL COACH ── */}
-        {selectedCoach && (
-          <div style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
-            <div style={{ background:"#fff", borderRadius:16, width:"90%", maxWidth:720, maxHeight:"90vh", overflowY:"auto", padding:0 }}>
-              {/* Header */}
-              <div style={{ background:BET_GRADIENT, padding:"24px 28px", borderRadius:"16px 16px 0 0", position:"relative" }}>
+        {selectedCoach && (() => {
+          const coach = selectedCoach;
+          const photoUrl = coach.avatar_url || coach.coach_info?.photo_url || null;
+          const initiales = ((coach.prenom?.[0]||"")+(coach.nom?.[0]||"")).toUpperCase() || "CO";
+          const centre = (coach.scope?.filter(s=>s!=="national")||[]).join(", ") || "National";
+          const fmtMoney = v => v != null ? Number(v).toLocaleString("fr-FR")+" F" : "—";
+          const fmtDate  = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "—";
+          const CONTRAT_TYPE = {
+            en_ligne:        { label:"En ligne",      icon:"💻", color:"#0891b2", bg:"#e0f2fe" },
+            presentiel_bet:  { label:"Présentiel BET",icon:"🏢", color:"#7c3aed", bg:"#ede9fe" },
+            domicile:        { label:"À domicile",    icon:"🏠", color:"#d97706", bg:"#fef3c7" },
+          };
+          const CONTRAT_STATUT = {
+            en_attente:   { label:"En attente",    color:"#d97706", bg:"#fef3c7" },
+            actif:        { label:"Actif",          color:"#16a34a", bg:"#dcfce7" },
+            suspendu:     { label:"Suspendu",       color:"#9ca3af", bg:"#f3f4f6" },
+            termine:      { label:"Terminé",        color:"#6b7280", bg:"#f3f4f6" },
+            renouvele:    { label:"Renouvelé",      color:"#2563eb", bg:"#dbeafe" },
+            non_renouvele:{ label:"Non renouvelé",  color:"#dc2626", bg:"#fee2e2" },
+          };
+          const RENOUV_STATUT = {
+            en_attente: { label:"En attente",  color:"#d97706", bg:"#fef3c7" },
+            confirme:   { label:"Confirmé",    color:"#16a34a", bg:"#dcfce7" },
+            refuse:     { label:"Refusé",      color:"#dc2626", bg:"#fee2e2" },
+          };
+
+          // Honoraires — calcul par contrat
+          const honoraires = coachContrats.map(c => ({
+            ...c,
+            montant_total: (c.prix_h || 0) * (c.duree_seance_h || 1.5) * (c.nb_seances_total || 0),
+            montant_realise: (c.prix_h || 0) * (c.duree_seance_h || 1.5) * (c.nb_seances_realisees || 0),
+          }));
+          const totalDu     = honoraires.reduce((s,h) => s + h.montant_total,    0);
+          const totalRealise = honoraires.reduce((s,h) => s + h.montant_realise, 0);
+          const contratsActifs = coachContrats.filter(c=>c.statut==="actif").length;
+
+          // Renouvellement — contrats à échéance < 60j ou avec statut renouvellement
+          const today = new Date(); today.setHours(0,0,0,0);
+          const contratsARenouveler = coachContrats.filter(c => {
+            if (!c.date_fin) return false;
+            const fin = new Date(c.date_fin);
+            const joursRestants = Math.ceil((fin - today) / 86400000);
+            return (joursRestants <= 60 && c.statut === "actif") || c.renouvellement_statut;
+          });
+
+          const MODAL_TABS = [
+            { id:"infos",          label:"Infos",           icon:"👤" },
+            { id:"contrats",       label:`Contrats (${coachContrats.length})`, icon:"📋" },
+            { id:"honoraires",     label:"Honoraires",      icon:"💰" },
+            { id:"groupes",        label:`Groupes (${coachGroupes.length})`,   icon:"👥" },
+            { id:"renouvellement", label:`Renouvellement${contratsARenouveler.length > 0 ? ` 🔴${contratsARenouveler.length}` : ""}`, icon:"🔄" },
+          ];
+
+          return (
+          <div style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }} onClick={e=>{ if(e.target===e.currentTarget) setSelectedCoach(null); }}>
+            <div style={{ background:"#fff", borderRadius:16, width:"95%", maxWidth:900, maxHeight:"92vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+
+              {/* ── HEADER ── */}
+              <div style={{ background:BET_GRADIENT, padding:"20px 24px", borderRadius:"16px 16px 0 0", flexShrink:0 }}>
                 <button onClick={()=>setSelectedCoach(null)} style={{ position:"absolute", top:16, right:16, background:"rgba(255,255,255,0.2)", border:"none", borderRadius:"50%", width:32, height:32, cursor:"pointer", color:"#fff", fontSize:18 }}>✕</button>
                 <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-                  <div style={{ width:56, height:56, borderRadius:"50%", background:"rgba(255,255,255,0.2)", color:"#fff", fontWeight:800, fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>{selectedCoach.initiales}</div>
-                  <div>
+                  {photoUrl
+                    ? <img src={photoUrl} alt={coach.prenom} style={{ width:64, height:64, borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(255,255,255,0.4)", flexShrink:0 }} />
+                    : <div style={{ width:64, height:64, borderRadius:"50%", background:"rgba(255,255,255,0.2)", color:"#fff", fontWeight:800, fontSize:22, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                  }
+                  <div style={{ flex:1 }}>
                     <div style={{ fontSize:11, color:"#7dd3fc", fontWeight:600, marginBottom:2 }}>👨‍🏫 Formateur BET</div>
-                    <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>{selectedCoach.nom}</div>
-                    <div style={{ fontSize:13, color:"#bae6fd" }}>{selectedCoach.specialite} · {selectedCoach.certif}</div>
+                    <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>{coach.prenom} {coach.nom}</div>
+                    <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:4, fontSize:12, color:"rgba(255,255,255,.75)" }}>
+                      <span>{coach.coach_info?.filiere || coach.departement || "—"}</span>
+                      <span style={{ background:"rgba(255,255,255,.18)", borderRadius:6, padding:"1px 8px", color:"#fff", fontWeight:700 }}>
+                        {coach.actif ? "✅ Actif" : "🔴 Inactif"}
+                      </span>
+                      <span>📋 {contratsActifs} contrat{contratsActifs!==1?"s":""} actif{contratsActifs!==1?"s":""}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div style={{ padding:"24px 28px" }}>
-                {/* Infos rapides */}
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:24 }}>
-                  {[
-                    { icon:"📍", label:"Centre",     val:selectedCoach.centre },
-                    { icon:"📧", label:"Email",      val:selectedCoach.email },
-                    { icon:"📞", label:"Téléphone",  val:selectedCoach.tel },
-                    { icon:"📅", label:"Embauché le",val:selectedCoach.dateEmb },
-                    { icon:"👥", label:"Apprenants", val:`${selectedCoach.apprenants} actifs` },
-                    { icon:"✅", label:"Taux présence",val:`${selectedCoach.tauxPresence}%` },
-                  ].map((r,i) => (
-                    <div key={i} style={{ background:"#f8fafc", borderRadius:10, padding:"12px 14px" }}>
-                      <div style={{ fontSize:11, color:"#9ca3af", marginBottom:3 }}>{r.icon} {r.label}</div>
-                      <div style={{ fontWeight:700, color:"#0f172a", fontSize:13 }}>{r.val}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Planning */}
-                <h4 style={{ fontWeight:800, fontSize:14, margin:"0 0 12px", color:"#0f172a" }}>📅 Planning hebdomadaire</h4>
-                {selectedCoach.planning.length === 0
-                  ? <div style={{ color:"#9ca3af", fontSize:13, marginBottom:20 }}>Aucune session planifiée (congé).</div>
-                  : (
-                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
-                      {selectedCoach.planning.map((p,i) => (
-                        <div key={i} style={{ display:"flex", alignItems:"center", gap:14, padding:"10px 14px", background:"#f0f9ff", borderRadius:10, border:"1px solid #e0f2fe" }}>
-                          <div style={{ width:36, textAlign:"center", fontWeight:800, color:BET_COLOR, fontSize:13 }}>{p.jour}</div>
-                          <div style={{ fontWeight:700, color:"#0f172a", minWidth:120 }}>{p.horaire}</div>
-                          <div style={{ flex:1, color:"#475569", fontSize:13 }}>{p.classe}</div>
-                          <div style={{ fontSize:12, color:"#64748b" }}>📍 {p.salle} · 👥 {p.apprenants}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }
-
-                {/* Examens */}
-                <h4 style={{ fontWeight:800, fontSize:14, margin:"0 0 12px", color:"#0f172a" }}>📝 Examens</h4>
-                {selectedCoach.examens.length === 0
-                  ? <div style={{ color:"#9ca3af", fontSize:13 }}>Aucun examen enregistré.</div>
-                  : (
-                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                      {selectedCoach.examens.map((e,i) => (
-                        <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", background:"#f8fafc", borderRadius:10, border:"1px solid #e5e7eb" }}>
-                          <div>
-                            <div style={{ fontWeight:700, color:"#0f172a", fontSize:13 }}>{e.titre}</div>
-                            <div style={{ fontSize:12, color:"#9ca3af" }}>{e.classe} · {e.date} · {e.nbParticipants} participants</div>
-                          </div>
-                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                            {e.noteMoy !== "—" && <span style={{ fontWeight:800, color:BET_COLOR, fontSize:14 }}>{e.noteMoy}</span>}
-                            <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:e.statut==="Corrigé"?"#d1fae5":"#fff7ed", color:e.statut==="Corrigé"?"#065f46":"#92400e" }}>{e.statut==="Corrigé"?"✅ Corrigé":"⏳ À venir"}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }
+              {/* ── ONGLETS ── */}
+              <div style={{ display:"flex", borderBottom:"2px solid #e5e7eb", background:"#fafafa", flexShrink:0, overflowX:"auto" }}>
+                {MODAL_TABS.map(t => (
+                  <button key={t.id} onClick={()=>setCoachModalTab(t.id)}
+                    style={{ padding:"12px 18px", border:"none", borderBottom:`3px solid ${coachModalTab===t.id?BET_COLOR:"transparent"}`,
+                      background:"transparent", cursor:"pointer", fontWeight:coachModalTab===t.id?700:400,
+                      color:coachModalTab===t.id?BET_COLOR:"#6b7280", fontSize:12, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+                    <span>{t.icon}</span>{t.label}
+                  </button>
+                ))}
               </div>
+
+              {/* ── CONTENU ── */}
+              <div style={{ flex:1, overflowY:"auto", padding:"20px 24px" }}>
+
+                {/* ════ INFOS ════ */}
+                {coachModalTab === "infos" && (
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+                    <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                      <h3 style={{ margin:"0 0 14px", fontSize:14, fontWeight:800 }}>Informations personnelles</h3>
+                      {[
+                        ["Prénom",           coach.prenom || "—"],
+                        ["Nom",              coach.nom    || "—"],
+                        ["Email",            coach.email  || "—"],
+                        ["Téléphone",        coach.telephone || "—"],
+                        ["Matricule",        coach.coach_info?.matricule || "—"],
+                        ["Filière",          coach.coach_info?.filiere || coach.departement || "—"],
+                        ["Lieu habitation",  coach.coach_info?.lieu_habitation || "—"],
+                        ["Date début BET",   fmtDate(coach.coach_info?.date_debut_bet || coach.date_creation)],
+                        ["Centre",           centre],
+                        ["Statut",           coach.actif ? "✅ Actif" : "🔴 Inactif"],
+                      ].map(([l,v])=>(
+                        <div key={l} style={{ display:"flex", padding:"6px 0", borderBottom:"1px solid #f1f5f9", fontSize:13 }}>
+                          <span style={{ color:"#9ca3af", width:140, flexShrink:0, fontWeight:500 }}>{l}</span>
+                          <span style={{ fontWeight:600 }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                        <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:800 }}>Certifications</h3>
+                        {(() => {
+                          const certs = coach.coach_info?.certifications;
+                          const list = Array.isArray(certs) ? certs : (typeof certs === "string" ? certs.split(",").map(s=>s.trim()).filter(Boolean) : []);
+                          return list.length ? (
+                            <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+                              {list.map((c,i) => <span key={i} style={{ padding:"4px 12px", borderRadius:99, background:"#ede9fe", color:"#5b21b6", fontSize:12, fontWeight:700 }}>🏆 {c}</span>)}
+                            </div>
+                          ) : <p style={{ fontSize:13, color:"#9ca3af" }}>Aucune certification</p>;
+                        })()}
+                      </div>
+                      <div style={{ background:"#f8fafc", borderRadius:12, padding:18 }}>
+                        <h3 style={{ margin:"0 0 12px", fontSize:14, fontWeight:800 }}>Résumé activité</h3>
+                        {[
+                          { l:"Contrats actifs",   v:contratsActifs,            c:BET_COLOR },
+                          { l:"Total contrats",    v:coachContrats.length,       c:"#6b7280" },
+                          { l:"Groupes de cours",  v:coachGroupes.length,        c:"#7c3aed" },
+                          { l:"Montant total dû",  v:fmtMoney(totalDu),          c:"#16a34a" },
+                          { l:"Montant réalisé",   v:fmtMoney(totalRealise),     c:"#0891b2" },
+                        ].map(s => (
+                          <div key={s.l} style={{ display:"flex", justifyContent:"space-between", padding:"7px 0", borderBottom:"1px solid #f1f5f9", fontSize:13 }}>
+                            <span style={{ color:"#6b7280" }}>{s.l}</span>
+                            <span style={{ fontWeight:800, color:s.c }}>{s.v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ════ CONTRATS ════ */}
+                {coachModalTab === "contrats" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <div>
+                        <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Contrats privés</h3>
+                        <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>En ligne · Présentiel BET · À domicile</p>
+                      </div>
+                      <button onClick={()=>{ setShowContratForm(true); setContratEditId(null); setContratForm({ apprenant_nom:"", apprenant_prenom:"", apprenant_email:"", apprenant_telephone:"", type_contrat:"en_ligne", niveau:"B1", objectif:"", prix_h:"", nb_seances_total:"", duree_seance_h:"1.5", date_debut:"", date_fin:"", note:"" }); }}
+                        style={{ padding:"9px 18px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                        ➕ Nouveau contrat
+                      </button>
+                    </div>
+
+                    {/* Formulaire nouveau/edit contrat */}
+                    {showContratForm && (
+                      <div style={{ background:"#f0f9ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:18 }}>
+                        <h4 style={{ margin:"0 0 14px", fontSize:14, fontWeight:800, color:BET_COLOR }}>{contratEditId ? "✏️ Modifier le contrat" : "➕ Nouveau contrat"}</h4>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Nom apprenant *</label>
+                            <input value={contratForm.apprenant_nom} onChange={e=>setContratForm(p=>({...p,apprenant_nom:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Prénom apprenant</label>
+                            <input value={contratForm.apprenant_prenom} onChange={e=>setContratForm(p=>({...p,apprenant_prenom:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Email apprenant</label>
+                            <input value={contratForm.apprenant_email} onChange={e=>setContratForm(p=>({...p,apprenant_email:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Téléphone apprenant</label>
+                            <input value={contratForm.apprenant_telephone} onChange={e=>setContratForm(p=>({...p,apprenant_telephone:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Type de contrat</label>
+                            <select value={contratForm.type_contrat} onChange={e=>setContratForm(p=>({...p,type_contrat:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                              <option value="en_ligne">💻 En ligne</option>
+                              <option value="presentiel_bet">🏢 Présentiel BET</option>
+                              <option value="domicile">🏠 À domicile</option>
+                            </select></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Niveau</label>
+                            <select value={contratForm.niveau} onChange={e=>setContratForm(p=>({...p,niveau:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                              {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n} value={n}>{n}</option>)}
+                            </select></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Prix / heure (F CFA) *</label>
+                            <input type="number" min="0" value={contratForm.prix_h} onChange={e=>setContratForm(p=>({...p,prix_h:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Nb séances total</label>
+                            <input type="number" min="0" value={contratForm.nb_seances_total} onChange={e=>setContratForm(p=>({...p,nb_seances_total:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Durée / séance (h)</label>
+                            <select value={contratForm.duree_seance_h} onChange={e=>setContratForm(p=>({...p,duree_seance_h:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, background:"#fff", boxSizing:"border-box" }}>
+                              {["0.5","1","1.5","2","2.5","3"].map(v=><option key={v} value={v}>{v}h</option>)}
+                            </select></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Objectif</label>
+                            <input value={contratForm.objectif} onChange={e=>setContratForm(p=>({...p,objectif:e.target.value}))} placeholder="TOEIC, Général…" style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Date début</label>
+                            <input type="date" value={contratForm.date_debut} onChange={e=>setContratForm(p=>({...p,date_debut:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                          <div><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Date fin</label>
+                            <input type="date" value={contratForm.date_fin} onChange={e=>setContratForm(p=>({...p,date_fin:e.target.value}))} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, boxSizing:"border-box" }} /></div>
+                        </div>
+                        {contratForm.prix_h && contratForm.nb_seances_total && (
+                          <div style={{ marginTop:10, padding:"8px 14px", background:"#dcfce7", borderRadius:8, fontSize:13, fontWeight:700, color:"#15803d" }}>
+                            💰 Montant total : {fmtMoney(parseFloat(contratForm.prix_h) * parseFloat(contratForm.duree_seance_h||1.5) * parseInt(contratForm.nb_seances_total))}
+                          </div>
+                        )}
+                        <div style={{ marginTop:10 }}><label style={{ fontSize:11, fontWeight:600, display:"block", marginBottom:3 }}>Note interne</label>
+                          <textarea value={contratForm.note} onChange={e=>setContratForm(p=>({...p,note:e.target.value}))} rows={2} style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #bae6fd", borderRadius:7, fontSize:13, resize:"vertical", boxSizing:"border-box" }} /></div>
+                        <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                          <button onClick={saveContrat} disabled={contratSaving} style={{ padding:"9px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:13, cursor:"pointer", opacity:contratSaving?.6:1 }}>{contratSaving?"⏳ Sauvegarde…":"✅ Enregistrer"}</button>
+                          <button onClick={()=>setShowContratForm(false)} style={{ padding:"9px 16px", background:"#f3f4f6", color:"#374151", border:"none", borderRadius:7, fontSize:13, cursor:"pointer" }}>Annuler</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {coachContratsLoading ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement…</div>
+                    ) : coachContrats.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                        <div style={{ fontSize:36, marginBottom:8 }}>📋</div>
+                        <div style={{ fontWeight:600 }}>Aucun contrat privé</div>
+                        <div style={{ fontSize:12, marginTop:4 }}>Cliquez sur "Nouveau contrat" pour en créer un.</div>
+                      </div>
+                    ) : (
+                      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                        {coachContrats.map(c => {
+                          const type = CONTRAT_TYPE[c.type_contrat] || CONTRAT_TYPE.en_ligne;
+                          const stCfg = CONTRAT_STATUT[c.statut] || CONTRAT_STATUT.en_attente;
+                          const montant = (c.prix_h||0) * (c.duree_seance_h||1.5) * (c.nb_seances_total||0);
+                          return (
+                            <div key={c.id} style={{ background:"#fff", border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                              <div style={{ height:4, background:type.color }} />
+                              <div style={{ padding:"14px 16px" }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                                  <div>
+                                    <div style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>{c.apprenant_prenom || ""} {c.apprenant_nom}</div>
+                                    <div style={{ display:"flex", gap:8, marginTop:4 }}>
+                                      <span style={{ background:type.bg, color:type.color, borderRadius:99, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{type.icon} {type.label}</span>
+                                      {c.niveau && <span style={{ background:"#f3f4f6", color:"#374151", borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700 }}>Niv. {c.niveau}</span>}
+                                      {c.objectif && <span style={{ fontSize:11, color:"#6b7280" }}>🎯 {c.objectif}</span>}
+                                    </div>
+                                  </div>
+                                  <span style={{ background:stCfg.bg, color:stCfg.color, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>{stCfg.label}</span>
+                                </div>
+                                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, fontSize:12, color:"#6b7280", marginBottom:10 }}>
+                                  <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Prix/heure</div><div style={{ fontWeight:700, color:"#0f172a" }}>{fmtMoney(c.prix_h)}</div></div>
+                                  <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Séances</div><div style={{ fontWeight:700, color:"#0f172a" }}>{c.nb_seances_realisees||0}/{c.nb_seances_total||0}</div></div>
+                                  <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Durée/séance</div><div style={{ fontWeight:700, color:"#0f172a" }}>{c.duree_seance_h||1.5}h</div></div>
+                                  <div><div style={{ fontSize:10, color:"#9ca3af", marginBottom:2 }}>Montant total</div><div style={{ fontWeight:700, color:"#16a34a" }}>{fmtMoney(montant)}</div></div>
+                                </div>
+                                {(c.date_debut || c.date_fin) && (
+                                  <div style={{ fontSize:12, color:"#6b7280", marginBottom:10 }}>
+                                    📅 {fmtDate(c.date_debut)} → {fmtDate(c.date_fin)}
+                                  </div>
+                                )}
+                                {/* Paiement */}
+                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:c.paiement_confirme?"#dcfce7":"#fef3c7", borderRadius:8, marginBottom:10 }}>
+                                  <span style={{ fontSize:12, fontWeight:700, color:c.paiement_confirme?"#15803d":"#92400e" }}>
+                                    {c.paiement_confirme ? "✅ Paiement confirmé" : "⏳ Paiement en attente"}
+                                    {c.paiement_date ? ` — ${fmtDate(c.paiement_date)}` : ""}
+                                  </span>
+                                  {!c.paiement_confirme && (
+                                    <button onClick={()=>patchContrat(c.id,{ paiement_confirme:true, paiement_date:new Date().toISOString().slice(0,10), paiement_montant:montant })}
+                                      style={{ padding:"5px 12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                                      ✅ Confirmer paiement
+                                    </button>
+                                  )}
+                                </div>
+                                {/* Actions statut */}
+                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                                  {c.statut === "en_attente" && c.paiement_confirme && (
+                                    <button onClick={()=>patchContrat(c.id,{statut:"actif"})} style={{ padding:"5px 12px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Activer</button>
+                                  )}
+                                  {c.statut === "actif" && (
+                                    <button onClick={()=>patchContrat(c.id,{statut:"suspendu"})} style={{ padding:"5px 12px", background:"#f3f4f6", color:"#374151", border:"1px solid #d1d5db", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>⏸ Suspendre</button>
+                                  )}
+                                  {c.statut === "suspendu" && (
+                                    <button onClick={()=>patchContrat(c.id,{statut:"actif"})} style={{ padding:"5px 12px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Reprendre</button>
+                                  )}
+                                  {["actif","suspendu"].includes(c.statut) && (
+                                    <button onClick={()=>patchContrat(c.id,{statut:"termine"})} style={{ padding:"5px 12px", background:"#f1f5f9", color:"#475569", border:"1px solid #cbd5e1", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>⏹ Terminer</button>
+                                  )}
+                                  <button onClick={()=>{ setContratEditId(c.id); setContratForm({ apprenant_nom:c.apprenant_nom||"", apprenant_prenom:c.apprenant_prenom||"", apprenant_email:c.apprenant_email||"", apprenant_telephone:c.apprenant_telephone||"", type_contrat:c.type_contrat||"en_ligne", niveau:c.niveau||"B1", objectif:c.objectif||"", prix_h:c.prix_h||"", nb_seances_total:c.nb_seances_total||"", duree_seance_h:c.duree_seance_h||"1.5", date_debut:c.date_debut||"", date_fin:c.date_fin||"", note:c.note||"" }); setShowContratForm(true); }}
+                                    style={{ padding:"5px 12px", background:"#eff6ff", color:"#2563eb", border:"1px solid #bfdbfe", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>✏️ Modifier</button>
+                                  <button onClick={()=>deleteContrat(c.id)} style={{ padding:"5px 12px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>🗑 Supprimer</button>
+                                  <button onClick={()=>{ const seances = parseInt(window.prompt("Nb séances réalisées :", c.nb_seances_realisees||0)); if (!isNaN(seances)) patchContrat(c.id,{nb_seances_realisees:seances}); }}
+                                    style={{ padding:"5px 12px", background:"#fef3c7", color:"#92400e", border:"1px solid #fcd34d", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer" }}>📝 Séances réalisées</button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ════ HONORAIRES ════ */}
+                {coachModalTab === "honoraires" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                    <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Honoraires — {coach.prenom} {coach.nom}</h3>
+                    {/* KPIs */}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+                      {[
+                        { l:"Montant total dû",       v:fmtMoney(totalDu),       c:"#16a34a", bg:"#dcfce7" },
+                        { l:"Montant réalisé",        v:fmtMoney(totalRealise),  c:"#0891b2", bg:"#e0f2fe" },
+                        { l:"Reste à réaliser",       v:fmtMoney(totalDu - totalRealise), c:"#d97706", bg:"#fef3c7" },
+                      ].map(s => (
+                        <div key={s.l} style={{ background:s.bg, borderRadius:12, padding:"14px 16px" }}>
+                          <div style={{ fontSize:11, color:s.c, fontWeight:600, marginBottom:4 }}>{s.l}</div>
+                          <div style={{ fontSize:22, fontWeight:900, color:s.c }}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {honoraires.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Aucun contrat — pas d'honoraires calculés.</div>
+                    ) : (
+                      <div style={{ background:"#fff", border:"1px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                          <thead>
+                            <tr style={{ background:"#f8fafc" }}>
+                              {["Apprenant","Type","Prix/h","Durée/séance","Séances","Montant total","Réalisé","Statut"].map(h=>(
+                                <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#6b7280", borderBottom:"1px solid #e5e7eb" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {honoraires.map(h => {
+                              const type = CONTRAT_TYPE[h.type_contrat] || CONTRAT_TYPE.en_ligne;
+                              const stCfg = CONTRAT_STATUT[h.statut] || CONTRAT_STATUT.en_attente;
+                              return (
+                                <tr key={h.id} style={{ borderBottom:"1px solid #f1f5f9" }}>
+                                  <td style={{ padding:"10px 12px", fontWeight:600 }}>{h.apprenant_prenom||""} {h.apprenant_nom}</td>
+                                  <td style={{ padding:"10px 12px" }}><span style={{ background:type.bg, color:type.color, borderRadius:99, padding:"2px 8px", fontSize:11, fontWeight:700 }}>{type.icon} {type.label}</span></td>
+                                  <td style={{ padding:"10px 12px", fontWeight:700 }}>{fmtMoney(h.prix_h)}</td>
+                                  <td style={{ padding:"10px 12px" }}>{h.duree_seance_h||1.5}h</td>
+                                  <td style={{ padding:"10px 12px" }}>{h.nb_seances_realisees||0}/{h.nb_seances_total||0}</td>
+                                  <td style={{ padding:"10px 12px", fontWeight:800, color:"#16a34a" }}>{fmtMoney(h.montant_total)}</td>
+                                  <td style={{ padding:"10px 12px", fontWeight:700, color:"#0891b2" }}>{fmtMoney(h.montant_realise)}</td>
+                                  <td style={{ padding:"10px 12px" }}><span style={{ background:stCfg.bg, color:stCfg.color, borderRadius:99, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{stCfg.label}</span></td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background:"#f0fdf4" }}>
+                              <td colSpan={5} style={{ padding:"10px 12px", fontWeight:800, fontSize:13 }}>Total</td>
+                              <td style={{ padding:"10px 12px", fontWeight:900, color:"#16a34a", fontSize:14 }}>{fmtMoney(totalDu)}</td>
+                              <td style={{ padding:"10px 12px", fontWeight:900, color:"#0891b2", fontSize:14 }}>{fmtMoney(totalRealise)}</td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ════ GROUPES ════ */}
+                {coachModalTab === "groupes" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                    <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Groupes de cours assignés</h3>
+                    {coachGroupesLoading ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>Chargement…</div>
+                    ) : coachGroupes.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                        <div style={{ fontSize:36, marginBottom:8 }}>👥</div>
+                        <div style={{ fontWeight:600 }}>Aucun groupe assigné</div>
+                      </div>
+                    ) : (
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14 }}>
+                        {coachGroupes.map(g => {
+                          const sCol = g.statut==="actif" ? { c:"#16a34a", bg:"#dcfce7" } : { c:"#6b7280", bg:"#f3f4f6" };
+                          return (
+                            <div key={g.id} style={{ background:"#fff", border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                              <div style={{ height:4, background:BET_COLOR }} />
+                              <div style={{ padding:"14px 16px" }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                                  <div style={{ fontSize:14, fontWeight:800 }}>{g.nom}</div>
+                                  <span style={{ background:sCol.bg, color:sCol.c, borderRadius:99, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{g.statut}</span>
+                                </div>
+                                <div style={{ fontSize:12, color:"#6b7280", display:"flex", flexDirection:"column", gap:3 }}>
+                                  {g.niveau && <span>📊 Niveau {g.niveau}</span>}
+                                  {g.filiere && <span>📂 {g.filiere}</span>}
+                                  {g.nb_apprenants !== undefined && <span>👤 {g.nb_apprenants} apprenant{g.nb_apprenants!==1?"s":""}</span>}
+                                  {g.type_cours && <span>{g.type_cours==="en_ligne"?"💻 En ligne":g.type_cours==="domicile"?"🏠 Domicile":"🏢 Présentiel"}</span>}
+                                  {g.date_debut && <span>📅 Début : {fmtDate(g.date_debut)}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ════ RENOUVELLEMENT ════ */}
+                {coachModalTab === "renouvellement" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                    <div>
+                      <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>Gestion des renouvellements</h3>
+                      <p style={{ margin:"4px 0 0", fontSize:12, color:"#9ca3af" }}>Contrats arrivant à échéance dans les 60 jours ou en cours de renouvellement</p>
+                    </div>
+                    {contratsARenouveler.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af" }}>
+                        <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
+                        <div style={{ fontWeight:600 }}>Aucun contrat à renouveler</div>
+                        <div style={{ fontSize:12, marginTop:4 }}>Tous les contrats actifs ont plus de 60 jours restants.</div>
+                      </div>
+                    ) : contratsARenouveler.map(c => {
+                      const fin = new Date(c.date_fin);
+                      const joursRestants = Math.ceil((fin - today) / 86400000);
+                      const rCfg = c.renouvellement_statut ? (RENOUV_STATUT[c.renouvellement_statut] || RENOUV_STATUT.en_attente) : null;
+                      const urgence = joursRestants <= 0 ? "expired" : joursRestants <= 14 ? "critical" : joursRestants <= 30 ? "warning" : "ok";
+                      const urgCfg = { expired:{bg:"#fee2e2",c:"#dc2626",label:"Expiré"}, critical:{bg:"#fee2e2",c:"#dc2626",label:`${joursRestants}j restants`}, warning:{bg:"#fef3c7",c:"#d97706",label:`${joursRestants}j restants`}, ok:{bg:"#dcfce7",c:"#16a34a",label:`${joursRestants}j restants`} }[urgence];
+                      return (
+                        <div key={c.id} style={{ background:"#fff", border:`1.5px solid ${urgence==="expired"||urgence==="critical"?"#fca5a5":"#e5e7eb"}`, borderRadius:12, padding:"16px 18px" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                            <div>
+                              <div style={{ fontSize:15, fontWeight:800 }}>{c.apprenant_prenom||""} {c.apprenant_nom}</div>
+                              <div style={{ fontSize:12, color:"#6b7280", marginTop:3 }}>
+                                📅 {fmtDate(c.date_debut)} → {fmtDate(c.date_fin)} · {CONTRAT_TYPE[c.type_contrat]?.label||c.type_contrat}
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                              <span style={{ background:urgCfg.bg, color:urgCfg.c, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>{urgCfg.label}</span>
+                              {rCfg && <span style={{ background:rCfg.bg, color:rCfg.color, borderRadius:99, padding:"3px 12px", fontSize:11, fontWeight:800 }}>🔄 {rCfg.label}</span>}
+                            </div>
+                          </div>
+                          {/* Workflow renouvellement */}
+                          <div style={{ background:"#f8fafc", borderRadius:8, padding:"12px 14px", marginBottom:10 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>Décision de renouvellement</div>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                              {!c.renouvellement_statut && (
+                                <button onClick={()=>patchContrat(c.id,{ renouvellement_statut:"en_attente", renouvellement_demande_date:new Date().toISOString().slice(0,10) })}
+                                  style={{ padding:"6px 14px", background:"#fef3c7", color:"#92400e", border:"1px solid #fcd34d", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                  ⏳ Demander renouvellement
+                                </button>
+                              )}
+                              {c.renouvellement_statut === "en_attente" && (<>
+                                <button onClick={()=>patchContrat(c.id,{ renouvellement_statut:"confirme", renouvellement_decision_date:new Date().toISOString().slice(0,10), statut:"renouvele" })}
+                                  style={{ padding:"6px 14px", background:"#dcfce7", color:"#15803d", border:"1px solid #86efac", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                  ✅ Confirmer — Renouveler
+                                </button>
+                                <button onClick={()=>patchContrat(c.id,{ renouvellement_statut:"refuse", renouvellement_decision_date:new Date().toISOString().slice(0,10), statut:"non_renouvele" })}
+                                  style={{ padding:"6px 14px", background:"#fee2e2", color:"#dc2626", border:"1px solid #fca5a5", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                  ❌ Refuser — Arrêter le contrat
+                                </button>
+                              </>)}
+                              {c.renouvellement_statut === "confirme" && (
+                                <div style={{ fontSize:12, color:"#15803d", fontWeight:700 }}>✅ Contrat renouvelé — cours en cours · Décidé le {fmtDate(c.renouvellement_decision_date)}</div>
+                              )}
+                              {c.renouvellement_statut === "refuse" && (
+                                <div style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>❌ Contrat non renouvelé — cours arrêtés · Décidé le {fmtDate(c.renouvellement_decision_date)}</div>
+                              )}
+                            </div>
+                          </div>
+                          {c.renouvellement_note !== undefined && (
+                            <div style={{ marginTop:6 }}>
+                              <label style={{ fontSize:11, fontWeight:600, color:"#374151", display:"block", marginBottom:3 }}>Note renouvellement</label>
+                              <textarea defaultValue={c.renouvellement_note||""}
+                                onBlur={e=>patchContrat(c.id,{renouvellement_note:e.target.value})}
+                                rows={2} placeholder="Motif, conditions…"
+                                style={{ width:"100%", padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, resize:"vertical", boxSizing:"border-box" }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>{/* fin contenu */}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── MODALE DÉTAIL APPRENANT ── */}
         {selectedApprenant && (

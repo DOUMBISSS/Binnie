@@ -55,6 +55,7 @@ import ComptableDashboard from './Pages/ComptableDashboard/ComptableDashboard';
 import PlacementTestDashboard from './Pages/PlacementTestDashboard/PlacementTestDashboard';
 import RHPaieDashboard from './Pages/RHPaieDashboard/RHPaieDashboard';
 import SuperviseurDashboard from './Pages/SuperviseurDashboard/SuperviseurDashboard';
+import CustomerCareDashboard from './Pages/CustomerCareDashboard/CustomerCareDashboard';
 
 
 
@@ -80,7 +81,7 @@ const DASHBOARD_PAR_ROLE = {
   comptable:           "/comptable-dashboard",
   placement_test:      "/placement-test-dashboard",
   coach:               "/espace-professeur",
-  customer_care:       "/gestionnaire-dashboard",
+  customer_care:       "/customer-care-dashboard",
   data_collector:      "/datacollector-dashboard",
 };
 
@@ -154,6 +155,7 @@ export default function App() {
     <Route path="/placement-test-dashboard"      element={<PrivateStaffRoute><PlacementTestDashboard /></PrivateStaffRoute>} />
     <Route path="/rh-paie-dashboard"             element={<PrivateStaffRoute><RHPaieDashboard /></PrivateStaffRoute>} />
     <Route path="/superviseur-dashboard"         element={<PrivateStaffRoute><SuperviseurDashboard /></PrivateStaffRoute>} />
+    <Route path="/customer-care-dashboard"       element={<PrivateStaffRoute><CustomerCareDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/superAdmin"     element={<PrivateStaffRoute><SuperAdminDashboard /></PrivateStaffRoute>} />
     <Route path="/dashboard/parent"         element={<ParentDashboard />} />
 <Route path="/espace-apprenant" element={<EspaceApprenant />} />
