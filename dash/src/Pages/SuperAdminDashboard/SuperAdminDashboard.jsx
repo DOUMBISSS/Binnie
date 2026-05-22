@@ -1752,9 +1752,17 @@ export default function SuperAdminDashboard() {
   const [adminCoursAnnee, setAdminCoursAnnee]   = useState(() => new Date().getFullYear());
   const [adminFiltreCoach, setAdminFiltreCoach] = useState("tous");
 
+  // États onglet Cours (sous-onglets Cours privés + Groupes cours)
+  const [coursSubTab,           setCoursSubTab]           = useState("groupes");
+  const [adminAllContrats,      setAdminAllContrats]      = useState([]);
+  const [adminAllContratsLoad,  setAdminAllContratsLoad]  = useState(false);
+  const [adminContratFiltre,    setAdminContratFiltre]    = useState({ coach:"tous", statut:"tous", search:"" });
+  const [adminContratPage,      setAdminContratPage]      = useState(1);
+  const CONTRATS_PER_PAGE = 20;
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (activeTab !== "groupes_admin") return;
+    if (activeTab !== "cours") return;
     const token = localStorage.getItem("admin_token");
     setAdminGroupesLoading(true);
     fetch(`${API_URL}/api/groupes`, { headers:{ Authorization:`Bearer ${token}` } })
@@ -1763,6 +1771,18 @@ export default function SuperAdminDashboard() {
       .catch(()=>{})
       .finally(()=>setAdminGroupesLoading(false));
   }, [activeTab]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (activeTab !== "cours" || coursSubTab !== "cours_prives") return;
+    const token = localStorage.getItem("admin_token");
+    setAdminAllContratsLoad(true);
+    fetch(`${API_URL}/api/contrats-prives`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r=>r.ok?r.json():{contrats:[]})
+      .then(d=>setAdminAllContrats(d.contrats||[]))
+      .catch(()=>{})
+      .finally(()=>setAdminAllContratsLoad(false));
+  }, [activeTab, coursSubTab]);
 
   const fetchAdminGroupeDetail = async (groupe) => {
     const token = localStorage.getItem("admin_token");
@@ -1817,7 +1837,7 @@ export default function SuperAdminDashboard() {
     { key: "suivi_apprenants", label: "Apprenants", icon: "🎓", badge: apprenants.length || null },
     { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
-    { key: "groupes_admin", label: "Groupes de cours",       icon: "👥" },
+    { key: "cours",         label: "Cours",                  icon: "📚" },
     { key: "sondages",      label: "Sondages",               icon: "🎯",  badge: sondagesAll.length },
     { key: "messages",      label: "Messages",               icon: "💬",  badge: msgNonLuTotal||null, danger: msgNonLuTotal>0 },
     { key: "notifications", label: "Notifications",          icon: "🔔" },
@@ -5678,9 +5698,29 @@ export default function SuperAdminDashboard() {
               );
             })()}
 
-            {/* ══ ONGLET GROUPES DE COURS (Super Admin — vue globale) ══ */}
-            {activeTab === "groupes_admin" && (
+            {/* ══ ONGLET COURS (Cours privés + Groupes de cours) ══ */}
+            {activeTab === "cours" && (
               <div>
+                {/* Sous-onglets */}
+                <div style={{ display:"flex", gap:4, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+                  {[
+                    { k:"groupes",     l:"👥 Groupes cours" },
+                    { k:"cours_prives", l:"🎯 Cours privés" },
+                  ].map(st=>(
+                    <button key={st.k} onClick={()=>{ setCoursSubTab(st.k); setAdminSelectedGroupe(null); }}
+                      style={{ padding:"7px 18px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:"pointer",
+                        background:coursSubTab===st.k?"#fff":"transparent",
+                        color:coursSubTab===st.k?BET_COLOR:"#64748b",
+                        boxShadow:coursSubTab===st.k?"0 1px 4px rgba(0,0,0,0.1)":"none",
+                        transition:"all .15s" }}>
+                      {st.l}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Sous-onglet : Groupes de cours ── */}
+                {coursSubTab === "groupes" && (
+                <div>
                 {!adminSelectedGroupe ? (
                   <div>
                     {/* Header */}
@@ -5903,6 +5943,145 @@ export default function SuperAdminDashboard() {
                     )}
                   </div>
                 )}
+                </div>
+                )} {/* fin coursSubTab === "groupes" */}
+
+                {/* ── Sous-onglet : Cours privés ── */}
+                {coursSubTab === "cours_prives" && (() => {
+                  const STATUT_CONTRAT = {
+                    actif:    { bg:"#d1fae5", color:"#065f46",  label:"Actif" },
+                    termine:  { bg:"#f1f5f9", color:"#374151",  label:"Terminé" },
+                    suspendu: { bg:"#fee2e2", color:"#dc2626",  label:"Suspendu" },
+                    en_attente:{ bg:"#fef3c7", color:"#92400e", label:"En attente" },
+                  };
+                  const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "—";
+
+                  const filteredContrats = adminAllContrats.filter(c => {
+                    if (adminContratFiltre.statut !== "tous" && c.statut !== adminContratFiltre.statut) return false;
+                    if (adminContratFiltre.coach  !== "tous" && String(c.coach_id) !== adminContratFiltre.coach) return false;
+                    if (adminContratFiltre.search) {
+                      const q = adminContratFiltre.search.toLowerCase();
+                      const nom = `${c.apprenant_prenom||""} ${c.apprenant_nom||""}`.toLowerCase();
+                      if (!nom.includes(q) && !(c.apprenant_email||"").toLowerCase().includes(q) && !(c.coach_nom||"").toLowerCase().includes(q)) return false;
+                    }
+                    return true;
+                  });
+
+                  const totalPages = Math.max(1, Math.ceil(filteredContrats.length / CONTRATS_PER_PAGE));
+                  const page = Math.min(adminContratPage, totalPages);
+                  const pageItems = filteredContrats.slice((page-1)*CONTRATS_PER_PAGE, page*CONTRATS_PER_PAGE);
+
+                  const coaches = Array.from(new Map(adminAllContrats.filter(c=>c.coach_id).map(c=>[c.coach_id, c.coach_nom||c.coach_id])));
+
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                        <div>
+                          <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🎯 Cours privés — Vue globale</h2>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Tous les contrats de cours individuels</p>
+                        </div>
+                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                          <span style={{ padding:"4px 12px", borderRadius:20, background:BET_LIGHT, color:BET_COLOR, fontWeight:700, fontSize:12 }}>
+                            {filteredContrats.length} contrat(s)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Filtres */}
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16, alignItems:"center" }}>
+                        <input
+                          value={adminContratFiltre.search}
+                          onChange={e=>{ setAdminContratFiltre(p=>({...p,search:e.target.value})); setAdminContratPage(1); }}
+                          placeholder="Rechercher apprenant ou coach…"
+                          style={{ padding:"7px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, width:240 }}
+                        />
+                        <select value={adminContratFiltre.statut} onChange={e=>{ setAdminContratFiltre(p=>({...p,statut:e.target.value})); setAdminContratPage(1); }}
+                          style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, background:"#fff" }}>
+                          <option value="tous">Tous statuts</option>
+                          {Object.entries(STATUT_CONTRAT).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        {coaches.length > 0 && (
+                          <select value={adminContratFiltre.coach} onChange={e=>{ setAdminContratFiltre(p=>({...p,coach:e.target.value})); setAdminContratPage(1); }}
+                            style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, background:"#fff" }}>
+                            <option value="tous">Tous les coachs</option>
+                            {coaches.map(([id,nom])=><option key={id} value={String(id)}>{nom}</option>)}
+                          </select>
+                        )}
+                      </div>
+
+                      {/* Contenu */}
+                      {adminAllContratsLoad && <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:13 }}>Chargement des contrats…</div>}
+                      {!adminAllContratsLoad && adminAllContrats.length === 0 && (
+                        <div style={{ textAlign:"center", padding:60, color:"#9ca3af", fontSize:13 }}>Aucun contrat de cours privé trouvé.</div>
+                      )}
+                      {!adminAllContratsLoad && filteredContrats.length === 0 && adminAllContrats.length > 0 && (
+                        <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:13 }}>Aucun contrat ne correspond aux filtres.</div>
+                      )}
+                      {!adminAllContratsLoad && pageItems.length > 0 && (
+                        <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #e5e7eb" }}>
+                          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                            <thead>
+                              <tr style={{ background:"#f8fafc" }}>
+                                {["Apprenant","Coach","Type","Niveau","Prix/h","Séances","Statut","Début","Fin"].map((h,i)=>(
+                                  <th key={i} style={{ padding:"10px 14px", textAlign:"left", fontWeight:700, color:"#374151", fontSize:11, borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pageItems.map((c,idx)=>{
+                                const s = STATUT_CONTRAT[c.statut] || { bg:"#f1f5f9", color:"#6b7280", label: c.statut||"—" };
+                                const TYPE_LABEL = { en_ligne:"💻 En ligne", domicile:"🏠 Domicile", centre:"🏢 Centre" };
+                                return (
+                                  <tr key={c.id} style={{ background:idx%2===0?"#fff":"#fafafa", borderBottom:"1px solid #f1f5f9" }}>
+                                    <td style={{ padding:"10px 14px" }}>
+                                      <div style={{ fontWeight:700, color:"#0f172a", fontSize:13 }}>{c.apprenant_prenom} {c.apprenant_nom}</div>
+                                      <div style={{ fontSize:11, color:"#6b7280" }}>{c.apprenant_email||"—"}</div>
+                                    </td>
+                                    <td style={{ padding:"10px 14px", color:"#374151" }}>{c.coach_nom||"—"}</td>
+                                    <td style={{ padding:"10px 14px", color:"#374151", whiteSpace:"nowrap" }}>{TYPE_LABEL[c.type_contrat]||c.type_contrat||"—"}</td>
+                                    <td style={{ padding:"10px 14px", color:"#374151" }}>{c.niveau||"—"}</td>
+                                    <td style={{ padding:"10px 14px", fontWeight:600, color:"#0f172a", whiteSpace:"nowrap" }}>{c.prix_h ? `${Number(c.prix_h).toLocaleString("fr-FR")} F` : "—"}</td>
+                                    <td style={{ padding:"10px 14px", color:"#374151" }}>{c.nb_seances_total||"—"}</td>
+                                    <td style={{ padding:"10px 14px" }}>
+                                      <span style={{ padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
+                                    </td>
+                                    <td style={{ padding:"10px 14px", color:"#374151", whiteSpace:"nowrap" }}>{fmtDate(c.date_debut)}</td>
+                                    <td style={{ padding:"10px 14px", color:"#374151", whiteSpace:"nowrap" }}>{fmtDate(c.date_fin)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:16 }}>
+                          <button onClick={()=>setAdminContratPage(p=>Math.max(1,p-1))} disabled={page===1}
+                            style={{ padding:"6px 12px", border:"1.5px solid #e5e7eb", borderRadius:7, background:"#fff", cursor:page===1?"default":"pointer", fontSize:12, color:"#374151", opacity:page===1?0.5:1 }}>
+                            ← Préc.
+                          </button>
+                          {Array.from({length:totalPages},(_,i)=>i+1).map(n=>(
+                            <button key={n} onClick={()=>setAdminContratPage(n)}
+                              style={{ padding:"6px 12px", border:"1.5px solid", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer",
+                                borderColor:n===page?BET_COLOR:"#e5e7eb",
+                                background:n===page?BET_COLOR:"#fff",
+                                color:n===page?"#fff":"#374151" }}>
+                              {n}
+                            </button>
+                          ))}
+                          <button onClick={()=>setAdminContratPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}
+                            style={{ padding:"6px 12px", border:"1.5px solid #e5e7eb", borderRadius:7, background:"#fff", cursor:page===totalPages?"default":"pointer", fontSize:12, color:"#374151", opacity:page===totalPages?0.5:1 }}>
+                            Suiv. →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
               </div>
             )}
 

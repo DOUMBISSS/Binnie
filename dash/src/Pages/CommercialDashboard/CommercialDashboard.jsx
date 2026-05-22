@@ -596,6 +596,13 @@ export default function CommercialDashboard() {
   const [apprenantTab,        setApprenantTab]        = useState("infos");
   const [tranchePayTarget,    setTranchePayTarget]    = useState(null); // { assignationId, trancheId, plan, tranches }
 
+  // ── Processus de retrait ────────────────────────────────────
+  const [showRetraitModal,  setShowRetraitModal]  = useState(false);
+  const [retraitEtape,      setRetraitEtape]      = useState(1); // 1 = profil | 2 = message | 3 = confirmation
+  const [retraitMotif,      setRetraitMotif]      = useState("");
+  const [retraitMessage,    setRetraitMessage]    = useState("");
+  const [retraitLoading,    setRetraitLoading]    = useState(false);
+
   const fetchAssignations = async () => {
     setAssignationsLoading(true);
     try {
@@ -3498,15 +3505,38 @@ export default function CommercialDashboard() {
                   return (
                     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
-                      {/* Access block toggle */}
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderRadius:10, border:`1.5px solid ${accesBloque?"#fca5a5":"#e2e8f0"}`, background:accesBloque?"#fef2f2":"#f8fafc" }}>
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>{accesBloque?"🔒 Accès à la formation bloqué":"🔓 Accès à la formation actif"}</div>
-                          <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{accesBloque?"L'apprenant ne peut plus accéder à ses cours.":"L'apprenant a accès à tous ses cours."}</div>
+                      {/* Statut accès + Processus de retrait */}
+                      <div style={{ borderRadius:12, border:`1.5px solid ${accesBloque?"#fca5a5":"#e2e8f0"}`, background:accesBloque?"#fef2f2":"#f8fafc", overflow:"hidden" }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px" }}>
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>{accesBloque?"🔒 Accès à la formation bloqué":"🔓 Accès à la formation actif"}</div>
+                            <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{accesBloque?"L'apprenant ne peut plus accéder à ses cours.":"L'apprenant a accès à tous ses cours."}</div>
+                          </div>
+                          {accesBloque && (
+                            <button onClick={toggleAcces} style={{ padding:"8px 16px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:"#22c55e", color:"#fff" }}>
+                              🔓 Débloquer
+                            </button>
+                          )}
                         </div>
-                        <button onClick={toggleAcces} style={{ padding:"8px 16px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:accesBloque?"#22c55e":"#ef4444", color:"#fff" }}>
-                          {accesBloque?"🔓 Débloquer":"🔒 Bloquer"}
-                        </button>
+                        {!accesBloque && (
+                          <div style={{ padding:"12px 16px", borderTop:"1px solid #fee2e2", background:"#fff5f5", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+                            <div style={{ fontSize:12, color:"#b91c1c" }}>
+                              <div style={{ fontWeight:700, marginBottom:2 }}>⚠️ Processus de retrait</div>
+                              <div style={{ color:"#6b7280" }}>Non-renouvellement après délai de relance · Retire l'apprenant du groupe et bloque ses accès</div>
+                            </div>
+                            <button
+                              onClick={()=>{
+                                const msg = `Bonjour ${(a.prospect_nom||"").split(" ")[0]},\n\nNous vous informons que votre accès à la formation BET a été suspendu en raison du non-renouvellement de votre paiement dans le délai imparti.\n\nPour reprendre votre formation, merci de régulariser votre situation en contactant votre assistante commerciale.\n\nCordialement,\nL'équipe BET`;
+                                setRetraitMessage(msg);
+                                setRetraitMotif("");
+                                setRetraitEtape(1);
+                                setShowRetraitModal(true);
+                              }}
+                              style={{ flexShrink:0, padding:"9px 18px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12, background:"#dc2626", color:"#fff", whiteSpace:"nowrap" }}>
+                              🚫 Lancer le retrait
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Alerts from tranches */}
@@ -3842,6 +3872,200 @@ export default function CommercialDashboard() {
                   );
                 })()}
 
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══ MODAL PROCESSUS DE RETRAIT ══ */}
+      {showRetraitModal && apprenantModal && (() => {
+        const a = apprenantModal;
+        const plan = a.plan_paiement || {};
+        const tranches = plan.tranches || [];
+        const totalDu = tranches.reduce((s,t)=>s+(t.montant||0),0);
+        const tranchesPaye = tranches.filter(t=>t.statut==="payé").reduce((s,t)=>s+(t.montant||0),0);
+        const soldeRestant = Math.max(0, totalDu - tranchesPaye);
+
+        const ETAPES = [
+          { n:1, label:"Profil apprenant" },
+          { n:2, label:"Message de retrait" },
+          { n:3, label:"Confirmation" },
+        ];
+
+        const executerRetrait = async () => {
+          setRetraitLoading(true);
+          const token = localStorage.getItem("bet_token") || localStorage.getItem("admin_token") || "";
+          try {
+            // 1. Bloquer les accès dans plan_paiement
+            const newPlan = { ...plan, acces_bloque: true, tranches, date_retrait: new Date().toISOString(), motif_retrait: retraitMotif };
+            await fetch(`${API_URL}/api/parcours/assignations/${a.id}`, {
+              method:"PATCH",
+              headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}` },
+              body: JSON.stringify({ plan_paiement: newPlan }),
+            });
+            setAssignations(prev => prev.map(x => x.id===a.id ? { ...x, plan_paiement: newPlan } : x));
+            setApprenantModal(prev => prev?.id===a.id ? { ...prev, plan_paiement: newPlan } : prev);
+
+            // 2. Retirer des groupes via backend
+            if (a.prospect_email) {
+              await fetch(`${API_URL}/api/groupes/retrait-commercial`, {
+                method:"POST",
+                headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}` },
+                body: JSON.stringify({ email: a.prospect_email, motif: retraitMotif || "Non-renouvellement de paiement" }),
+              });
+            }
+
+            toast.success(`✅ ${a.prospect_nom} retiré(e) — accès bloqués, coachs et onboarding notifiés`);
+            setShowRetraitModal(false);
+          } catch(e) {
+            toast.error("Erreur lors du retrait : " + e.message);
+          } finally {
+            setRetraitLoading(false);
+          }
+        };
+
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.8)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
+            onClick={()=>setShowRetraitModal(false)}>
+            <div style={{ background:"#fff",borderRadius:18,width:"min(97vw,640px)",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.4)" }}
+              onClick={e=>e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:"linear-gradient(135deg,#7f1d1d,#dc2626)",borderRadius:"18px 18px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div>
+                  <div style={{ color:"#fca5a5",fontSize:11,fontWeight:700,marginBottom:3 }}>PROCESSUS DE RETRAIT</div>
+                  <div style={{ color:"#fff",fontSize:16,fontWeight:800 }}>🚫 {a.prospect_nom || "—"}</div>
+                </div>
+                <button onClick={()=>setShowRetraitModal(false)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",width:36,height:36,borderRadius:"50%",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+              </div>
+
+              {/* Fil d'étapes */}
+              <div style={{ display:"flex",alignItems:"center",padding:"16px 24px",borderBottom:"1px solid #f1f5f9",gap:0 }}>
+                {ETAPES.map((e,i)=>(
+                  <React.Fragment key={e.n}>
+                    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                      <div style={{ width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,
+                        background:retraitEtape>e.n?"#22c55e":retraitEtape===e.n?"#dc2626":"#e5e7eb",
+                        color:retraitEtape>=e.n?"#fff":"#9ca3af" }}>
+                        {retraitEtape>e.n?"✓":e.n}
+                      </div>
+                      <div style={{ fontSize:10,fontWeight:600,color:retraitEtape===e.n?"#dc2626":"#9ca3af",whiteSpace:"nowrap" }}>{e.label}</div>
+                    </div>
+                    {i<ETAPES.length-1 && <div style={{ flex:1,height:2,background:retraitEtape>e.n?"#22c55e":"#e5e7eb",margin:"0 8px",marginBottom:20 }}/>}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              {/* Corps scrollable */}
+              <div style={{ flex:1,overflowY:"auto",padding:"24px" }}>
+
+                {/* ÉTAPE 1 — Profil */}
+                {retraitEtape===1 && (
+                  <div style={{ display:"grid",gap:14 }}>
+                    <div style={{ padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fca5a5" }}>
+                      <div style={{ fontSize:11,fontWeight:800,color:"#b91c1c",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em" }}>Apprenant à retirer</div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                        {[
+                          ["Nom complet",  a.prospect_nom||"—"],
+                          ["Email",        a.prospect_email||"—"],
+                          ["Téléphone",    a.prospect_telephone||"—"],
+                          ["Type de cours",a.type_cours==="en_ligne"?"💻 En ligne":"🏢 Présentiel"],
+                          ["Coaching",     a.type_coaching==="groupe"?"👥 Groupe":"🎯 Privé"],
+                          ["Solde restant", soldeRestant>0 ? `${soldeRestant.toLocaleString("fr-FR")} FCFA` : "Soldé"],
+                        ].map(([l,v])=>(
+                          <div key={l} style={{ background:"#fff",borderRadius:8,padding:"8px 12px",border:"1px solid #fee2e2" }}>
+                            <div style={{ fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",marginBottom:2 }}>{l}</div>
+                            <div style={{ fontSize:12,fontWeight:700,color:"#0f172a" }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:6 }}>Motif du retrait *</label>
+                      <select value={retraitMotif} onChange={e=>setRetraitMotif(e.target.value)}
+                        style={{ width:"100%",padding:"10px 12px",border:"1.5px solid #e5e7eb",borderRadius:8,fontSize:13,background:"#fff",boxSizing:"border-box" }}>
+                        <option value="">— Sélectionner un motif —</option>
+                        <option value="Non-renouvellement de paiement après délai de relance">Non-renouvellement de paiement après délai de relance</option>
+                        <option value="Paiement en retard critique (plus de 30 jours)">Paiement en retard critique (plus de 30 jours)</option>
+                        <option value="Refus de paiement">Refus de paiement</option>
+                        <option value="Abandon de formation">Abandon de formation</option>
+                        <option value="Autre">Autre</option>
+                      </select>
+                    </div>
+
+                    {retraitMotif==="Autre" && (
+                      <textarea value={retraitMotif==="Autre"?"":retraitMotif} onChange={e=>setRetraitMotif(e.target.value)}
+                        rows={2} placeholder="Précisez le motif…"
+                        style={{ width:"100%",padding:"10px 12px",border:"1.5px solid #e5e7eb",borderRadius:8,fontSize:13,resize:"vertical",boxSizing:"border-box" }}/>
+                    )}
+
+                    <div style={{ padding:"10px 14px",borderRadius:8,background:"#fff7ed",border:"1px solid #fed7aa",fontSize:12,color:"#92400e" }}>
+                      ℹ️ L'apprenant sera retiré de tous ses groupes de formation et ses accès seront immédiatement bloqués. Le coach et l'onboarding seront notifiés.
+                    </div>
+                  </div>
+                )}
+
+                {/* ÉTAPE 2 — Message */}
+                {retraitEtape===2 && (
+                  <div style={{ display:"grid",gap:14 }}>
+                    <div style={{ fontSize:12,color:"#374151",fontWeight:600,marginBottom:4 }}>
+                      Ce message sera la preuve de la notification envoyée à l'apprenant. Personnalisez-le si nécessaire.
+                    </div>
+                    <textarea
+                      value={retraitMessage}
+                      onChange={e=>setRetraitMessage(e.target.value)}
+                      rows={10}
+                      style={{ width:"100%",padding:"12px 14px",border:"1.5px solid #e5e7eb",borderRadius:10,fontSize:13,lineHeight:1.7,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit" }}
+                    />
+                    <div style={{ padding:"10px 14px",borderRadius:8,background:"#f0fdf4",border:"1px solid #bbf7d0",fontSize:12,color:"#166534" }}>
+                      💡 Copiez ce message et envoyez-le à l'apprenant par WhatsApp ou email avant de confirmer le retrait.
+                    </div>
+                    <button
+                      onClick={()=>{ navigator.clipboard?.writeText(retraitMessage); toast.success("Message copié !"); }}
+                      style={{ padding:"9px 0",background:"#f1f5f9",color:"#374151",border:"1px solid #e5e7eb",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13 }}>
+                      📋 Copier le message
+                    </button>
+                  </div>
+                )}
+
+                {/* ÉTAPE 3 — Confirmation finale */}
+                {retraitEtape===3 && (
+                  <div style={{ display:"grid",gap:16,textAlign:"center" }}>
+                    <div style={{ fontSize:48 }}>🚫</div>
+                    <div style={{ fontSize:15,fontWeight:800,color:"#0f172a" }}>Confirmer le retrait définitif ?</div>
+                    <div style={{ fontSize:13,color:"#6b7280",lineHeight:1.6 }}>
+                      Cette action va :<br/>
+                      <strong>• Bloquer immédiatement tous les accès</strong> de {a.prospect_nom}<br/>
+                      <strong>• Le retirer de tous ses groupes</strong> de formation actifs<br/>
+                      <strong>• Notifier le(s) coach(s)</strong> et l'assistant onboarding
+                    </div>
+                    <div style={{ padding:"12px 16px",borderRadius:10,background:"#fef2f2",border:"1.5px solid #fca5a5",fontSize:12,color:"#b91c1c",fontWeight:700 }}>
+                      Motif : {retraitMotif || "—"}
+                    </div>
+                    <button onClick={executerRetrait} disabled={retraitLoading}
+                      style={{ padding:"13px 0",background:retraitLoading?"#e5e7eb":"#dc2626",color:retraitLoading?"#9ca3af":"#fff",border:"none",borderRadius:10,cursor:retraitLoading?"default":"pointer",fontWeight:800,fontSize:14,opacity:retraitLoading?0.7:1 }}>
+                      {retraitLoading ? "⏳ Retrait en cours…" : "✅ Confirmer le retrait définitif"}
+                    </button>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Footer navigation */}
+              <div style={{ padding:"16px 24px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",gap:10 }}>
+                <button onClick={()=>retraitEtape>1?setRetraitEtape(retraitEtape-1):setShowRetraitModal(false)}
+                  style={{ padding:"10px 20px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:13 }}>
+                  {retraitEtape===1?"Annuler":"← Retour"}
+                </button>
+                {retraitEtape<3 && (
+                  <button
+                    onClick={()=>{ if(retraitEtape===1&&!retraitMotif){toast.error("Sélectionnez un motif");return;} setRetraitEtape(retraitEtape+1); }}
+                    style={{ padding:"10px 24px",background:"#dc2626",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:13 }}>
+                    {retraitEtape===1?"Suivant : message →":"Suivant : confirmation →"}
+                  </button>
+                )}
               </div>
             </div>
           </div>

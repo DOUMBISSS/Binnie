@@ -151,12 +151,28 @@ export default function OnboardingDashboard() {
   const [groupeDetail, setGroupeDetail] = useState({ apprenants:[], fichiers:[] });
   const [showCreateGroupe, setShowCreateGroupe] = useState(false);
   const [showAddApprenant, setShowAddApprenant] = useState(false);
-  const [coaches, setCoaches] = useState([]);
+  const [allStaff, setAllStaff]   = useState([]);
+  const [coaches, setCoaches]     = useState([]);
   const [groupeForm, setGroupeForm] = useState({ nom:"", niveau:"", filiere:"", type_cours:"en_ligne", coach_id:"", date_debut:"", date_fin:"", capacite_max:20, horaire:[] });
   const [apprenantForm, setApprenantForm] = useState({ nom_apprenant:"", prenom_apprenant:"", email_apprenant:"", telephone:"", niveau:"" });
   const [horaireTmp, setHoraireTmp] = useState({ jour:"Lun", debut:"08:00", fin:"10:00" });
   const [groupeSaving, setGroupeSaving] = useState(false);
   const [showEditGroupe, setShowEditGroupe] = useState(false);
+
+  // ── Apprenant detail modal ───────────────────────────────────
+  const [selectedApprenantGroupe, setSelectedApprenantGroupe]       = useState(null);
+  const [apprenantTab, setApprenantTab]                 = useState("profil");
+  const [apprenantTest, setApprenantTest]               = useState(null);
+  const [apprenantTestLoading, setApprenantTestLoading] = useState(false);
+  const [apprenantPresences, setApprenantPresences]     = useState([]);
+  const [apprenantPresLoading, setApprenantPresLoading] = useState(false);
+
+  // ── Transfert de groupe ──────────────────────────────────────
+  const [showTransfert,        setShowTransfert]        = useState(false);
+  const [transfertForm,        setTransfertForm]        = useState({ nouveau_groupe_id:"", motif:"", initiateur:"apprenant", jours:[], creneau:"" });
+  const [groupesCibles,        setGroupesCibles]        = useState([]);
+  const [groupesCiblesLoading, setGroupesCiblesLoading] = useState(false);
+  const [transfertSaving,      setTransfertSaving]      = useState(false);
 
   // ── Groupes sub-tabs: Historique cours & Présences ──────────────────────
   const [obCoursList, setObCoursList]         = useState([]);
@@ -180,7 +196,9 @@ export default function OnboardingDashboard() {
       fetch(`${API_URL}/api/admin/utilisateurs`, { headers: { Authorization: `Bearer ${token}` } }).then(r=>r.ok?r.json():{utilisateurs:[]})
     ]).then(([gData, uData]) => {
       setGroupes(gData.groupes || []);
-      setCoaches((uData.utilisateurs || []).filter(u => u.role === "coach" && u.actif));
+      const staff = uData.utilisateurs || [];
+      setAllStaff(staff);
+      setCoaches(staff.filter(u => u.role === "coach" && u.actif));
     }).catch(()=>{}).finally(()=>setGroupesLoading(false));
   }, []);
 
@@ -190,6 +208,19 @@ export default function OnboardingDashboard() {
     if (obGroupeSubTab === "cours") fetchObCours();
     if (obGroupeSubTab === "presences") fetchObPresences();
   }, [obGroupeSubTab, selectedGroupe, obCoursFiltreMois, obCoursAnnee]);
+
+  // Fetch "Mes apprenants" réels depuis l'API
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (activeTab !== "mes_apprenants") return;
+    setMesAppLoading(true);
+    const token = localStorage.getItem("admin_token");
+    fetch(`${API_URL}/api/groupes/apprenants`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { apprenants:[] })
+      .then(d => setMesApprenants(d.apprenants || []))
+      .catch(() => {})
+      .finally(() => setMesAppLoading(false));
+  }, [activeTab]);
 
   const fetchGroupeDetail = async (groupe) => {
     const token = localStorage.getItem("admin_token");
@@ -201,6 +232,74 @@ export default function OnboardingDashboard() {
       const d = await r.json();
       setGroupeDetail({ apprenants: d.apprenants || [], fichiers: d.fichiers || [] });
     } catch {}
+  };
+
+  const openApprenantDetail = async (a) => {
+    setSelectedApprenantGroupe(a);
+    setApprenantTab("profil");
+    setApprenantTest(null);
+    setApprenantPresences([]);
+    // Fetch test de niveau par email
+    if (a.email_apprenant) {
+      setApprenantTestLoading(true);
+      try {
+        const r = await fetch(`${API_URL}/api/level-test/result?email=${encodeURIComponent(a.email_apprenant)}`);
+        if (r.ok) { const d = await r.json(); setApprenantTest(d.result || null); }
+      } catch {} finally { setApprenantTestLoading(false); }
+    }
+  };
+
+  const searchGroupesCibles = async (niveau) => {
+    if (!niveau) return;
+    setGroupesCiblesLoading(true);
+    const token = localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes?niveau=${encodeURIComponent(niveau)}&statut=actif`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setGroupesCibles((d.groupes||[]).filter(g => g.id !== selectedGroupe?.id));
+      }
+    } catch {} finally { setGroupesCiblesLoading(false); }
+  };
+
+  const executerTransfert = async () => {
+    if (!transfertForm.nouveau_groupe_id) { toast.error("Sélectionnez un groupe cible"); return; }
+    setTransfertSaving(true);
+    const token = localStorage.getItem("admin_token");
+    try {
+      const dispoStr = [transfertForm.jours.join(", "), transfertForm.creneau].filter(Boolean).join(" — ") || "—";
+      const motifFinal = transfertForm.motif || `Changement de disponibilités. Créneaux souhaités : ${dispoStr}`;
+      const r = await fetch(`${API_URL}/api/groupes/transfert`, {
+        method:"POST",
+        headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+        body: JSON.stringify({
+          ga_id:             selectedApprenantGroupe.id,
+          nouveau_groupe_id: transfertForm.nouveau_groupe_id,
+          motif:             motifFinal,
+          initiateur:        transfertForm.initiateur,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      toast.success(d.message || "Transfert effectué ✓");
+      setShowTransfert(false);
+      setSelectedApprenantGroupe(null);
+      const gr = await fetch(`${API_URL}/api/groupes`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (gr.ok) { const gd = await gr.json(); setGroupes(gd.groupes||[]); }
+    } catch (e) { toast.error(e.message); } finally { setTransfertSaving(false); }
+  };
+
+  const fetchApprenantPresences = async (a) => {
+    if (!selectedGroupe) return;
+    setApprenantPresLoading(true);
+    const token = localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/presences`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setApprenantPresences((d.presences || []).filter(p => p.ga_id === a.id || (p.nom_apprenant === a.nom_apprenant && p.prenom_apprenant === a.prenom_apprenant)));
+      }
+    } catch {} finally { setApprenantPresLoading(false); }
   };
 
   const createGroupe = async () => {
@@ -463,10 +562,13 @@ export default function OnboardingDashboard() {
     }
   };
 
-  // ── Mes apprenants (suivi) filtres ────────────────────────────────
-  const [mesAppSearch, setMesAppSearch] = useState("");
-  const [mesAppNiveau, setMesAppNiveau] = useState("tous");
-  const [mesAppStatut, setMesAppStatut] = useState("tous");
+  // ── Mes apprenants (données réelles) ─────────────────────────────
+  const [mesApprenants,      setMesApprenants]      = useState([]);
+  const [mesAppLoading,      setMesAppLoading]      = useState(false);
+  const [mesAppSearch,       setMesAppSearch]       = useState("");
+  const [mesAppNiveau,       setMesAppNiveau]       = useState("tous");
+  const [mesAppStatut,       setMesAppStatut]       = useState("tous");
+  const [mesAppGroupe,       setMesAppGroupe]       = useState("tous");
 
   const PROGRAMMES = ["Anglais Général","Anglais Pro B2","Business English","Certification TOEIC","Certification IELTS","Formation Entreprise","Anglais Enfants","Autre"];
   const NIVEAU_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
@@ -474,7 +576,7 @@ export default function OnboardingDashboard() {
   const TABS = [
     { key:"dashboard",      label:"Tableau de bord",         icon:"📊" },
     { key:"apprenants",     label:"Nouveaux apprenants",      icon:"📥", badge:enAttente },
-    { key:"mes_apprenants", label:"Mes apprenants",           icon:"🎓", badge:apprenants.filter(a=>a.statut==="en_cours").length || null },
+    { key:"mes_apprenants", label:"Mes apprenants",           icon:"🎓", badge:mesApprenants.filter(a=>a.statut==="actif"||a.statut==="periode_test").length || null },
     { key:"programmation",  label:"Programmation",            icon:"📅", badge:plannings.filter(p=>p.statut!=="envoyé").length },
     { key:"suivi",          label:"Suivi démarrage",          icon:"✅" },
     { key:"bilans",         label:"Bilans & Renouvellements", icon:"📋", badge:bilansDus },
@@ -726,34 +828,54 @@ export default function OnboardingDashboard() {
 
             {/* ══ MES APPRENANTS — Suivi ══ */}
             {activeTab==="mes_apprenants" && (() => {
-              const mesApp = apprenants.filter(a => a.statut !== "en_attente");
-              const filtered = mesApp.filter(a => {
+              const STATUT_GA = {
+                actif:        { label:"Actif",          color:"#166534", bg:"#dcfce7" },
+                periode_test: { label:"Période de test",color:"#7c3aed", bg:"#ede9fe" },
+                transfere:    { label:"Transféré",      color:"#0891b2", bg:"#e0f2fe" },
+                retire:       { label:"Retiré",         color:"#6b7280", bg:"#f1f5f9" },
+              };
+              const NIVEAUX_COLORS = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+              const TYPE_ICO = { en_ligne:"💻",domicile:"🏠",centre:"🏢" };
+              const fmtDate = d => d ? new Date(d).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "—";
+
+              const groupesUniq = [...new Set(mesApprenants.map(a=>a.groupe_nom).filter(Boolean))];
+
+              const filtered = mesApprenants.filter(a => {
                 const q = mesAppSearch.toLowerCase();
-                if (q && !`${a.nom} ${a.email||""} ${a.coach||""}`.toLowerCase().includes(q)) return false;
-                if (mesAppNiveau !== "tous" && a.niveau !== mesAppNiveau) return false;
+                const nom = `${a.prenom_apprenant||""} ${a.nom_apprenant||""}`.toLowerCase();
+                if (q && !nom.includes(q) && !(a.email_apprenant||"").toLowerCase().includes(q) && !(a.coach_nom||"").toLowerCase().includes(q)) return false;
+                const niv = a.niveau || a.groupe_niveau;
+                if (mesAppNiveau !== "tous" && niv !== mesAppNiveau) return false;
                 if (mesAppStatut !== "tous" && a.statut !== mesAppStatut) return false;
+                if (mesAppGroupe !== "tous" && a.groupe_nom !== mesAppGroupe) return false;
                 return true;
               });
+
+              const kpiActif   = mesApprenants.filter(a=>a.statut==="actif").length;
+              const kpiTest    = mesApprenants.filter(a=>a.statut==="periode_test").length;
+              const kpiTransf  = mesApprenants.filter(a=>a.statut==="transfere").length;
+
               return (
                 <div>
                   {/* Header */}
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20 }}>
                     <div>
                       <h2 style={{ margin:0,fontSize:17,fontWeight:800,color:"#0f172a" }}>🎓 Mes apprenants</h2>
-                      <p style={{ margin:"4px 0 0",fontSize:12,color:"#6b7280" }}>Suivi de tous les apprenants pris en charge par l'assistante Onboarding</p>
+                      <p style={{ margin:"4px 0 0",fontSize:12,color:"#6b7280" }}>Tous les apprenants inscrits dans les groupes — données réelles</p>
                     </div>
-                    <button onClick={()=>setActiveTab("apprenants")} style={{ padding:"7px 14px",background:"#f1f5f9",color:"#374151",border:"1px solid #e2e8f0",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:11 }}>
-                      📥 Voir les nouveaux dossiers {enAttente>0&&<span style={{ marginLeft:4,background:"#ef4444",color:"#fff",borderRadius:99,fontSize:9,fontWeight:800,padding:"1px 5px" }}>{enAttente}</span>}
+                    <button onClick={()=>{ setMesAppLoading(true); const tok=localStorage.getItem("admin_token"); fetch(`${API_URL}/api/groupes/apprenants`,{headers:{Authorization:`Bearer ${tok}`}}).then(r=>r.ok?r.json():{apprenants:[]}).then(d=>setMesApprenants(d.apprenants||[])).catch(()=>{}).finally(()=>setMesAppLoading(false)); }}
+                      style={{ padding:"7px 14px",background:"#f1f5f9",color:"#374151",border:"1px solid #e2e8f0",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:11 }}>
+                      🔄 Actualiser
                     </button>
                   </div>
 
                   {/* KPIs */}
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:22 }}>
                     {[
-                      { icon:"🎓", label:"Total apprenants",   value:mesApp.length,                                        color:C },
-                      { icon:"🔄", label:"En cours",           value:mesApp.filter(a=>a.statut==="en_cours").length,        color:"#0891b2" },
-                      { icon:"✅", label:"Terminés",            value:mesApp.filter(a=>a.statut==="terminé").length,        color:"#22c55e" },
-                      { icon:"📋", label:"Bilans à traiter",   value:bilans.filter(b=>!b.alerteCommerciale).length,         color:"#d97706" },
+                      { icon:"🎓", label:"Total",          value:mesApprenants.length,  color:C },
+                      { icon:"✅", label:"Actifs",          value:kpiActif,              color:"#16a34a" },
+                      { icon:"🧪", label:"Période de test", value:kpiTest,               color:"#7c3aed" },
+                      { icon:"🔄", label:"Transférés",      value:kpiTransf,             color:"#0891b2" },
                     ].map(k=>(
                       <div key={k.label} style={{ background:"#fff",borderRadius:12,padding:"14px 16px",border:"1px solid #f1f5f9",boxShadow:"0 1px 6px rgba(0,0,0,0.05)",display:"flex",alignItems:"center",gap:12 }}>
                         <div style={{ width:42,height:42,borderRadius:10,background:k.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{k.icon}</div>
@@ -765,109 +887,133 @@ export default function OnboardingDashboard() {
                     ))}
                   </div>
 
-                  {/* Barre filtres */}
+                  {/* Filtres */}
                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:18,padding:"10px 14px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0" }}>
-                    <input value={mesAppSearch} onChange={e=>setMesAppSearch(e.target.value)} placeholder="🔍 Rechercher (nom, email, coach)…" style={{ padding:"8px 11px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,width:240 }} />
+                    <input value={mesAppSearch} onChange={e=>setMesAppSearch(e.target.value)} placeholder="🔍 Nom, email ou coach…" style={{ padding:"8px 11px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,width:220 }} />
                     <select value={mesAppNiveau} onChange={e=>setMesAppNiveau(e.target.value)} style={{ padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12 }}>
                       <option value="tous">Tous niveaux</option>
                       {["A1","A2","B1","B2","C1","C2"].map(n=><option key={n} value={n}>{n}</option>)}
                     </select>
                     <select value={mesAppStatut} onChange={e=>setMesAppStatut(e.target.value)} style={{ padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12 }}>
                       <option value="tous">Tous statuts</option>
-                      <option value="en_cours">En cours</option>
-                      <option value="terminé">Terminés</option>
+                      <option value="actif">Actif</option>
+                      <option value="periode_test">Période de test</option>
+                      <option value="transfere">Transféré</option>
                     </select>
-                    {(mesAppSearch||mesAppNiveau!=="tous"||mesAppStatut!=="tous")&&(
-                      <button onClick={()=>{setMesAppSearch("");setMesAppNiveau("tous");setMesAppStatut("tous");}} style={{ padding:"7px 12px",background:"#f1f5f9",color:"#374151",border:"1px solid #e2e8f0",borderRadius:8,cursor:"pointer",fontSize:11 }}>✕ Effacer</button>
+                    {groupesUniq.length > 1 && (
+                      <select value={mesAppGroupe} onChange={e=>setMesAppGroupe(e.target.value)} style={{ padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12 }}>
+                        <option value="tous">Tous les groupes</option>
+                        {groupesUniq.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
+                    )}
+                    {(mesAppSearch||mesAppNiveau!=="tous"||mesAppStatut!=="tous"||mesAppGroupe!=="tous") && (
+                      <button onClick={()=>{setMesAppSearch("");setMesAppNiveau("tous");setMesAppStatut("tous");setMesAppGroupe("tous");}}
+                        style={{ padding:"7px 12px",background:"#f1f5f9",color:"#374151",border:"1px solid #e2e8f0",borderRadius:8,cursor:"pointer",fontSize:11 }}>✕ Effacer</button>
                     )}
                     <span style={{ marginLeft:"auto",fontSize:11,color:"#6b7280" }}>{filtered.length} apprenant{filtered.length!==1?"s":""}</span>
                   </div>
 
-                  {mesApp.length===0 && (
+                  {/* États vides */}
+                  {mesAppLoading && <div style={{ textAlign:"center",padding:60,color:"#9ca3af" }}>Chargement des apprenants…</div>}
+                  {!mesAppLoading && mesApprenants.length===0 && (
                     <div style={{ textAlign:"center",padding:"50px 24px",background:"#f8fafc",borderRadius:16,border:"2px dashed #e2e8f0" }}>
-                      <div style={{ fontSize:"3rem",marginBottom:10 }}>📥</div>
-                      <div style={{ fontSize:15,fontWeight:800,color:"#0f172a",marginBottom:6 }}>Aucun apprenant en suivi</div>
-                      <div style={{ fontSize:12,color:"#9ca3af",marginBottom:16 }}>Traitez les dossiers dans <strong>Nouveaux apprenants</strong> pour les faire apparaître ici.</div>
-                      <button onClick={()=>setActiveTab("apprenants")} style={{ padding:"9px 20px",background:C,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12 }}>📥 Voir les nouveaux dossiers</button>
+                      <div style={{ fontSize:"3rem",marginBottom:10 }}>🎓</div>
+                      <div style={{ fontSize:15,fontWeight:800,color:"#0f172a",marginBottom:6 }}>Aucun apprenant dans vos groupes</div>
+                      <div style={{ fontSize:12,color:"#9ca3af",marginBottom:16 }}>Ajoutez des apprenants dans vos groupes depuis l'onglet <strong>Groupes</strong>.</div>
+                      <button onClick={()=>setActiveTab("groupes")} style={{ padding:"9px 20px",background:C,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12 }}>👥 Voir les groupes</button>
                     </div>
                   )}
-
-                  {mesApp.length>0 && filtered.length===0 && (
+                  {!mesAppLoading && mesApprenants.length>0 && filtered.length===0 && (
                     <div style={{ textAlign:"center",padding:"40px 0",color:"#94a3b8",fontSize:13 }}>Aucun apprenant ne correspond aux filtres.</div>
                   )}
 
                   {/* Grille cartes */}
-                  <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:14 }}>
-                    {filtered.map(a=>{
-                      const st = STATUT_APP[a.statut]||{};
-                      const suivi = suivis.find(s=>s.apprenantId===a.id);
-                      const pct = suivi ? pctChecklist(suivi.checklist) : 0;
-                      const niveauColor = NIVEAU_COLOR[a.niveau]||"#6b7280";
-                      const planning = plannings.find(p=>p.apprenantId===a.id);
-                      const stPlanning = planning ? STATUT_PLANNING[planning.statut] : null;
-                      return (
-                        <div key={a.id} style={{ background:"#fff",borderRadius:14,border:`1.5px solid ${a.statut==="terminé"?"#22c55e30":"#e5e7eb"}`,overflow:"hidden",boxShadow:"0 1px 6px rgba(0,0,0,0.05)" }}>
-                          <div style={{ height:4,background:a.statut==="en_cours"?`linear-gradient(90deg,${C},#0891b2)`:"#22c55e" }}/>
-                          <div style={{ padding:18 }}>
-                            {/* Header carte */}
-                            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
-                              <div style={{ width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,#0f172a,${C})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:16,color:"#fff",flexShrink:0 }}>{a.nom[0]}</div>
-                              <div style={{ flex:1,minWidth:0 }}>
-                                <div style={{ fontSize:14,fontWeight:800,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.nom}</div>
-                                <div style={{ fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.email||a.entreprise||a.profil||"—"}</div>
-                              </div>
-                              <Badge label={st.label||a.statut} color={st.color} bg={st.bg} />
-                            </div>
+                  {!mesAppLoading && filtered.length>0 && (
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14 }}>
+                      {filtered.map(a => {
+                        const statCfg = STATUT_GA[a.statut] || { label:a.statut||"—", color:"#6b7280", bg:"#f1f5f9" };
+                        const niv = a.niveau || a.groupe_niveau;
+                        const nvColor = NIVEAUX_COLORS[niv] || "#6b7280";
+                        const initiales = ((a.prenom_apprenant?.[0]||"")+(a.nom_apprenant?.[0]||"")).toUpperCase() || "?";
+                        const prog = a.note_obj?.programme || a.groupe_filiere || "—";
+                        const ac = a.assistante_commerciale;
+                        return (
+                          <div key={a.id} style={{ background:"#fff",borderRadius:14,border:`1.5px solid ${a.statut==="periode_test"?"#c4b5fd":a.statut==="transfere"?"#bae6fd":"#e5e7eb"}`,overflow:"hidden",boxShadow:"0 1px 6px rgba(0,0,0,0.05)" }}>
+                            <div style={{ height:4,background:a.statut==="actif"?`linear-gradient(90deg,${C},#0891b2)`:a.statut==="periode_test"?"#7c3aed":a.statut==="transfere"?"#0891b2":"#e5e7eb" }}/>
+                            <div style={{ padding:16 }}>
 
-                            {/* Badges */}
-                            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12 }}>
-                              {a.niveau&&<span style={{ fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:999,color:"#fff",background:niveauColor }}>{a.niveau}</span>}
-                              {a.offre&&<span style={{ fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,background:"#f3e8ff",color:C }}>{a.offre}</span>}
-                              {stPlanning&&<span style={{ fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,background:stPlanning.bg,color:stPlanning.color }}>📅 {stPlanning.label}</span>}
-                            </div>
+                              {/* Header */}
+                              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+                                <div style={{ width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,#0f172a,${C})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:16,color:"#fff",flexShrink:0 }}>{initiales}</div>
+                                <div style={{ flex:1,minWidth:0 }}>
+                                  <div style={{ fontSize:14,fontWeight:800,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.prenom_apprenant} {a.nom_apprenant}</div>
+                                  <div style={{ fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.email_apprenant||"—"}</div>
+                                </div>
+                                <span style={{ padding:"2px 9px",borderRadius:99,fontSize:10,fontWeight:700,color:statCfg.color,background:statCfg.bg,whiteSpace:"nowrap" }}>{statCfg.label}</span>
+                              </div>
 
-                            {/* Infos clés */}
-                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12 }}>
-                              <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
-                                <div style={{ fontSize:9,color:"#9ca3af" }}>Coach assigné</div>
-                                <div style={{ fontSize:11,fontWeight:700,color:"#374151" }}>{a.coach||"—"}</div>
+                              {/* Badges niveau + programme + type */}
+                              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:10 }}>
+                                {niv && <span style={{ fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:999,color:"#fff",background:nvColor }}>{niv}</span>}
+                                {prog!=="—" && <span style={{ fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,background:"#f3e8ff",color:C }}>{prog}</span>}
+                                <span style={{ fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,background:"#f1f5f9",color:"#374151" }}>{TYPE_ICO[a.groupe_type_cours]||"🏢"} {a.groupe_type_cours==="en_ligne"?"En ligne":a.groupe_type_cours==="domicile"?"Domicile":"Centre"}</span>
                               </div>
-                              <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
-                                <div style={{ fontSize:9,color:"#9ca3af" }}>Date début</div>
-                                <div style={{ fontSize:11,fontWeight:700,color:"#374151" }}>{suivi?.dateDebut?formatDate(suivi.dateDebut):"—"}</div>
-                              </div>
-                            </div>
 
-                            {/* Checklist onboarding */}
-                            <div style={{ marginBottom:14 }}>
-                              <div style={{ display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:5 }}>
-                                <span style={{ color:"#6b7280",fontWeight:600 }}>Checklist onboarding</span>
-                                <span style={{ fontWeight:800,color:pct>=80?"#22c55e":pct>=40?C:"#d97706" }}>{pct}%</span>
+                              {/* Infos groupe + coach */}
+                              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10 }}>
+                                <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
+                                  <div style={{ fontSize:9,color:"#9ca3af" }}>Groupe</div>
+                                  <div style={{ fontSize:11,fontWeight:700,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.groupe_nom||"—"}</div>
+                                </div>
+                                <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
+                                  <div style={{ fontSize:9,color:"#9ca3af" }}>Coach</div>
+                                  <div style={{ fontSize:11,fontWeight:700,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.coach_nom||"—"}</div>
+                                </div>
+                                <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
+                                  <div style={{ fontSize:9,color:"#9ca3af" }}>Ajouté le</div>
+                                  <div style={{ fontSize:11,fontWeight:700,color:"#374151" }}>{fmtDate(a.date_ajout)}</div>
+                                </div>
+                                <div style={{ padding:"6px 8px",borderRadius:6,background:"#f8fafc" }}>
+                                  <div style={{ fontSize:9,color:"#9ca3af" }}>Téléphone</div>
+                                  <div style={{ fontSize:11,fontWeight:700,color:"#374151" }}>{a.telephone||"—"}</div>
+                                </div>
                               </div>
-                              <div style={{ height:7,background:"#e5e7eb",borderRadius:4,overflow:"hidden" }}>
-                                <div style={{ height:"100%",width:`${pct}%`,background:pct>=80?"#22c55e":pct>=40?C:"#d97706",borderRadius:4,transition:"width .3s" }}/>
-                              </div>
-                              {suivi && (
-                                <div style={{ display:"flex",flexWrap:"wrap",gap:4,marginTop:7 }}>
-                                  {Object.entries(suivi.checklist).map(([k,v])=>(
-                                    <span key={k} style={{ fontSize:9,padding:"1px 6px",borderRadius:99,background:v?"#dcfce7":"#f1f5f9",color:v?"#166534":"#9ca3af",fontWeight:700 }}>
-                                      {v?"✓":"·"} {CHECKLIST_ITEMS.find(c=>c.id===k)?.label.slice(0,18)||k}
-                                    </span>
-                                  ))}
+
+                              {/* Assistante commerciale */}
+                              {ac && (
+                                <div style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#f0fdf4",border:"1px solid #bbf7d0",marginBottom:10 }}>
+                                  <div style={{ width:28,height:28,borderRadius:"50%",background:"#16a34a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",flexShrink:0 }}>
+                                    {ac.photo_url ? <img src={ac.photo_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover",borderRadius:"50%" }} onError={e=>{e.currentTarget.style.display="none";}} /> : ((ac.prenom?.[0]||"")+(ac.nom?.[0]||"")).toUpperCase()||"💼"}
+                                  </div>
+                                  <div style={{ flex:1,minWidth:0 }}>
+                                    <div style={{ fontSize:9,color:"#16a34a",fontWeight:700 }}>Assistante commerciale</div>
+                                    <div style={{ fontSize:11,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{ac.prenom} {ac.nom}{ac.telephone?` · ${ac.telephone}`:""}</div>
+                                  </div>
                                 </div>
                               )}
-                            </div>
 
-                            {/* Actions */}
-                            <div style={{ display:"flex",gap:6 }}>
-                              <button onClick={()=>{setSelectedSuivi(suivi||null); setShowSuiviModal(true);}} style={{ flex:1,padding:"8px",background:C_LIGHT,color:C,border:`1px solid ${C}30`,borderRadius:7,cursor:"pointer",fontWeight:700,fontSize:11,textAlign:"center" }}>✅ Suivi</button>
-                              <button onClick={()=>setActiveTab("programmation")} style={{ flex:1,padding:"8px",background:"#e0f2fe",color:"#0891b2",border:"1px solid #bae6fd",borderRadius:7,cursor:"pointer",fontWeight:700,fontSize:11,textAlign:"center" }}>📅 Planning</button>
+                              {/* Action */}
+                              <button
+                                onClick={()=>{
+                                  // Ouvrir la fiche apprenant du groupe via le modal de groupe
+                                  const grp = groupes.find(g=>g.id===a.groupe_id);
+                                  if (grp) {
+                                    setSelectedGroupe(grp);
+                                    setActiveTab("groupes");
+                                    setTimeout(()=>openApprenantDetail(a), 200);
+                                  } else {
+                                    openApprenantDetail(a);
+                                  }
+                                }}
+                                style={{ width:"100%",padding:"9px 0",background:C_LIGHT,color:C,border:`1px solid ${C}30`,borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                                👤 Voir le dossier →
+                              </button>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1160,20 +1306,37 @@ export default function OnboardingDashboard() {
                           {groupeDetail.apprenants.length===0 && (
                             <div style={{ textAlign:"center",padding:32,color:"#9ca3af",fontSize:12 }}>Aucun apprenant dans ce groupe</div>
                           )}
-                          {groupeDetail.apprenants.filter(a=>a.statut!=="retire").map(a=>(
-                            <div key={a.id} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 18px",borderBottom:"1px solid #f1f5f9",gap:10 }}>
-                              <div style={{ display:"flex",gap:10,alignItems:"center" }}>
-                                <div style={{ width:36,height:36,borderRadius:"50%",background:C_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:C,flexShrink:0 }}>
-                                  {(a.prenom_apprenant||a.nom_apprenant||"?")[0].toUpperCase()}
+                          {groupeDetail.apprenants.filter(a=>a.statut!=="retire").map(a=>{
+                            let noteObj = {};
+                            try { noteObj = JSON.parse(a.note||"{}"); } catch {}
+                            return (
+                              <div key={a.id} onClick={()=>openApprenantDetail(a)}
+                                style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 18px",borderBottom:"1px solid #f1f5f9",gap:10,cursor:"pointer",transition:"background 0.1s" }}
+                                onMouseEnter={e=>e.currentTarget.style.background="#faf5ff"}
+                                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                <div style={{ display:"flex",gap:10,alignItems:"center",minWidth:0,flex:1 }}>
+                                  <div style={{ width:38,height:38,borderRadius:"50%",background:C_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:C,flexShrink:0 }}>
+                                    {(a.prenom_apprenant||a.nom_apprenant||"?")[0].toUpperCase()}
+                                  </div>
+                                  <div style={{ minWidth:0 }}>
+                                    <div style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{a.prenom_apprenant} {a.nom_apprenant}</div>
+                                    <div style={{ fontSize:11,color:"#6b7280",display:"flex",gap:8,flexWrap:"wrap" }}>
+                                      <span>{a.email_apprenant||"—"}</span>
+                                      {a.niveau && <span style={{ padding:"1px 6px",borderRadius:99,background:C_LIGHT,color:C,fontWeight:700 }}>{a.niveau}</span>}
+                                      {noteObj.programme && <span style={{ color:"#9ca3af" }}>· {noteObj.programme}</span>}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div>
-                                  <div style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{a.prenom_apprenant} {a.nom_apprenant}</div>
-                                  <div style={{ fontSize:11,color:"#6b7280" }}>{a.email_apprenant||"—"} {a.niveau ? `· Niveau ${a.niveau}` : ""}</div>
+                                <div style={{ display:"flex",gap:6,alignItems:"center",flexShrink:0 }}>
+                                  <span style={{ fontSize:10,color:C,fontWeight:600 }}>Voir le dossier →</span>
+                                  <button onClick={e=>{ e.stopPropagation(); removeApprenant(a.id, `${a.prenom_apprenant||""} ${a.nom_apprenant||""}`.trim()); }}
+                                    style={{ padding:"5px 12px",background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:6,cursor:"pointer",fontWeight:700,fontSize:11 }}>
+                                    Retirer
+                                  </button>
                                 </div>
                               </div>
-                              <button onClick={()=>removeApprenant(a.id, `${a.prenom_apprenant||""} ${a.nom_apprenant||""}`.trim())} style={{ padding:"5px 12px",background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:6,cursor:"pointer",fontWeight:700,fontSize:11 }}>Retirer</button>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {groupeDetail.apprenants.some(a=>a.statut==="retire") && (
                             <div style={{ padding:"10px 18px",background:"#f9fafb",borderTop:"1px solid #e5e7eb" }}>
                               <div style={{ fontSize:11,fontWeight:700,color:"#9ca3af",marginBottom:6 }}>Apprenants retirés</div>
@@ -1272,6 +1435,501 @@ export default function OnboardingDashboard() {
                         </div>
                       )}
 
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── MODAL DÉTAIL APPRENANT ── */}
+              {selectedApprenantGroupe && (() => {
+                let noteObj = {};
+                try { noteObj = JSON.parse(selectedApprenantGroupe.note||"{}"); } catch {}
+                const NIVEAUX_LABELS = { A1:"Débutant",A2:"Élémentaire",B1:"Intermédiaire",B2:"Interm. Supérieur",C1:"Avancé",C2:"Maîtrise" };
+                const NIVEAUX_COLORS = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+                const nvColor = NIVEAUX_COLORS[selectedApprenantGroupe.niveau] || "#6b7280";
+                const coachNom = coaches.find(c=>c.id===selectedGroupe?.coach_id)?.nom || selectedGroupe?.coach_nom || "—";
+                const initiales = ((selectedApprenantGroupe.prenom_apprenant?.[0]||"") + (selectedApprenantGroupe.nom_apprenant?.[0]||"")).toUpperCase() || "?";
+                // Commercial from test
+                const commercialNom = apprenantTest?.commercial_id ? (allStaff.find(s=>s.id===apprenantTest.commercial_id) ? `${allStaff.find(s=>s.id===apprenantTest.commercial_id).prenom||""} ${allStaff.find(s=>s.id===apprenantTest.commercial_id).nom||""}`.trim() : "—") : "—";
+                // Taux présences
+                const nbPresent = apprenantPresences.filter(p=>p.statut==="present").length;
+                const tauxPres = apprenantPresences.length ? Math.round(nbPresent/apprenantPresences.length*100) : null;
+                return (
+                  <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.75)",zIndex:1050,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
+                    onClick={()=>setSelectedApprenantGroupe(null)}>
+                    <div style={{ background:"#fff",borderRadius:18,width:"min(97vw,820px)",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.4)",overflow:"hidden" }}
+                      onClick={e=>e.stopPropagation()}>
+
+                      {/* Header */}
+                      <div style={{ background:C_GRAD,padding:"20px 24px",color:"#fff",flexShrink:0 }}>
+                        <div style={{ display:"flex",gap:16,alignItems:"flex-start" }}>
+                          <div style={{ width:54,height:54,borderRadius:"50%",background:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:900,flexShrink:0 }}>
+                            {initiales}
+                          </div>
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <div style={{ fontSize:10,color:"#c4b5fd",fontWeight:700,letterSpacing:"0.08em",marginBottom:3 }}>DOSSIER APPRENANT</div>
+                            <div style={{ fontSize:18,fontWeight:900,marginBottom:5 }}>{selectedApprenantGroupe.prenom_apprenant} {selectedApprenantGroupe.nom_apprenant}</div>
+                            <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                              {selectedApprenantGroupe.niveau && (
+                                <span style={{ padding:"2px 10px",borderRadius:99,background:"rgba(255,255,255,0.2)",fontSize:11,fontWeight:700 }}>
+                                  {selectedApprenantGroupe.niveau} — {NIVEAUX_LABELS[selectedApprenantGroupe.niveau]||""}
+                                </span>
+                              )}
+                              {noteObj.programme && <span style={{ padding:"2px 10px",borderRadius:99,background:"rgba(255,255,255,0.15)",fontSize:11 }}>{noteObj.programme}</span>}
+                              <span style={{ padding:"2px 10px",borderRadius:99,background:selectedApprenantGroupe.statut==="actif"?"rgba(34,197,94,0.3)":"rgba(148,163,184,0.3)",fontSize:11,fontWeight:700 }}>
+                                {selectedApprenantGroupe.statut==="actif"?"Actif":"Retiré"}
+                              </span>
+                            </div>
+                          </div>
+                          <button onClick={()=>setSelectedApprenantGroupe(null)}
+                            style={{ background:"rgba(255,255,255,0.18)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Onglets */}
+                      <div style={{ display:"flex",background:"#fafafa",borderBottom:"1px solid #e5e7eb",flexShrink:0 }}>
+                        {[
+                          { k:"profil",    l:"Profil & Formation",   icon:"👤" },
+                          { k:"test",      l:"Test de niveau",        icon:"📊" },
+                          { k:"presences", l:`Présences${tauxPres!==null?` (${tauxPres}%)`:""}`, icon:"✅" },
+                        ].map(t=>(
+                          <button key={t.k} onClick={()=>{
+                            setApprenantTab(t.k);
+                            if (t.k==="presences" && apprenantPresences.length===0) fetchApprenantPresences(selectedApprenantGroupe);
+                          }}
+                            style={{ padding:"11px 18px",border:"none",borderBottom:apprenantTab===t.k?`3px solid ${C}`:"3px solid transparent",fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",color:apprenantTab===t.k?C:"#64748b",whiteSpace:"nowrap" }}>
+                            {t.icon} {t.l}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Corps */}
+                      <div style={{ flex:1,overflowY:"auto",padding:"20px 24px" }}>
+
+                        {/* ── PROFIL ── */}
+                        {apprenantTab==="profil" && (
+                          <div style={{ display:"grid",gap:16 }}>
+
+                            {/* Coordonnées */}
+                            <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                              <div style={{ fontSize:11,fontWeight:800,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>📬 Coordonnées</div>
+                              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Email</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{selectedApprenantGroupe.email_apprenant||"—"}</div></div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Téléphone</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{noteObj.telephone||selectedApprenantGroupe.telephone||"—"}</div></div>
+                              </div>
+                            </div>
+
+                            {/* Formation */}
+                            <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                              <div style={{ fontSize:11,fontWeight:800,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>🎓 Formation</div>
+                              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+                                <div>
+                                  <div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Niveau</div>
+                                  <div style={{ fontSize:13,fontWeight:700,color:nvColor }}>{selectedApprenantGroupe.niveau||"—"} {NIVEAUX_LABELS[selectedApprenantGroupe.niveau]?`— ${NIVEAUX_LABELS[selectedApprenantGroupe.niveau]}`:""}</div>
+                                </div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Programme</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{noteObj.programme||"—"}</div></div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Groupe</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{selectedGroupe?.nom||"—"}</div></div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Coach</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{coachNom}</div></div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Début supposé</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{noteObj.date_debut?new Date(noteObj.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—"}</div></div>
+                                <div><div style={{ fontSize:10,color:"#9ca3af",marginBottom:2 }}>Renouvellement</div><div style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>{noteObj.date_renouvellement?new Date(noteObj.date_renouvellement).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—"}</div></div>
+                              </div>
+                            </div>
+
+                            {/* Description / Attentes */}
+                            {(noteObj.description||noteObj.attentes) && (
+                              <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                                <div style={{ fontSize:11,fontWeight:800,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>📝 Profil & Objectifs</div>
+                                {noteObj.description && (
+                                  <div style={{ marginBottom:10 }}>
+                                    <div style={{ fontSize:11,color:"#9ca3af",marginBottom:4 }}>Description du profil</div>
+                                    <div style={{ fontSize:13,color:"#374151",lineHeight:1.6 }}>{noteObj.description}</div>
+                                  </div>
+                                )}
+                                {noteObj.attentes && (
+                                  <div>
+                                    <div style={{ fontSize:11,color:"#9ca3af",marginBottom:4 }}>Attentes / Objectifs</div>
+                                    <div style={{ fontSize:13,color:"#374151",lineHeight:1.6 }}>{noteObj.attentes}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Équipe assignée */}
+                            <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                              <div style={{ fontSize:11,fontWeight:800,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>👥 Équipe assignée</div>
+                              <div style={{ display:"grid",gap:10 }}>
+                                <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#fff",borderRadius:8,border:"1px solid #ede9fe" }}>
+                                  <div style={{ width:32,height:32,borderRadius:"50%",background:"#ede9fe",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>🟣</div>
+                                  <div>
+                                    <div style={{ fontSize:10,color:"#9ca3af" }}>Assistante Onboarding (affectation)</div>
+                                    <div style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{selectedApprenantGroupe.assistante_nom||"—"}</div>
+                                  </div>
+                                </div>
+                                {(() => {
+                                  const ac = selectedApprenantGroupe.assistante_commerciale;
+                                  return (
+                                    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",borderRadius:8,border:"1.5px solid #86efac" }}>
+                                      <div style={{ width:38,height:38,borderRadius:"50%",background:"#16a34a",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15,color:"#fff",flexShrink:0,overflow:"hidden" }}>
+                                        {ac?.photo_url
+                                          ? <img src={ac.photo_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} onError={e=>{e.currentTarget.style.display="none";}} />
+                                          : ac ? ((ac.prenom?.[0]||"")+(ac.nom?.[0]||"")).toUpperCase()||"💼" : "💼"
+                                        }
+                                      </div>
+                                      <div style={{ flex:1,minWidth:0 }}>
+                                        <div style={{ fontSize:10,color:"#16a34a",fontWeight:700 }}>Assistante Commerciale (prise en charge)</div>
+                                        <div style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{ac ? `${ac.prenom||""} ${ac.nom||""}`.trim() : "Non renseignée"}</div>
+                                        {ac?.telephone && <div style={{ fontSize:11,color:"#0891b2",marginTop:1 }}>📞 {ac.telephone}</div>}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                <div style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#fff",borderRadius:8,border:"1px solid #d1fae5" }}>
+                                  <div style={{ width:32,height:32,borderRadius:"50%",background:"#d1fae5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>🎓</div>
+                                  <div>
+                                    <div style={{ fontSize:10,color:"#9ca3af" }}>Coach</div>
+                                    <div style={{ fontSize:13,fontWeight:700,color:"#0f172a" }}>{coachNom}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Action : Changer de groupe */}
+                            <div style={{ paddingTop:4 }}>
+                              <button
+                                onClick={()=>{
+                                  setTransfertForm({ nouveau_groupe_id:"", motif:"", initiateur:"apprenant", jours:[], creneau:"" });
+                                  setGroupesCibles([]);
+                                  if (selectedApprenantGroupe?.niveau) searchGroupesCibles(selectedApprenantGroupe.niveau);
+                                  setShowTransfert(true);
+                                }}
+                                style={{ width:"100%",padding:"11px 0",background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:13,letterSpacing:"0.02em" }}>
+                                🔄 Changer de groupe
+                              </button>
+                            </div>
+
+                          </div>
+                        )}
+
+                        {/* ── TEST DE NIVEAU ── */}
+                        {apprenantTab==="test" && (
+                          <div>
+                            {apprenantTestLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:40 }}>Chargement…</p>}
+                            {!apprenantTestLoading && !apprenantTest && (
+                              <div style={{ textAlign:"center",padding:"60px 20px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb" }}>
+                                <div style={{ fontSize:42,marginBottom:10 }}>📊</div>
+                                <div style={{ fontWeight:700,color:"#0f172a",marginBottom:4 }}>Aucun test de niveau enregistré</div>
+                                <p style={{ color:"#9ca3af",fontSize:13 }}>Le test de placement n'a pas encore été passé ou n'est pas lié à cet email.</p>
+                              </div>
+                            )}
+                            {!apprenantTestLoading && apprenantTest && (() => {
+                              const CEFR_COLOR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+                              const c = CEFR_COLOR[apprenantTest.level] || "#6b7280";
+                              return (
+                                <div style={{ display:"grid",gap:16 }}>
+                                  {/* Score principal */}
+                                  <div style={{ background:C_GRAD,borderRadius:14,padding:"24px 28px",color:"#fff",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap" }}>
+                                    <div style={{ textAlign:"center",flexShrink:0 }}>
+                                      <div style={{ fontSize:48,fontWeight:900,lineHeight:1 }}>{apprenantTest.level||"—"}</div>
+                                      <div style={{ fontSize:12,color:"#c4b5fd",marginTop:4 }}>{NIVEAUX_LABELS[apprenantTest.level]||"Niveau CECRL"}</div>
+                                    </div>
+                                    <div style={{ flex:1,minWidth:160 }}>
+                                      <div style={{ fontSize:13,color:"#c4b5fd",marginBottom:4 }}>Score</div>
+                                      <div style={{ fontSize:28,fontWeight:800 }}>{apprenantTest.score??apprenantTest.points_earned??0} pts</div>
+                                      {apprenantTest.points_total && <div style={{ fontSize:12,color:"#c4b5fd" }}>sur {apprenantTest.points_total} · {apprenantTest.correct_answers||0}/{apprenantTest.total_questions||0} bonnes réponses</div>}
+                                      {apprenantTest.submitted_at && <div style={{ fontSize:11,color:"#c4b5fd",marginTop:6 }}>📅 {new Date(apprenantTest.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</div>}
+                                    </div>
+                                  </div>
+
+                                  {/* Par catégorie */}
+                                  {apprenantTest.by_category && Object.keys(apprenantTest.by_category).length>0 && (
+                                    <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                                      <div style={{ fontSize:11,fontWeight:800,color:C,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>Résultats par catégorie</div>
+                                      <div style={{ display:"grid",gap:8 }}>
+                                        {Object.entries(apprenantTest.by_category).map(([cat,val])=>{
+                                          const total = val.total||val.max||10;
+                                          const score = val.score??val.correct??0;
+                                          const pct = Math.round((score/total)*100);
+                                          return (
+                                            <div key={cat}>
+                                              <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3 }}>
+                                                <span style={{ fontWeight:600,color:"#374151" }}>{cat}</span>
+                                                <span style={{ color:pct>=70?c:"#dc2626",fontWeight:700 }}>{score}/{total} ({pct}%)</span>
+                                              </div>
+                                              <div style={{ height:6,background:"#e5e7eb",borderRadius:99,overflow:"hidden" }}>
+                                                <div style={{ height:"100%",width:`${pct}%`,background:pct>=70?c:"#f87171",borderRadius:99 }}/>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Par CEFR */}
+                                  {apprenantTest.by_cefr && Object.keys(apprenantTest.by_cefr).length>0 && (
+                                    <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                                      <div style={{ fontSize:11,fontWeight:800,color:C,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>Répartition CECRL</div>
+                                      <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                                        {Object.entries(apprenantTest.by_cefr).map(([level,count])=>(
+                                          <div key={level} style={{ padding:"6px 14px",borderRadius:8,background:CEFR_COLOR[level]+"18",border:`1px solid ${CEFR_COLOR[level]||"#e5e7eb"}30` }}>
+                                            <div style={{ fontSize:14,fontWeight:800,color:CEFR_COLOR[level]||"#374151" }}>{level}</div>
+                                            <div style={{ fontSize:11,color:"#6b7280" }}>{count} question{count>1?"s":""}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {apprenantTest.notes_oral && (
+                                    <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                                      <div style={{ fontSize:11,fontWeight:800,color:C,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8 }}>Notes de l'oral</div>
+                                      <p style={{ color:"#374151",fontSize:13,lineHeight:1.6,margin:0 }}>{apprenantTest.notes_oral}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {/* ── PRÉSENCES ── */}
+                        {apprenantTab==="presences" && (
+                          <div>
+                            {apprenantPresLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:40 }}>Chargement…</p>}
+                            {!apprenantPresLoading && apprenantPresences.length===0 && (
+                              <div style={{ textAlign:"center",padding:"60px 20px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb" }}>
+                                <div style={{ fontSize:42,marginBottom:10 }}>✅</div>
+                                <div style={{ fontWeight:700,color:"#0f172a",marginBottom:4 }}>Aucune présence enregistrée</div>
+                                <p style={{ color:"#9ca3af",fontSize:13 }}>Les présences apparaîtront ici au fil des séances.</p>
+                              </div>
+                            )}
+                            {!apprenantPresLoading && apprenantPresences.length>0 && (() => {
+                              const presents = apprenantPresences.filter(p=>p.statut==="present").length;
+                              const absents  = apprenantPresences.filter(p=>p.statut==="absent").length;
+                              const retards  = apprenantPresences.filter(p=>p.statut==="retard").length;
+                              const taux = Math.round(presents/apprenantPresences.length*100);
+                              return (
+                                <div style={{ display:"grid",gap:14 }}>
+                                  {/* Stats */}
+                                  <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10 }}>
+                                    {[
+                                      { l:"Séances", v:apprenantPresences.length, c:"#0f172a" },
+                                      { l:"Présent", v:presents, c:"#059669" },
+                                      { l:"Absent", v:absents, c:"#dc2626" },
+                                      { l:"Retard", v:retards, c:"#d97706" },
+                                    ].map(s=>(
+                                      <div key={s.l} style={{ background:"#f8fafc",borderRadius:10,padding:"12px",border:"1px solid #e5e7eb",textAlign:"center" }}>
+                                        <div style={{ fontSize:20,fontWeight:900,color:s.c }}>{s.v}</div>
+                                        <div style={{ fontSize:10,color:"#9ca3af",marginTop:2 }}>{s.l}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {/* Barre taux */}
+                                  <div style={{ background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e5e7eb" }}>
+                                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6 }}>
+                                      <span style={{ fontWeight:700,color:"#374151" }}>Taux de présence global</span>
+                                      <span style={{ fontWeight:800,color:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626" }}>{taux}%</span>
+                                    </div>
+                                    <div style={{ height:8,background:"#e5e7eb",borderRadius:99,overflow:"hidden" }}>
+                                      <div style={{ height:"100%",width:`${taux}%`,background:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626",borderRadius:99 }}/>
+                                    </div>
+                                  </div>
+                                  {/* Liste séances */}
+                                  <div style={{ borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden" }}>
+                                    {apprenantPresences.sort((a,b)=>b.date_seance?.localeCompare(a.date_seance)).map((p,i)=>{
+                                      const cfg = { present:{bg:"#d1fae5",c:"#065f46",icon:"✅",l:"Présent"}, absent:{bg:"#fee2e2",c:"#991b1b",icon:"❌",l:"Absent"}, retard:{bg:"#fef3c7",c:"#92400e",icon:"⏰",l:"Retard"} };
+                                      const s = cfg[p.statut] || cfg.present;
+                                      return (
+                                        <div key={p.id||i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:i%2===0?"#fff":"#fafafa",borderBottom:"1px solid #f1f5f9" }}>
+                                          <span style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>📅 {p.date_seance?new Date(p.date_seance).toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short",year:"numeric"}):"—"}</span>
+                                          <span style={{ padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:s.bg,color:s.c }}>{s.icon} {s.l}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── MODAL TRANSFERT DE GROUPE ── */}
+              {showTransfert && selectedApprenantGroupe && (
+                <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.75)",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
+                  onClick={()=>setShowTransfert(false)}>
+                  <div style={{ background:"#fff",borderRadius:18,width:"min(97vw,680px)",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.35)" }}
+                    onClick={e=>e.stopPropagation()}>
+
+                    {/* Header */}
+                    <div style={{ background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:"18px 18px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <div>
+                        <div style={{ color:"#c4b5fd",fontSize:11,fontWeight:700,marginBottom:3 }}>CHANGEMENT DE PROGRAMME</div>
+                        <div style={{ color:"#fff",fontSize:16,fontWeight:800 }}>🔄 {selectedApprenantGroupe.prenom_apprenant} {selectedApprenantGroupe.nom_apprenant}</div>
+                        <div style={{ color:"#c4b5fd",fontSize:12,marginTop:2 }}>Groupe actuel : {selectedGroupe?.nom||"—"} · Niveau {selectedApprenantGroupe.niveau||"—"}</div>
+                      </div>
+                      <button onClick={()=>setShowTransfert(false)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",fontSize:20,width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                    </div>
+
+                    {/* Corps scrollable */}
+                    <div style={{ flex:1,overflowY:"auto",padding:"24px" }}>
+
+                      {/* Initiateur */}
+                      <div style={{ marginBottom:18 }}>
+                        <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:8 }}>Qui fait la demande ?</label>
+                        <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                          {[
+                            { v:"apprenant",  l:"👤 L'apprenant directement" },
+                            { v:"assistant",  l:"💬 Via l'assistant commercial" },
+                            { v:"coach",      l:"🎓 Via le coach" },
+                          ].map(opt=>(
+                            <button key={opt.v} onClick={()=>setTransfertForm(f=>({...f,initiateur:opt.v}))}
+                              style={{ padding:"8px 14px",borderRadius:20,border:`1.5px solid`,fontSize:12,fontWeight:600,cursor:"pointer",
+                                borderColor:transfertForm.initiateur===opt.v?"#7c3aed":"#e5e7eb",
+                                background:transfertForm.initiateur===opt.v?"#ede9fe":"#fff",
+                                color:transfertForm.initiateur===opt.v?"#7c3aed":"#374151" }}>
+                              {opt.l}
+                            </button>
+                          ))}
+                        </div>
+                        {transfertForm.initiateur==="coach" && (
+                          <div style={{ marginTop:10,padding:"10px 12px",borderRadius:8,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e" }}>
+                            ℹ️ L'assistante commerciale de cet apprenant sera automatiquement notifiée pour mettre à jour ses données.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Disponibilités souhaitées */}
+                      <div style={{ marginBottom:18 }}>
+                        <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:8 }}>Nouveaux créneaux souhaités</label>
+                        {/* Jours */}
+                        <div style={{ fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:6 }}>Jours</div>
+                        <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+                          {["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"].map(j=>{
+                            const sel = transfertForm.jours.includes(j);
+                            return (
+                              <button key={j} type="button"
+                                onClick={()=>setTransfertForm(f=>({ ...f, jours: sel ? f.jours.filter(x=>x!==j) : [...f.jours, j] }))}
+                                style={{ padding:"6px 13px",borderRadius:20,border:`1.5px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                                  background:sel?"#7c3aed":"#fff",color:sel?"#fff":"#374151",
+                                  fontSize:12,fontWeight:600,cursor:"pointer",transition:"all .15s" }}>
+                                {j}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Créneaux horaires */}
+                        <div style={{ fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:6 }}>Créneau horaire</div>
+                        <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                          {[
+                            { v:"Matin (7h–12h)",       icon:"🌅" },
+                            { v:"Après-midi (12h–17h)", icon:"☀️" },
+                            { v:"Soir (17h–21h)",       icon:"🌆" },
+                            { v:"Week-end matin",        icon:"🏖️" },
+                            { v:"Week-end après-midi",   icon:"🏖️" },
+                          ].map(opt=>{
+                            const sel = transfertForm.creneau===opt.v;
+                            return (
+                              <button key={opt.v} type="button"
+                                onClick={()=>setTransfertForm(f=>({ ...f, creneau: sel ? "" : opt.v }))}
+                                style={{ padding:"6px 13px",borderRadius:20,border:`1.5px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                                  background:sel?"#7c3aed":"#fff",color:sel?"#fff":"#374151",
+                                  fontSize:12,fontWeight:600,cursor:"pointer",transition:"all .15s" }}>
+                                {opt.icon} {opt.v}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Récap */}
+                        {(transfertForm.jours.length>0||transfertForm.creneau) && (
+                          <div style={{ marginTop:10,padding:"8px 12px",borderRadius:8,background:"#ede9fe",border:"1px solid #c4b5fd",fontSize:12,color:"#7c3aed",fontWeight:600 }}>
+                            📌 {[transfertForm.jours.join(", "),transfertForm.creneau].filter(Boolean).join(" — ")}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Motif */}
+                      <div style={{ marginBottom:20 }}>
+                        <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:6 }}>Motif / contexte (optionnel)</label>
+                        <textarea
+                          value={transfertForm.motif}
+                          onChange={e=>setTransfertForm(f=>({...f,motif:e.target.value}))}
+                          rows={2}
+                          placeholder="Ex: Changement d'horaires de travail, déménagement, …"
+                          style={{ width:"100%",padding:"9px 12px",border:"1.5px solid #e5e7eb",borderRadius:8,fontSize:13,resize:"vertical",boxSizing:"border-box" }}
+                        />
+                      </div>
+
+                      {/* Sélection du groupe cible */}
+                      <div>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                          <label style={{ fontSize:12,fontWeight:700,color:"#374151" }}>
+                            Groupes compatibles — Niveau {selectedApprenantGroupe.niveau||"—"}
+                          </label>
+                          <button onClick={()=>searchGroupesCibles(selectedApprenantGroupe.niveau)}
+                            style={{ padding:"5px 12px",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:6,cursor:"pointer",fontWeight:700,fontSize:11 }}>
+                            🔄 Actualiser
+                          </button>
+                        </div>
+
+                        {groupesCiblesLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:20 }}>Recherche des groupes…</p>}
+                        {!groupesCiblesLoading && groupesCibles.length===0 && (
+                          <div style={{ textAlign:"center",padding:24,background:"#f8fafc",borderRadius:10,border:"1px solid #e5e7eb",color:"#9ca3af",fontSize:13 }}>
+                            Aucun groupe actif de niveau {selectedApprenantGroupe.niveau||"—"} trouvé.
+                          </div>
+                        )}
+                        {!groupesCiblesLoading && groupesCibles.length>0 && (
+                          <div style={{ display:"grid",gap:8 }}>
+                            {groupesCibles.map(g=>{
+                              const sel = transfertForm.nouveau_groupe_id===g.id;
+                              const TYPE_ICO = { en_ligne:"💻",domicile:"🏠",centre:"🏢" };
+                              return (
+                                <div key={g.id} onClick={()=>setTransfertForm(f=>({...f,nouveau_groupe_id:g.id}))}
+                                  style={{ padding:"12px 14px",borderRadius:10,border:`2px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                                    background:sel?"#faf5ff":"#fff",cursor:"pointer",transition:"all .15s",display:"flex",gap:12,alignItems:"center" }}>
+                                  <div style={{ width:36,height:36,borderRadius:"50%",background:sel?"#7c3aed":"#ede9fe",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>
+                                    {sel?"✅":"👥"}
+                                  </div>
+                                  <div style={{ flex:1,minWidth:0 }}>
+                                    <div style={{ fontWeight:700,fontSize:13,color:sel?"#7c3aed":"#0f172a" }}>{g.nom}</div>
+                                    <div style={{ fontSize:11,color:"#6b7280",marginTop:2 }}>
+                                      {TYPE_ICO[g.type_cours]||"🏢"} {g.type_cours==="en_ligne"?"En ligne":g.type_cours==="domicile"?"Domicile":"Centre"}
+                                      {g.filiere ? ` · ${g.filiere}` : ""}
+                                      {g.coach_nom||g.nom_coach ? ` · 👨‍🏫 ${g.coach_nom||g.nom_coach}` : ""}
+                                    </div>
+                                  </div>
+                                  <span style={{ padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,
+                                    background:g.statut==="actif"?"#dcfce7":"#f1f5f9",
+                                    color:g.statut==="actif"?"#166534":"#6b7280" }}>
+                                    {g.nb_apprenants||0} appr.
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div style={{ padding:"16px 24px",borderTop:"1px solid #e5e7eb",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10 }}>
+                      <button onClick={()=>setShowTransfert(false)}
+                        style={{ padding:"10px 20px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:13 }}>
+                        Annuler
+                      </button>
+                      <button onClick={executerTransfert} disabled={!transfertForm.nouveau_groupe_id||transfertSaving}
+                        style={{ padding:"10px 24px",background:transfertForm.nouveau_groupe_id?"linear-gradient(135deg,#7c3aed,#6d28d9)":"#e5e7eb",
+                          color:transfertForm.nouveau_groupe_id?"#fff":"#9ca3af",border:"none",borderRadius:9,cursor:transfertForm.nouveau_groupe_id?"pointer":"default",
+                          fontWeight:700,fontSize:13,opacity:transfertSaving?0.7:1 }}>
+                        {transfertSaving ? "⏳ Transfert en cours…" : "✅ Confirmer le transfert"}
+                      </button>
                     </div>
                   </div>
                 </div>

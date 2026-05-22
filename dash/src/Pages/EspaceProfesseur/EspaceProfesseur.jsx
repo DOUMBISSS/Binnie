@@ -497,7 +497,19 @@ export default function EspaceProfesseur() {
   const [groupeFichiers, setGroupeFichiers] = useState([]);
   const [groupeSubTab, setGroupeSubTab] = useState("apprenants");
   // détail apprenant (modal)
-  const [apprenantDetail, setApprenantDetail] = useState(null);
+  const [apprenantDetail, setApprenantDetail]           = useState(null);
+  const [ficheFicheTab, setFicheFicheTab]               = useState("profil"); // profil | test | presences
+  const [ficheTest, setFicheTest]                       = useState(null);
+  const [ficheTestLoading, setFicheTestLoading]         = useState(false);
+  const [fichePres, setFichePres]                       = useState([]);
+  const [fichePresLoading, setFichePresLoading]         = useState(false);
+
+  // ── Transfert (coach → demande de changement de groupe) ────
+  const [showTransfertCoach,      setShowTransfertCoach]      = useState(false);
+  const [transfertCoachGroupes,   setTransfertCoachGroupes]   = useState([]);
+  const [transfertCoachLoading,   setTransfertCoachLoading]   = useState(false);
+  const [transfertCoachForm,      setTransfertCoachForm]      = useState({ nouveau_groupe_id:"", motif:"", jours:[], creneau:"" });
+  const [transfertCoachSaving,    setTransfertCoachSaving]    = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [fichierUploading, setFichierUploading] = useState(false);
   const [presenceDate, setPresenceDate] = useState(() => new Date().toISOString().slice(0,10));
@@ -638,6 +650,44 @@ export default function EspaceProfesseur() {
   const signalerAbsence = async (apprenant) => {
     const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
     toast.success(`Absence répétée de ${apprenant.prenom_apprenant || ""} ${apprenant.nom_apprenant} signalée à l'assistante`);
+  };
+
+  const searchGroupesPourTransfert = async (niveau) => {
+    if (!niveau) return;
+    setTransfertCoachLoading(true);
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    try {
+      const r = await fetch(`${API_URL}/api/groupes?niveau=${encodeURIComponent(niveau)}&statut=actif`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setTransfertCoachGroupes((d.groupes||[]).filter(g => g.id !== selectedGroupe?.id));
+      }
+    } catch {} finally { setTransfertCoachLoading(false); }
+  };
+
+  const executerTransfertCoach = async (apprenant) => {
+    if (!transfertCoachForm.nouveau_groupe_id) { toast.error("Sélectionnez un groupe cible"); return; }
+    setTransfertCoachSaving(true);
+    const token = localStorage.getItem("coach_token") || localStorage.getItem("admin_token");
+    try {
+      const dispoStr = [transfertCoachForm.jours.join(", "), transfertCoachForm.creneau].filter(Boolean).join(" — ") || "—";
+      const motifFinal = transfertCoachForm.motif || `Signalement coach — Changement de disponibilités. Créneaux souhaités : ${dispoStr}`;
+      const r = await fetch(`${API_URL}/api/groupes/transfert`, {
+        method:"POST",
+        headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+        body: JSON.stringify({
+          ga_id:             apprenant.id,
+          nouveau_groupe_id: transfertCoachForm.nouveau_groupe_id,
+          motif:             motifFinal,
+          initiateur:        "coach",
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      toast.success(d.message || "Demande de transfert envoyée ✓");
+      setShowTransfertCoach(false);
+      setApprenantDetail(null);
+    } catch (e) { toast.error(e.message); } finally { setTransfertCoachSaving(false); }
   };
 
   useEffect(() => {
@@ -2119,7 +2169,20 @@ const messagesFiltres = useMemo(() => {
                     try { noteObj = a.note ? JSON.parse(a.note) : null; } catch { noteObj = null; }
                     return (
                       <div key={a.id}
-                        onClick={() => setApprenantDetail(a)}
+                        onClick={() => {
+                          setApprenantDetail(a);
+                          setFicheFicheTab("profil");
+                          setFicheTest(null);
+                          setFichePres([]);
+                          if (a.email_apprenant) {
+                            setFicheTestLoading(true);
+                            fetch(`${API_URL}/api/level-test/result?email=${encodeURIComponent(a.email_apprenant)}`)
+                              .then(r=>r.ok?r.json():null)
+                              .then(d=>setFicheTest(d?.result||null))
+                              .catch(()=>{})
+                              .finally(()=>setFicheTestLoading(false));
+                          }
+                        }}
                         style={{ background:"#fff", borderRadius:12, border:"1.5px solid #e5e7eb", overflow:"hidden", cursor:"pointer", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", transition:"all .15s" }}
                         onMouseEnter={e=>{ e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.borderColor=BET+"60"; }}
                         onMouseLeave={e=>{ e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.04)"; e.currentTarget.style.borderColor="#e5e7eb"; }}
@@ -4093,107 +4156,470 @@ const messagesFiltres = useMemo(() => {
         let noteObj = null;
         try { noteObj = a.note ? JSON.parse(a.note) : null; } catch { noteObj = null; }
         const NIVEAUX_LBL = { A1:"Débutant",A2:"Élémentaire",B1:"Intermédiaire",B2:"Interm. Sup.",C1:"Avancé",C2:"Maîtrise" };
+
+        // Présences filtrées pour cet apprenant
+        const presApp = fichePres.length > 0 ? fichePres : presenceHistory.filter(p => p.ga_id === a.id || (p.nom_apprenant===a.nom_apprenant && p.prenom_apprenant===a.prenom_apprenant));
+        const nbPresent = presApp.filter(p=>p.statut==="present").length;
+        const tauxPres  = presApp.length ? Math.round(nbPresent/presApp.length*100) : null;
+
         return (
-          <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}
+          <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
             onClick={()=>setApprenantDetail(null)}>
-            <div style={{ background:"#fff",borderRadius:18,width:580,maxWidth:"96vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 60px rgba(0,0,0,0.3)" }}
+            <div style={{ background:"#fff",borderRadius:18,width:"min(96vw,700px)",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.3)",overflow:"hidden" }}
               onClick={e=>e.stopPropagation()}>
-              {/* Header */}
-              <div style={{ background:`linear-gradient(135deg,#0f172a,${BET})`,padding:"22px 26px",borderRadius:"18px 18px 0 0",display:"flex",gap:16,alignItems:"center" }}>
-                <div style={{ width:56,height:56,borderRadius:"50%",background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",flexShrink:0,border:"3px solid rgba(255,255,255,0.3)" }}>{initiales}</div>
+
+              {/* ── Header ── */}
+              <div style={{ background:BET_GRAD,padding:"20px 24px",flexShrink:0,display:"flex",gap:14,alignItems:"center" }}>
+                <div style={{ width:54,height:54,borderRadius:"50%",background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",flexShrink:0,border:"3px solid rgba(255,255,255,0.3)" }}>{initiales}</div>
                 <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontSize:11,color:"rgba(255,255,255,0.6)",fontWeight:600,marginBottom:2 }}>Fiche apprenant — {selectedGroupe?.nom}</div>
-                  <div style={{ fontSize:19,fontWeight:900,color:"#fff" }}>{nomComplet}</div>
-                  <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap" }}>
+                  <div style={{ fontSize:10,color:"rgba(255,255,255,0.6)",fontWeight:600,marginBottom:2,letterSpacing:"0.07em" }}>FICHE APPRENANT — {selectedGroupe?.nom}</div>
+                  <div style={{ fontSize:18,fontWeight:900,color:"#fff" }}>{nomComplet}</div>
+                  <div style={{ display:"flex",gap:6,marginTop:5,flexWrap:"wrap" }}>
                     {a.niveau && <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:800,color:"#fff",background:nColor }}>{a.niveau} — {NIVEAUX_LBL[a.niveau]||a.niveau}</span>}
-                    <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,background:"rgba(255,255,255,0.2)",color:"#fff" }}>● Actif</span>
+                    {noteObj?.programme && <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:"rgba(255,255,255,0.18)",color:"#fff" }}>{noteObj.programme}</span>}
+                    <span style={{ padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,background:"rgba(34,197,94,0.3)",color:"#fff" }}>● Actif</span>
                   </div>
                 </div>
                 <button onClick={()=>setApprenantDetail(null)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>✕</button>
               </div>
 
-              <div style={{ padding:"22px 26px" }}>
-                {/* Coordonnées */}
-                <div style={{ marginBottom:18 }}>
-                  <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>COORDONNÉES</div>
-                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                    {[
-                      { icon:"📧", label:"Email",     value:a.email_apprenant||"—" },
-                      { icon:"📞", label:"Téléphone", value:a.telephone||"—" },
-                    ].map(r=>(
-                      <div key={r.label} style={{ padding:"10px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
-                        <span style={{ fontSize:18,flexShrink:0 }}>{r.icon}</span>
-                        <div>
-                          <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
-                          <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",wordBreak:"break-all" }}>{r.value}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {/* ── Onglets ── */}
+              <div style={{ display:"flex",background:"#fafafa",borderBottom:"1px solid #e5e7eb",flexShrink:0,overflowX:"auto" }}>
+                {[
+                  { k:"profil",    l:"Profil & Formation",  icon:"👤" },
+                  { k:"test",      l:"Test de niveau",       icon:"📊" },
+                  { k:"presences", l:`Présences${tauxPres!==null?` (${tauxPres}%)`:""}`, icon:"✅" },
+                ].map(t=>(
+                  <button key={t.k} onClick={()=>{
+                    setFicheFicheTab(t.k);
+                    if (t.k==="presences" && fichePres.length===0 && presenceHistory.length===0 && selectedGroupe) {
+                      setFichePresLoading(true);
+                      const tok = localStorage.getItem("coach_token")||localStorage.getItem("admin_token");
+                      fetch(`${API_URL}/api/groupes/${selectedGroupe.id}/presences`,{headers:{Authorization:`Bearer ${tok}`}})
+                        .then(r=>r.ok?r.json():null)
+                        .then(d=>setFichePres((d?.presences||[]).filter(p=>p.ga_id===a.id||(p.nom_apprenant===a.nom_apprenant&&p.prenom_apprenant===a.prenom_apprenant))))
+                        .catch(()=>{})
+                        .finally(()=>setFichePresLoading(false));
+                    }
+                  }}
+                    style={{ padding:"11px 18px",border:"none",borderBottom:ficheFicheTab===t.k?`3px solid ${BET}`:"3px solid transparent",fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",color:ficheFicheTab===t.k?BET:"#64748b",whiteSpace:"nowrap",flexShrink:0 }}>
+                    {t.icon} {t.l}
+                  </button>
+                ))}
+              </div>
 
-                {/* Informations pédagogiques */}
-                <div style={{ marginBottom:18 }}>
-                  <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>FORMATION</div>
-                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                    {[
-                      { icon:"📊", label:"Niveau",     value:a.niveau?(a.niveau+" — "+(NIVEAUX_LBL[a.niveau]||"")):"—" },
-                      { icon:"📚", label:"Programme",  value:noteObj?.programme||selectedGroupe?.filiere||"—" },
-                      { icon:"👥", label:"Groupe",     value:selectedGroupe?.nom||"—" },
-                      { icon:"📅", label:"Date début", value:noteObj?.date_debut?new Date(noteObj.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):selectedGroupe?.date_debut?new Date(selectedGroupe.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
-                      { icon:"🔄", label:"Renouvellement prévu", value:noteObj?.date_renouvellement?new Date(noteObj.date_renouvellement).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
-                      { icon:"👩‍💼", label:"Onboarding",value:a.assistante_nom||"—" },
-                    ].map(r=>(
-                      <div key={r.label} style={{ padding:"9px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
-                        <span style={{ fontSize:16,flexShrink:0 }}>{r.icon}</span>
-                        <div style={{ minWidth:0 }}>
-                          <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
-                          <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.value}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {/* ── Corps scrollable ── */}
+              <div style={{ flex:1,overflowY:"auto",padding:"20px 24px" }}>
 
-                {/* Description apprenant */}
-                {noteObj?.description && (
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>PROFIL DE L'APPRENANT</div>
-                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#f0f9ff",border:"1px solid #bae6fd",fontSize:13,color:"#374151",lineHeight:1.7 }}>
-                      {noteObj.description}
+                {/* ═══ PROFIL ═══ */}
+                {ficheFicheTab==="profil" && (
+                  <div>
+                    {/* Coordonnées */}
+                    <div style={{ marginBottom:18 }}>
+                      <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>COORDONNÉES</div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                        {[
+                          { icon:"📧", label:"Email",     value:a.email_apprenant||"—" },
+                          { icon:"📞", label:"Téléphone", value:a.telephone||"—" },
+                        ].map(r=>(
+                          <div key={r.label} style={{ padding:"10px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
+                            <span style={{ fontSize:18,flexShrink:0 }}>{r.icon}</span>
+                            <div>
+                              <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
+                              <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",wordBreak:"break-all" }}>{r.value}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Formation */}
+                    <div style={{ marginBottom:18 }}>
+                      <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>FORMATION</div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                        {[
+                          { icon:"📊", label:"Niveau",     value:a.niveau?(a.niveau+" — "+(NIVEAUX_LBL[a.niveau]||"")):"—" },
+                          { icon:"📚", label:"Programme",  value:noteObj?.programme||selectedGroupe?.filiere||"—" },
+                          { icon:"👥", label:"Groupe",     value:selectedGroupe?.nom||"—" },
+                          { icon:"📅", label:"Date début", value:noteObj?.date_debut?new Date(noteObj.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):selectedGroupe?.date_debut?new Date(selectedGroupe.date_debut).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
+                          { icon:"🔄", label:"Renouvellement prévu", value:noteObj?.date_renouvellement?new Date(noteObj.date_renouvellement).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"—" },
+                          { icon:"👩‍💼", label:"Assistante Onboarding", value:a.assistante_nom||"—" },
+                        ].map(r=>(
+                          <div key={r.label} style={{ padding:"9px 12px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",display:"flex",gap:10,alignItems:"flex-start" }}>
+                            <span style={{ fontSize:16,flexShrink:0 }}>{r.icon}</span>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:9,color:"#9ca3af",fontWeight:600 }}>{r.label}</div>
+                              <div style={{ fontSize:12,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{r.value}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {noteObj?.description && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>PROFIL DE L'APPRENANT</div>
+                        <div style={{ padding:"12px 14px",borderRadius:10,background:"#f0f9ff",border:"1px solid #bae6fd",fontSize:13,color:"#374151",lineHeight:1.7 }}>{noteObj.description}</div>
+                      </div>
+                    )}
+
+                    {/* Attentes */}
+                    {noteObj?.attentes && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>ATTENTES / OBJECTIFS</div>
+                        <div style={{ padding:"12px 14px",borderRadius:10,background:"#fef9ee",border:"1px solid #fde68a",fontSize:13,color:"#374151",lineHeight:1.7 }}>🎯 {noteObj.attentes}</div>
+                      </div>
+                    )}
+
+                    {/* Note libre */}
+                    {a.note && !noteObj && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>NOTES</div>
+                        <div style={{ padding:"12px 14px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:13,color:"#374151",lineHeight:1.7 }}>{a.note}</div>
+                      </div>
+                    )}
+
+                    {/* Assistante commerciale */}
+                    <div style={{ marginBottom:18 }}>
+                      <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:10 }}>SUIVI COMMERCIAL</div>
+                      {a.assistante_commerciale ? (() => {
+                        const ac = a.assistante_commerciale;
+                        return (
+                          <div style={{ display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:12,background:"linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)",border:"1.5px solid #86efac" }}>
+                            <div style={{ width:48,height:48,borderRadius:"50%",background:"#16a34a",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:18,color:"#fff",flexShrink:0,overflow:"hidden" }}>
+                              {ac.photo_url
+                                ? <img src={ac.photo_url} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }} onError={e=>{e.currentTarget.style.display="none";}} />
+                                : ((ac.prenom||"?")[0]+(ac.nom||"")[0]||"?").toUpperCase()
+                              }
+                            </div>
+                            <div style={{ flex:1,minWidth:0 }}>
+                              <div style={{ fontSize:9,fontWeight:700,color:"#16a34a",letterSpacing:"0.06em",marginBottom:2 }}>ASSISTANTE COMMERCIALE</div>
+                              <div style={{ fontSize:14,fontWeight:800,color:"#0f172a" }}>{ac.prenom} {ac.nom}</div>
+                              {ac.telephone && (
+                                <div style={{ fontSize:12,color:"#374151",marginTop:2,display:"flex",alignItems:"center",gap:4 }}>
+                                  <span>📞</span>
+                                  <a href={`tel:${ac.telephone}`} style={{ color:"#0891b2",fontWeight:600,textDecoration:"none" }}>{ac.telephone}</a>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ flexShrink:0,fontSize:22 }}>🤝</div>
+                          </div>
+                        );
+                      })() : (
+                        <div style={{ padding:"12px 14px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:12,color:"#9ca3af",fontStyle:"italic" }}>
+                          Aucune assistante commerciale trouvée pour cet apprenant.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display:"flex",gap:10,justifyContent:"space-between",alignItems:"center",marginTop:20,paddingTop:16,borderTop:"1px solid #e5e7eb",flexWrap:"wrap" }}>
+                      <button onClick={()=>{ signalerAbsence(a); setApprenantDetail(null); }}
+                        style={{ padding:"9px 16px",background:"#fff7ed",color:"#92400e",border:"1px solid #fed7aa",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                        🚨 Signaler absence répétée
+                      </button>
+                      <div style={{ display:"flex",gap:8 }}>
+                        <button onClick={()=>{
+                            setTransfertCoachForm({ nouveau_groupe_id:"", motif:"", jours:[], creneau:"" });
+                            setTransfertCoachGroupes([]);
+                            if (a.niveau) searchGroupesPourTransfert(a.niveau);
+                            setShowTransfertCoach(true);
+                          }}
+                          style={{ padding:"9px 16px",background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                          🔄 Demander un transfert
+                        </button>
+                        <button onClick={()=>setApprenantDetail(null)}
+                          style={{ padding:"9px 20px",background:BET,color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
+                          Fermer
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Attentes */}
-                {noteObj?.attentes && (
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>ATTENTES / OBJECTIFS</div>
-                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#fef9ee",border:"1px solid #fde68a",fontSize:13,color:"#374151",lineHeight:1.7 }}>
-                      🎯 {noteObj.attentes}
-                    </div>
+                {/* ═══ TEST DE NIVEAU ═══ */}
+                {ficheFicheTab==="test" && (
+                  <div>
+                    {ficheTestLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:40 }}>Chargement…</p>}
+                    {!ficheTestLoading && !ficheTest && (
+                      <div style={{ textAlign:"center",padding:"50px 20px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb" }}>
+                        <div style={{ fontSize:44,marginBottom:10 }}>📊</div>
+                        <div style={{ fontWeight:700,fontSize:15,color:"#0f172a",marginBottom:4 }}>Aucun test de niveau enregistré</div>
+                        <p style={{ color:"#9ca3af",fontSize:13 }}>Le test de placement n'a pas été passé ou n'est pas lié à cet email.</p>
+                      </div>
+                    )}
+                    {!ficheTestLoading && ficheTest && (() => {
+                      const CLR = { A1:"#6b7280",A2:"#0891b2",B1:"#16a34a",B2:"#7c3aed",C1:"#d97706",C2:"#dc2626" };
+                      const lvlC = CLR[ficheTest.level] || BET;
+                      return (
+                        <div style={{ display:"grid",gap:14 }}>
+                          {/* Score */}
+                          <div style={{ background:BET_GRAD,borderRadius:14,padding:"22px 26px",color:"#fff",display:"flex",gap:22,alignItems:"center",flexWrap:"wrap" }}>
+                            <div style={{ textAlign:"center",flexShrink:0 }}>
+                              <div style={{ fontSize:52,fontWeight:900,lineHeight:1 }}>{ficheTest.level||"—"}</div>
+                              <div style={{ fontSize:12,color:"#7dd3fc",marginTop:4 }}>{NIVEAUX_LBL[ficheTest.level]||"CECRL"}</div>
+                            </div>
+                            <div style={{ flex:1,minWidth:140 }}>
+                              <div style={{ fontSize:26,fontWeight:800 }}>{ficheTest.score??ficheTest.points_earned??0} pts</div>
+                              {ficheTest.points_total && <div style={{ fontSize:12,color:"#7dd3fc" }}>sur {ficheTest.points_total} — {ficheTest.correct_answers||0}/{ficheTest.total_questions||0} bonnes réponses</div>}
+                              {ficheTest.submitted_at && <div style={{ fontSize:11,color:"#7dd3fc",marginTop:5 }}>📅 Passé le {new Date(ficheTest.submitted_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</div>}
+                            </div>
+                          </div>
+
+                          {/* Par catégorie */}
+                          {ficheTest.by_category && Object.keys(ficheTest.by_category).length>0 && (
+                            <div style={{ background:"#f8fafc",borderRadius:12,padding:16,border:"1px solid #e5e7eb" }}>
+                              <div style={{ fontSize:11,fontWeight:800,color:BET,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12 }}>Résultats par catégorie</div>
+                              <div style={{ display:"grid",gap:10 }}>
+                                {Object.entries(ficheTest.by_category).map(([cat,val])=>{
+                                  const total = val.total||val.max||10;
+                                  const score = val.score??val.correct??0;
+                                  const pct = Math.round((score/total)*100);
+                                  return (
+                                    <div key={cat}>
+                                      <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3 }}>
+                                        <span style={{ fontWeight:600,color:"#374151" }}>{cat}</span>
+                                        <span style={{ color:pct>=70?lvlC:"#dc2626",fontWeight:700 }}>{score}/{total} ({pct}%)</span>
+                                      </div>
+                                      <div style={{ height:6,background:"#e5e7eb",borderRadius:99,overflow:"hidden" }}>
+                                        <div style={{ height:"100%",width:`${pct}%`,background:pct>=70?lvlC:"#f87171",borderRadius:99 }}/>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Notes oral */}
+                          {ficheTest.notes_oral && (
+                            <div style={{ background:"#f8fafc",borderRadius:12,padding:14,border:"1px solid #e5e7eb" }}>
+                              <div style={{ fontSize:11,fontWeight:800,color:BET,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8 }}>Notes de l'oral</div>
+                              <p style={{ color:"#374151",fontSize:13,lineHeight:1.6,margin:0 }}>{ficheTest.notes_oral}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
-                {/* Note libre */}
-                {a.note && !noteObj && (
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ fontSize:11,fontWeight:800,color:"#9ca3af",letterSpacing:"0.08em",marginBottom:8 }}>NOTES</div>
-                    <div style={{ padding:"12px 14px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:13,color:"#374151",lineHeight:1.7 }}>{a.note}</div>
+                {/* ═══ PRÉSENCES ═══ */}
+                {ficheFicheTab==="presences" && (
+                  <div>
+                    {fichePresLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:40 }}>Chargement…</p>}
+                    {!fichePresLoading && presApp.length===0 && (
+                      <div style={{ textAlign:"center",padding:"50px 20px",background:"#f8fafc",borderRadius:14,border:"1px solid #e5e7eb" }}>
+                        <div style={{ fontSize:44,marginBottom:10 }}>✅</div>
+                        <div style={{ fontWeight:700,fontSize:15,color:"#0f172a",marginBottom:4 }}>Aucune présence enregistrée</div>
+                        <p style={{ color:"#9ca3af",fontSize:13 }}>Les séances apparaîtront ici au fil des cours.</p>
+                      </div>
+                    )}
+                    {!fichePresLoading && presApp.length>0 && (() => {
+                      const absents = presApp.filter(p=>p.statut==="absent").length;
+                      const retards = presApp.filter(p=>p.statut==="retard").length;
+                      const taux    = Math.round(nbPresent/presApp.length*100);
+                      return (
+                        <div style={{ display:"grid",gap:14 }}>
+                          {/* KPIs */}
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10 }}>
+                            {[
+                              { l:"Séances", v:presApp.length,  c:"#0f172a" },
+                              { l:"Présent", v:nbPresent,       c:"#059669" },
+                              { l:"Absent",  v:absents,         c:"#dc2626" },
+                              { l:"Retard",  v:retards,         c:"#d97706" },
+                            ].map(s=>(
+                              <div key={s.l} style={{ background:"#f8fafc",borderRadius:10,padding:"12px 8px",border:"1px solid #e5e7eb",textAlign:"center" }}>
+                                <div style={{ fontSize:22,fontWeight:900,color:s.c }}>{s.v}</div>
+                                <div style={{ fontSize:10,color:"#9ca3af",marginTop:2 }}>{s.l}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Barre globale */}
+                          <div style={{ background:"#f8fafc",borderRadius:10,padding:"12px 16px",border:"1px solid #e5e7eb" }}>
+                            <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6 }}>
+                              <span style={{ fontWeight:700,color:"#374151" }}>Taux de présence global</span>
+                              <span style={{ fontWeight:800,color:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626" }}>{taux}%</span>
+                            </div>
+                            <div style={{ height:8,background:"#e5e7eb",borderRadius:99,overflow:"hidden" }}>
+                              <div style={{ height:"100%",width:`${taux}%`,background:taux>=80?"#059669":taux>=60?"#d97706":"#dc2626",borderRadius:99 }}/>
+                            </div>
+                          </div>
+                          {/* Liste séances */}
+                          <div style={{ borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden" }}>
+                            {[...presApp].sort((a,b)=>(b.date_seance||"").localeCompare(a.date_seance||"")).map((p,i)=>{
+                              const cfg = {
+                                present:  { bg:"#d1fae5",c:"#065f46",icon:"✅",l:"Présent" },
+                                absent:   { bg:"#fee2e2",c:"#991b1b",icon:"❌",l:"Absent" },
+                                retard:   { bg:"#fef3c7",c:"#92400e",icon:"⏰",l:"Retard" },
+                              };
+                              const s = cfg[p.statut] || cfg.present;
+                              return (
+                                <div key={p.id||i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:i%2===0?"#fff":"#fafafa",borderBottom:"1px solid #f1f5f9" }}>
+                                  <span style={{ fontSize:13,fontWeight:600,color:"#0f172a" }}>📅 {p.date_seance?new Date(p.date_seance).toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short",year:"numeric"}):"—"}</span>
+                                  <span style={{ padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:s.bg,color:s.c }}>{s.icon} {s.l}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
-                {/* Actions */}
-                <div style={{ display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #e5e7eb" }}>
-                  <button onClick={()=>{ signalerAbsence(a); setApprenantDetail(null); }}
-                    style={{ padding:"9px 16px",background:"#fff7ed",color:"#92400e",border:"1px solid #fed7aa",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
-                    🚨 Signaler absence répétée
-                  </button>
-                  <button onClick={()=>setApprenantDetail(null)}
-                    style={{ padding:"9px 20px",background:BET,color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12 }}>
-                    Fermer
-                  </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══ MODAL TRANSFERT (coach) ══ */}
+      {showTransfertCoach && apprenantDetail && (() => {
+        const a = apprenantDetail;
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.8)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:12 }}
+            onClick={()=>setShowTransfertCoach(false)}>
+            <div style={{ background:"#fff",borderRadius:18,width:"min(97vw,660px)",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.4)" }}
+              onClick={e=>e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:"18px 18px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div>
+                  <div style={{ color:"#c4b5fd",fontSize:11,fontWeight:700,marginBottom:3 }}>DEMANDE DE TRANSFERT — SIGNALEMENT COACH</div>
+                  <div style={{ color:"#fff",fontSize:16,fontWeight:800 }}>🔄 {a.prenom_apprenant} {a.nom_apprenant}</div>
+                  <div style={{ color:"#c4b5fd",fontSize:12,marginTop:2 }}>Groupe actuel : {selectedGroupe?.nom||"—"} · Niveau {a.niveau||"—"}</div>
                 </div>
+                <button onClick={()=>setShowTransfertCoach(false)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",fontSize:20,width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+              </div>
+
+              <div style={{ flex:1,overflowY:"auto",padding:"24px" }}>
+
+                {/* Info notification */}
+                <div style={{ padding:"12px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e",marginBottom:18 }}>
+                  ℹ️ En tant que coach, votre signalement déclenchera automatiquement une notification à l'assistante commerciale de {a.prenom_apprenant||""} pour une mise à jour de ses données.
+                </div>
+
+                {/* Nouveaux créneaux */}
+                <div style={{ marginBottom:16 }}>
+                  <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:8 }}>Nouveaux créneaux souhaités par l'apprenant</label>
+                  {/* Jours */}
+                  <div style={{ fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:6 }}>Jours</div>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
+                    {["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"].map(j=>{
+                      const sel = transfertCoachForm.jours.includes(j);
+                      return (
+                        <button key={j} type="button"
+                          onClick={()=>setTransfertCoachForm(f=>({ ...f, jours: sel ? f.jours.filter(x=>x!==j) : [...f.jours, j] }))}
+                          style={{ padding:"6px 13px",borderRadius:20,border:`1.5px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                            background:sel?"#7c3aed":"#fff",color:sel?"#fff":"#374151",
+                            fontSize:12,fontWeight:600,cursor:"pointer",transition:"all .15s" }}>
+                          {j}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Créneaux horaires */}
+                  <div style={{ fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:6 }}>Créneau horaire</div>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                    {[
+                      { v:"Matin (7h–12h)",       icon:"🌅" },
+                      { v:"Après-midi (12h–17h)", icon:"☀️" },
+                      { v:"Soir (17h–21h)",       icon:"🌆" },
+                      { v:"Week-end matin",        icon:"🏖️" },
+                      { v:"Week-end après-midi",   icon:"🏖️" },
+                    ].map(opt=>{
+                      const sel = transfertCoachForm.creneau===opt.v;
+                      return (
+                        <button key={opt.v} type="button"
+                          onClick={()=>setTransfertCoachForm(f=>({ ...f, creneau: sel ? "" : opt.v }))}
+                          style={{ padding:"6px 13px",borderRadius:20,border:`1.5px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                            background:sel?"#7c3aed":"#fff",color:sel?"#fff":"#374151",
+                            fontSize:12,fontWeight:600,cursor:"pointer",transition:"all .15s" }}>
+                          {opt.icon} {opt.v}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Récap */}
+                  {(transfertCoachForm.jours.length>0||transfertCoachForm.creneau) && (
+                    <div style={{ marginTop:10,padding:"8px 12px",borderRadius:8,background:"#ede9fe",border:"1px solid #c4b5fd",fontSize:12,color:"#7c3aed",fontWeight:600 }}>
+                      📌 {[transfertCoachForm.jours.join(", "),transfertCoachForm.creneau].filter(Boolean).join(" — ")}
+                    </div>
+                  )}
+                </div>
+
+                {/* Motif */}
+                <div style={{ marginBottom:20 }}>
+                  <label style={{ display:"block",fontSize:12,fontWeight:700,color:"#374151",marginBottom:6 }}>Contexte / motif</label>
+                  <textarea
+                    value={transfertCoachForm.motif}
+                    onChange={e=>setTransfertCoachForm(f=>({...f,motif:e.target.value}))}
+                    rows={2}
+                    placeholder="Ex: L'apprenant a changé d'horaires de travail et ne peut plus assister aux séances du lundi…"
+                    style={{ width:"100%",padding:"9px 12px",border:"1.5px solid #e5e7eb",borderRadius:8,fontSize:13,resize:"vertical",boxSizing:"border-box" }}
+                  />
+                </div>
+
+                {/* Groupes compatibles */}
+                <div>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                    <label style={{ fontSize:12,fontWeight:700,color:"#374151" }}>Groupes compatibles — Niveau {a.niveau||"—"}</label>
+                    <button onClick={()=>searchGroupesPourTransfert(a.niveau)}
+                      style={{ padding:"5px 12px",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:6,cursor:"pointer",fontWeight:700,fontSize:11 }}>
+                      🔄 Actualiser
+                    </button>
+                  </div>
+                  {transfertCoachLoading && <p style={{ textAlign:"center",color:"#9ca3af",padding:20 }}>Recherche…</p>}
+                  {!transfertCoachLoading && transfertCoachGroupes.length===0 && (
+                    <div style={{ textAlign:"center",padding:20,background:"#f8fafc",borderRadius:10,border:"1px solid #e5e7eb",color:"#9ca3af",fontSize:13 }}>
+                      Aucun groupe actif de niveau {a.niveau||"—"} trouvé.
+                    </div>
+                  )}
+                  {!transfertCoachLoading && transfertCoachGroupes.length>0 && (
+                    <div style={{ display:"grid",gap:8 }}>
+                      {transfertCoachGroupes.map(g=>{
+                        const sel = transfertCoachForm.nouveau_groupe_id===g.id;
+                        const TYPE_ICO = { en_ligne:"💻",domicile:"🏠",centre:"🏢" };
+                        return (
+                          <div key={g.id} onClick={()=>setTransfertCoachForm(f=>({...f,nouveau_groupe_id:g.id}))}
+                            style={{ padding:"12px 14px",borderRadius:10,border:`2px solid ${sel?"#7c3aed":"#e5e7eb"}`,
+                              background:sel?"#faf5ff":"#fff",cursor:"pointer",display:"flex",gap:12,alignItems:"center" }}>
+                            <div style={{ width:34,height:34,borderRadius:"50%",background:sel?"#7c3aed":"#ede9fe",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>
+                              {sel?"✅":"👥"}
+                            </div>
+                            <div style={{ flex:1,minWidth:0 }}>
+                              <div style={{ fontWeight:700,fontSize:13,color:sel?"#7c3aed":"#0f172a" }}>{g.nom}</div>
+                              <div style={{ fontSize:11,color:"#6b7280",marginTop:2 }}>
+                                {TYPE_ICO[g.type_cours]||"🏢"} {g.type_cours==="en_ligne"?"En ligne":g.type_cours==="domicile"?"Domicile":"Centre"}
+                                {g.filiere ? ` · ${g.filiere}` : ""}
+                                {g.coach_nom||g.nom_coach ? ` · 👨‍🏫 ${g.coach_nom||g.nom_coach}` : ""}
+                              </div>
+                            </div>
+                            <span style={{ padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:g.statut==="actif"?"#dcfce7":"#f1f5f9",color:g.statut==="actif"?"#166534":"#6b7280" }}>
+                              {g.nb_apprenants||0} appr.
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding:"16px 24px",borderTop:"1px solid #e5e7eb",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10 }}>
+                <button onClick={()=>setShowTransfertCoach(false)}
+                  style={{ padding:"10px 20px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:13 }}>
+                  Annuler
+                </button>
+                <button onClick={()=>executerTransfertCoach(a)} disabled={!transfertCoachForm.nouveau_groupe_id||transfertCoachSaving}
+                  style={{ padding:"10px 24px",background:transfertCoachForm.nouveau_groupe_id?"linear-gradient(135deg,#7c3aed,#6d28d9)":"#e5e7eb",
+                    color:transfertCoachForm.nouveau_groupe_id?"#fff":"#9ca3af",border:"none",borderRadius:9,
+                    cursor:transfertCoachForm.nouveau_groupe_id?"pointer":"default",fontWeight:700,fontSize:13,opacity:transfertCoachSaving?0.7:1 }}>
+                  {transfertCoachSaving ? "⏳ Envoi en cours…" : "✅ Envoyer la demande de transfert"}
+                </button>
               </div>
             </div>
           </div>

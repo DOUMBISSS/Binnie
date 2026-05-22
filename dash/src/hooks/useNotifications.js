@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../config/supabase';
 
 export function useNotifications(userId) {
   const [notifications, setNotifications] = useState([]);
   const [nbNonLues, setNbNonLues]         = useState(0);
+  const mountCount = useRef(0);
 
   const fetchNotifs = useCallback(async () => {
     if (!userId) return;
@@ -25,9 +26,11 @@ export function useNotifications(userId) {
 
     fetchNotifs();
 
-    // Écoute en temps réel les nouvelles notifications de ce coach
+    // Nom unique à chaque montage pour éviter la réutilisation du channel par Supabase
+    mountCount.current += 1;
+    const channelName = `notifs_${userId}_${mountCount.current}`;
     const channel = supabase
-      .channel(`notifs_${userId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
@@ -35,7 +38,9 @@ export function useNotifications(userId) {
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userId, fetchNotifs]);
 
   const marquerLue = async (id) => {
