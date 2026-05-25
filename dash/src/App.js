@@ -59,6 +59,29 @@ import CustomerCareDashboard from './Pages/CustomerCareDashboard/CustomerCareDas
 
 
 
+// Intercepteur global : déconnexion automatique sur 401
+(function installFetchInterceptor() {
+  const _fetch = window.fetch;
+  let _dejaDeclenche = false;
+  window.fetch = async function (...args) {
+    const response = await _fetch(...args);
+    if (response.status === 401 && !_dejaDeclenche) {
+      // Éviter les URL Supabase Auth (elles gèrent leur propre 401)
+      const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
+      if (!url.includes("supabase.co")) {
+        _dejaDeclenche = true;
+        localStorage.removeItem("user");
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_refresh");
+        localStorage.removeItem("prestationSession");
+        alert("⚠️ Votre session a expiré.\n\nVous allez être déconnecté automatiquement.\nReconnectez-vous pour continuer.");
+        window.location.href = "/";
+      }
+    }
+    return response;
+  };
+})();
+
 // Garder admin_token synchronisé quand Supabase rafraîchit le JWT automatiquement
 supabase.auth.onAuthStateChange((_event, session) => {
   if (session?.access_token) {

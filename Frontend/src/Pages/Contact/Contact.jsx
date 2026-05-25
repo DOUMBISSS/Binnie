@@ -82,12 +82,6 @@ const OFFICES = [
   { name:"Centre Bouaké",            address:"Centre-ville, Bouaké",                                        phone:"+225 07 22 22 22 22", email:"bouake@binnies-english.ci",     hours:"Lun–Ven : 08h–19h · Sam : 09h–15h", color:"#059669" },
 ];
 
-const FAQ_QUICK = [
-  { q:"Comment s'inscrire ?",               a:"Contactez-nous par téléphone, email ou via ce formulaire. Nous organisons un test de niveau gratuit avant toute inscription." },
-  { q:"Les cours sont-ils disponibles en ligne ?", a:"Oui ! Tous nos cours sont disponibles en présentiel et en ligne. Vous choisissez le format adapté à votre rythme." },
-  { q:"Quels modes de paiement acceptez-vous ?",   a:"Nous acceptons Mobile Money (Orange, MTN, Wave, Moov), virement bancaire et règlement sur place en espèces." },
-  { q:"Sous quel délai vous répondez ?",            a:"Nous répondons à tous les messages sous 24h ouvrées. Pour les urgences, appelez directement notre centre." },
-];
 
 const SUBJECTS = [
   "Demande de renseignements",
@@ -106,16 +100,36 @@ const DEVIS_SUBJECT = "Demande de devis (Entreprises uniquement)";
 /* ════════════════════════════════════════════════════════
    MAIN
 ════════════════════════════════════════════════════════ */
+const API_URL = process.env.REACT_APP_API_URL || "";
+const LS_KEY  = "bet_contact_config";
+
 const Contact = () => {
   const navigate = useNavigate();
 
-  const [formData,    setFormData]    = useState({ name:"", email:"", phone:"", subject:"", message:"", type:"particulier", centre_id:"" });
+  const [formData,    setFormData]    = useState({ name:"", email:"", phone:"", subject:"", message:"", type:"particulier" });
   const [isSubmitting,setIsSubmitting]= useState(false);
   const [success,     setSuccess]     = useState(false);
   const [errors,      setErrors]      = useState({});
   const [activeOffice,setActiveOffice]= useState(0);
-  const [openFaq,     setOpenFaq]     = useState(null);
   const [focusedField,setFocusedField]= useState(null);
+  const [contactConfig, setContactConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
+    catch { return {}; }
+  });
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/config-contact`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setContactConfig(d); localStorage.setItem(LS_KEY, JSON.stringify(d)); } })
+      .catch(() => {});
+    const handler = (e) => {
+      if (e.key === LS_KEY && e.newValue) {
+        try { setContactConfig(JSON.parse(e.newValue)); } catch {}
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
 
   const [heroRef,  heroInView]  = useInView();
   const [formRef,  formInView]  = useInView();
@@ -149,10 +163,10 @@ const Contact = () => {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setIsSubmitting(true);
     try {
-      await insertContact({ nom: formData.name, email: formData.email, telephone: formData.phone || null, type: formData.type, sujet: formData.subject || null, message: formData.message, centre_id: formData.centre_id || null });
+      await insertContact({ nom: formData.name, email: formData.email, telephone: formData.phone || null, type: formData.type, sujet: formData.subject || null, message: formData.message });
       setIsSubmitting(false);
       setSuccess(true);
-      setFormData({ name:"", email:"", phone:"", subject:"", message:"", type:"particulier", centre_id:"" });
+      setFormData({ name:"", email:"", phone:"", subject:"", message:"", type:"particulier" });
       setTimeout(() => setSuccess(false), 6000);
     } catch (err) {
       console.error("Erreur contact:", err);
@@ -194,19 +208,40 @@ const Contact = () => {
                 notre équipe est à votre disposition pour vous accompagner.
               </p>
               <div className="cnt-hero-contacts" style={S.heroContacts}>
-                {[
-                  { ico:"📞", val:"+225 07 00 00 00 00", lbl:"Appelez-nous",  color:"#fca5a5" },
-                  { ico:"✉️", val:"contact@binnies-english.ci", lbl:"Écrivez-nous", color:"#93c5fd" },
-                  { ico:"💬", val:"WhatsApp disponible", lbl:"Messagerie directe", color:"#6ee7b7" },
-                ].map((c, i) => (
-                  <div key={i} className="cnt-hero-contact-item" style={S.heroContactItem}>
-                    <div style={S.heroContactIco}>{c.ico}</div>
+                {contactConfig.email_central && (
+                  <div className="cnt-hero-contact-item" style={S.heroContactItem}>
+                    <div style={S.heroContactIco}>✉️</div>
                     <div>
-                      <div style={{ ...S.heroContactVal, color: c.color }}>{c.val}</div>
-                      <div style={S.heroContactLbl}>{c.lbl}</div>
+                      <a href={`mailto:${contactConfig.email_central}`} style={{ textDecoration:"none" }}>
+                        <div style={{ ...S.heroContactVal, color:"#93c5fd" }}>{contactConfig.email_central}</div>
+                      </a>
+                      <div style={S.heroContactLbl}>Écrivez-nous</div>
                     </div>
                   </div>
-                ))}
+                )}
+                {contactConfig.whatsapp_number && (
+                  <div className="cnt-hero-contact-item" style={S.heroContactItem}>
+                    <div style={S.heroContactIco}>💬</div>
+                    <div>
+                      <a
+                        href={`https://wa.me/${contactConfig.whatsapp_number}?text=${encodeURIComponent(contactConfig.whatsapp_message||"")}`}
+                        target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}
+                      >
+                        <div style={{ ...S.heroContactVal, color:"#6ee7b7" }}>+{contactConfig.whatsapp_number}</div>
+                      </a>
+                      <div style={S.heroContactLbl}>WhatsApp</div>
+                    </div>
+                  </div>
+                )}
+                {!contactConfig.whatsapp_number && (
+                  <div className="cnt-hero-contact-item" style={S.heroContactItem}>
+                    <div style={S.heroContactIco}>💬</div>
+                    <div>
+                      <div style={{ ...S.heroContactVal, color:"#6ee7b7" }}>WhatsApp disponible</div>
+                      <div style={S.heroContactLbl}>Messagerie directe</div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -233,9 +268,12 @@ const Contact = () => {
           <div style={S.mapWrap}>
             <div style={S.mapHeader}>
               <span style={S.mapHeaderTitle}>📍 Localisation</span>
+              {contactConfig.localisation && (
+                <span style={{ fontSize:".76rem", color:"#93c5fd", fontWeight:500 }}>{contactConfig.localisation}</span>
+              )}
             </div>
             <iframe
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3972.310376339353!2d-4.003492318927239!3d5.369546221617872!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0xfc1eb492c36597d%3A0x93bb218604963c57!2sBET%20Binnie&#39;s%20English%20Training!5e0!3m2!1sfr!2sfr!4v1775952579458!5m2!1sfr!2sfr"
+              src={contactConfig.maps_embed_url || "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3972.310376339353!2d-4.003492318927239!3d5.369546221617872!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0xfc1eb492c36597d%3A0x93bb218604963c57!2sBET%20Binnie&#39;s%20English%20Training!5e0!3m2!1sfr!2sfr!4v1775952579458!5m2!1sfr!2sfr"}
               width="100%"
               height="240"
               style={{ border:0, borderRadius:"0 0 14px 14px", display:"block" }}
@@ -246,23 +284,6 @@ const Contact = () => {
             />
           </div>
 
-          {/* FAQ rapide */}
-          <div style={S.faqBlock}>
-            <h3 style={S.faqTitle}>Questions fréquentes</h3>
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {FAQ_QUICK.map((item, i) => (
-                <div key={i} className="cnt-faq-item" style={{ ...S.faqItem, borderColor: openFaq === i ? "#dc2626" : "#e2e8f0" }}>
-                  <button className="cnt-faq-q" style={S.faqQ} onClick={() => setOpenFaq(openFaq === i ? null : i)}>
-                    <span>{item.q}</span>
-                    <span style={{ fontSize:"1.2rem", color:"#dc2626", transition:"transform .2s", transform: openFaq === i ? "rotate(45deg)" : "rotate(0)" }}>+</span>
-                  </button>
-                  {openFaq === i && (
-                    <p style={S.faqA}>{item.a}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* ── COLONNE DROITE : FORMULAIRE ──────────── */}
@@ -360,18 +381,12 @@ const Contact = () => {
                 </Field>
               )}
 
-              <Field label="Centre souhaité">
-                <select className="cnt-input-blue" style={{ ...S.input, cursor:"pointer" }}
-                  name="centre_id" value={formData.centre_id} onChange={handleChange}>
-                  <option value="">Choisir un centre (optionnel)</option>
-                  <option value="angre">Angré — Abidjan</option>
-                  <option value="2plateaux">II Plateaux — Abidjan</option>
-                  <option value="yopougon">Yopougon — Abidjan</option>
-                  <option value="koumassi">Koumassi — Abidjan</option>
-                  <option value="abatta">Abatta — Abidjan</option>
-                  <option value="bouake">Bouaké</option>
-                </select>
-              </Field>
+              {contactConfig.email_central && (
+                <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:10, padding:"10px 14px", fontSize:".82rem", color:"#0369a1", display:"flex", gap:10, alignItems:"center" }}>
+                  <span style={{ fontSize:"1rem", flexShrink:0 }}>✉️</span>
+                  <span>Votre message sera envoyé à <strong>{contactConfig.email_central}</strong></span>
+                </div>
+              )}
 
               <Field label="Message *" error={errors.message}>
                 <textarea className="cnt-input" style={{ ...S.input, height:140, resize:"vertical", ...(errors.message ? S.inputError : {}), ...(focusedField === "message" ? S.inputFocus : {}) }}

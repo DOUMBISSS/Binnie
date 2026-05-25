@@ -55,6 +55,7 @@ if (!document.querySelector("#bet-kf")) {
       .bet-proof-strip{grid-template-columns:repeat(2,1fr)!important;gap:12px!important;}
       .bet-payment-grid{grid-template-columns:1fr!important;}
       .bet-testi-row{grid-template-columns:1fr!important;}
+      .bet-testi-alt-row{grid-template-columns:1fr!important;gap:28px!important;}
 
       /* ── Sticky bar mobile ── */
       .bet-sticky { padding:10px 14px!important; flex-wrap:nowrap!important; gap:10px!important; }
@@ -424,79 +425,235 @@ const PS = {
 /* ─────────────────────────────────────────────────────────
    1. HERO SECTION
 ───────────────────────────────────────────────────────── */
-const HeroSection = ({ activeProfile, setActiveProfile, onTest }) => {
-  const [imgIdx, setImgIdx] = useState(0);
-  const IMGS = [
-    "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1600&q=80",
-    "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=1600&q=80",
-    "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1600&q=80",
-  ];
+const HERO_FALLBACK_SLIDES = [
+  { id:"f1", type:"image", url:"https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1600&q=80", titre:"", description:"", link_url:"", link_label:"" },
+  { id:"f2", type:"image", url:"https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=1600&q=80", titre:"", description:"", link_url:"", link_label:"" },
+  { id:"f3", type:"image", url:"https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1600&q=80", titre:"", description:"", link_url:"", link_label:"" },
+];
+
+/* ── Helpers vidéo ──────────────────────────────────────── */
+function detectVideoType(url) {
+  if (/youtube\.com|youtu\.be/i.test(url)) return "youtube";
+  if (/vimeo\.com/i.test(url))             return "vimeo";
+  return "native";
+}
+
+function extractYoutubeId(url) {
+  // youtu.be/ID  ou  youtu.be/ID?si=...
+  const short = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+  if (short) return short[1];
+  // youtube.com/watch?v=ID
+  const watch = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  if (watch) return watch[1];
+  // youtube.com/embed/ID
+  const embed = url.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
+  if (embed) return embed[1];
+  // youtube.com/shorts/ID
+  const shorts = url.match(/\/shorts\/([a-zA-Z0-9_-]{11})/);
+  if (shorts) return shorts[1];
+  return null;
+}
+
+function buildEmbedUrl(url, muted) {
+  const type = detectVideoType(url);
+  if (type === "youtube") {
+    const id = extractYoutubeId(url);
+    if (!id) return url; // URL embed déjà formatée ou format inconnu
+    const u = new URL(`https://www.youtube.com/embed/${id}`);
+    u.searchParams.set("autoplay",       "1");
+    u.searchParams.set("mute",           muted ? "1" : "0");
+    u.searchParams.set("enablejsapi",    "1");
+    u.searchParams.set("controls",       "0");
+    u.searchParams.set("rel",            "0");
+    u.searchParams.set("modestbranding", "1");
+    return u.toString();
+  }
+  if (type === "vimeo") {
+    // Extraire l'ID Vimeo (suite de chiffres)
+    const vimeoId = url.match(/vimeo\.com\/(?:video\/)?(\d+)/)?.[1];
+    const base = vimeoId
+      ? `https://player.vimeo.com/video/${vimeoId}`
+      : (url.includes("player.vimeo") ? url : url.replace("vimeo.com/", "player.vimeo.com/video/"));
+    const u = new URL(base);
+    u.searchParams.set("autoplay", "1");
+    u.searchParams.set("muted",    muted ? "1" : "0");
+    u.searchParams.set("api",      "1");
+    u.searchParams.set("controls", "0");
+    return u.toString();
+  }
+  return url; // native MP4/WebM : pas de paramètre
+}
+
+const HeroSection = () => {
+  const [slideIdx, setSlideIdx]   = useState(0);
+  const [slides,   setSlides]     = useState(HERO_FALLBACK_SLIDES);
+  const [paused,   setPaused]     = useState(false);
+  const [muted,    setMuted]      = useState(true);
+  const iframeRefs = useRef({});  // { [slide.id]: iframeElement }
+  const videoRefs  = useRef({});  // { [slide.id]: videoElement }
+
   useEffect(() => {
-    const t = setInterval(() => setImgIdx(p => (p + 1) % IMGS.length), 5000);
-    return () => clearInterval(t);
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/carousel/publiques`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.slides?.length > 0) setSlides(d.slides); })
+      .catch(() => {});
   }, []);
+
+  const nextSlide = useCallback(() => {
+    setSlideIdx(p => (p + 1) % slides.length);
+  }, [slides.length]);
+
+  // Avance automatique — suspendu sur les slides vidéo (la vidéo déclenche nextSlide elle-même)
+  useEffect(() => {
+    if (paused || slides.length <= 1) return;
+    const current = slides[slideIdx];
+    if (current?.type === "video") return; // la vidéo gère sa propre fin
+    const t = setInterval(nextSlide, 5000);
+    return () => clearInterval(t);
+  }, [slides, slideIdx, paused, nextSlide]);
+
+  // Écoute la fin des vidéos YouTube / Vimeo via postMessage
+  useEffect(() => {
+    const onMessage = (e) => {
+      try {
+        const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+        // YouTube : playerState 0 = ended
+        if (data?.event === "infoDelivery" && data?.info?.playerState === 0) nextSlide();
+        // Vimeo : event finish
+        if (data?.event === "finish") nextSlide();
+      } catch {}
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [nextSlide]);
+
+  const goTo = (i) => { setSlideIdx(i); setPaused(true); setTimeout(() => setPaused(false), 12000); };
+  const current = slides[slideIdx] || slides[0];
+  const isCurrentVideo = current?.type === "video";
+
+  /* ── Commandes vidéo ─────────────────────────────────── */
+  const sendYT = (iframe, func, args = "") => {
+    try { iframe.contentWindow.postMessage(JSON.stringify({ event:"command", func, args }), "*"); } catch {}
+  };
+  const sendVimeo = (iframe, method, value) => {
+    try { iframe.contentWindow.postMessage(JSON.stringify({ method, value }), "*"); } catch {}
+  };
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    const id = current?.id;
+    const type = detectVideoType(current?.url || "");
+    if (type === "native") {
+      const v = videoRefs.current[id];
+      if (v) v.muted = next;
+    } else if (type === "youtube") {
+      const f = iframeRefs.current[id];
+      if (f) sendYT(f, next ? "muteVideo" : "unMuteVideo");
+    } else if (type === "vimeo") {
+      const f = iframeRefs.current[id];
+      if (f) sendVimeo(f, "setVolume", next ? 0 : 1);
+    }
+  };
+
+  const replay = () => {
+    const id = current?.id;
+    const type = detectVideoType(current?.url || "");
+    if (type === "native") {
+      const v = videoRefs.current[id];
+      if (v) { v.currentTime = 0; v.play().catch(() => {}); }
+    } else if (type === "youtube") {
+      const f = iframeRefs.current[id];
+      if (f) { sendYT(f, "seekTo", [0, true]); sendYT(f, "playVideo"); }
+    } else if (type === "vimeo") {
+      const f = iframeRefs.current[id];
+      if (f) { sendVimeo(f, "setCurrentTime", 0); sendVimeo(f, "play"); }
+    }
+  };
 
   return (
     <section style={HS.hero}>
-      {IMGS.map((src, i) => (
-        <div key={i} style={{ ...HS.bg, backgroundImage: `url(${src})`, opacity: i === imgIdx ? 1 : 0 }} />
-      ))}
-      <div style={HS.overlay} />
+      {/* Slides : images toujours dans le DOM (crossfade), vidéos seulement quand actives */}
+      {slides.map((slide, i) => {
+        if (slide.type === "video") {
+          /* Vidéo inactive → div vide noire, pas de lecture en arrière-plan */
+          if (i !== slideIdx) return <div key={slide.id} style={{ ...HS.bg, background:"#000", opacity:0 }} />;
+          return (
+            <div key={slide.id} style={{ ...HS.bg, opacity:1, background:"#000" }}>
+              {detectVideoType(slide.url) === "native"
+                ? <video
+                    ref={el => { videoRefs.current[slide.id] = el; }}
+                    src={slide.url}
+                    autoPlay muted={muted} playsInline
+                    onEnded={nextSlide}
+                    style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", border:"none" }}
+                  />
+                : <iframe
+                    ref={el => { iframeRefs.current[slide.id] = el; }}
+                    src={buildEmbedUrl(slide.url, muted)}
+                    title={slide.titre || "slide video"}
+                    allow="autoplay; fullscreen"
+                    style={{ position:"absolute", inset:0, width:"100%", height:"100%", border:"none", pointerEvents:"none" }}
+                  />
+              }
+            </div>
+          );
+        }
+        return <div key={slide.id} style={{ ...HS.bg, backgroundImage:`url(${slide.url})`, opacity: i === slideIdx ? 1 : 0 }} />;
+      })}
 
-      <div className="bet-hero-content" style={HS.content}>
-        {/* Badge */}
-        <div style={{ animation: "fadeUp .6s ease .1s both" }}>
-          <span style={HS.badge}>🏛️ Cabinet agréé de l'État · Côte d'Ivoire</span>
+      {/* Contrôles vidéo (haut-droite) — uniquement sur une slide vidéo */}
+      {isCurrentVideo && (
+        <div style={{ position:"absolute", top:20, right:24, zIndex:12, display:"flex", gap:8 }}>
+          <button onClick={replay} title="Rejouer"
+            style={{ width:40, height:40, borderRadius:"50%", border:"none", cursor:"pointer", background:"rgba(0,0,0,.5)", backdropFilter:"blur(6px)", color:"#fff", fontSize:"1.1rem", display:"flex", alignItems:"center", justifyContent:"center" }}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,.75)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,.5)"}
+          >↺</button>
+          <button onClick={toggleMute} title={muted ? "Activer le son" : "Sourdine"}
+            style={{ width:40, height:40, borderRadius:"50%", border:"none", cursor:"pointer", background:"rgba(0,0,0,.5)", backdropFilter:"blur(6px)", color:"#fff", fontSize:"1.1rem", display:"flex", alignItems:"center", justifyContent:"center" }}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,.75)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,.5)"}
+          >{muted ? "🔇" : "🔊"}</button>
         </div>
+      )}
 
-        {/* H1 */}
-        <h1 className="bet-hero-h1" style={{ ...HS.h1, animation: "fadeUp .7s ease .25s both" }}>
-          Votre anglais,<br />
-          <em style={HS.accent}>votre avenir.</em>
-        </h1>
-
-        <p style={{ ...HS.sub, animation: "fadeUp .7s ease .4s both" }}>
-          Certifications TOEIC · TOEFL · IELTS — cours personnalisés pour particuliers, étudiants et professionnels en Côte d'Ivoire.
-        </p>
-
-        {/* Sélecteur de profil */}
-        <div style={{ animation: "fadeUp .7s ease .5s both" }}>
-          <p style={HS.profileLabel}>Quel est votre profil ?</p>
-          <div className="bet-profile-bar" style={HS.profileBar}>
-            {PROFILES.map(p => (
-              <button key={p.id} style={{ ...HS.profileBtn, ...(activeProfile === p.id ? HS.profileBtnActive : {}) }} onClick={() => setActiveProfile(p.id)}>
-                <span>{p.emoji}</span> {p.label}
-              </button>
-            ))}
+      {/* Gradient bas + caption + points de navigation */}
+      <div style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:10, background:"linear-gradient(to top, rgba(0,0,0,.72) 0%, rgba(0,0,0,.2) 60%, transparent 100%)", padding:"80px 48px 32px" }}>
+        <div key={slideIdx} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", gap:20 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            {current?.titre ? (
+              <p style={{ margin:"0 0 6px", color:"#fff", fontWeight:800, fontSize:"clamp(1.1rem,2.8vw,1.8rem)", lineHeight:1.25, textShadow:"0 2px 12px rgba(0,0,0,.7)", animation:"fadeUp .45s ease both" }}>
+                {current.titre}
+              </p>
+            ) : null}
+            {current?.description ? (
+              <p style={{ margin:0, color:"rgba(255,255,255,.85)", fontWeight:500, fontSize:"clamp(.82rem,1.5vw,.95rem)", lineHeight:1.6, textShadow:"0 1px 6px rgba(0,0,0,.5)", animation:"fadeUp .45s ease .12s both" }}>
+                {current.description}
+              </p>
+            ) : null}
+            {current?.link_url ? (
+              <a href={current.link_url}
+                style={{ display:"inline-flex", alignItems:"center", gap:6, marginTop:12, background:"#dc2626", color:"#fff", borderRadius:999, padding:"10px 22px", fontWeight:800, fontSize:".88rem", textDecoration:"none", boxShadow:"0 4px 18px rgba(220,38,38,.55)", animation:"fadeUp .45s ease .22s both" }}>
+                {current.link_label || "En savoir plus →"}
+              </a>
+            ) : null}
           </div>
-        </div>
-
-        {/* CTAs */}
-        <div className="bet-hero-ctas" style={{ ...HS.ctas, animation: "fadeUp .7s ease .65s both" }}>
-          <a href="#programmes">
-            <button className="bet-btn-primary" style={HS.btnPrimary}>
-              Voir mes formations →
-            </button>
-          </a>
-          <button className="bet-btn-secondary" style={HS.btnSecondary} onClick={onTest}>
-            🧪 Tester mon niveau gratuitement
-          </button>
-        </div>
-
-        {/* Social proof */}
-        <div style={{ ...HS.proof, animation: "fadeUp .7s ease .8s both" }}>
-          <div style={HS.avatarStack}>
-            {["👩🏾‍💼", "👨🏽‍💻", "👩🏻‍🎓", "👨🏿‍🏫", "👩🏽‍💼"].map((e, i) => (
-              <div key={i} style={{ ...HS.avatar, marginLeft: i === 0 ? 0 : -12, zIndex: 5 - i }}>{e}</div>
-            ))}
-          </div>
-          <span style={HS.proofText}><strong style={{ color: "#fbbf24" }}>+3 000</strong> apprenants certifiés · <strong style={{ color: "#34d399" }}>100%</strong> de réussite</span>
+          {slides.length > 1 && (
+            <div style={{ display:"flex", gap:8, flexShrink:0, alignSelf:"flex-end" }}>
+              {slides.map((_, i) => (
+                <button key={i} onClick={() => goTo(i)}
+                  style={{ width: i===slideIdx?28:10, height:10, borderRadius:5, border:"none", cursor:"pointer", background: i===slideIdx?"#fff":"rgba(255,255,255,.45)", transition:"all .3s", padding:0 }} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Wave */}
+      {/* Wave de transition vers la section suivante */}
       <div style={HS.wave}>
-        <svg viewBox="0 0 1440 64" style={{ display: "block", width: "100%" }} preserveAspectRatio="none">
+        <svg viewBox="0 0 1440 64" style={{ display:"block", width:"100%" }} preserveAspectRatio="none">
           <path fill="#fff" d="M0,32 C480,64 960,0 1440,32 L1440,64 L0,64 Z" />
         </svg>
       </div>
@@ -505,7 +662,7 @@ const HeroSection = ({ activeProfile, setActiveProfile, onTest }) => {
 };
 
 const HS = {
-  hero: { position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", overflow: "hidden" },
+  hero: { position: "relative", height: "70vh", minHeight: 480, maxHeight: 680, overflow: "hidden" },
   bg: { position: "absolute", inset: 0, backgroundSize: "cover", backgroundPosition: "center", transition: "opacity 1s ease" },
   overlay: { position: "absolute", inset: 0, background: "linear-gradient(120deg, rgba(8,16,40,.9) 0%, rgba(8,16,40,.75) 55%, rgba(8,16,40,.4) 100%)", zIndex: 1 },
   content: { position: "relative", zIndex: 2, maxWidth: 680, margin: "0 auto 0 8%", padding: "80px 24px 100px 48px" },
@@ -828,93 +985,143 @@ const ModeCard = ({ m, inView, delay }) => {
 ───────────────────────────────────────────────────────── */
 /* Fallback statique — remplacé par Supabase dès le chargement */
 const TESTIS = [
-  { avatar: "👩🏾‍⚖️", nom: "Awa Koné",         role: "Étudiante en droit",          score: "TOEIC 850",  texte: "En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", etoiles: 5, couleur: "#d97706" },
-  { avatar: "👨🏿‍💼", nom: "Kouamé Brou",       role: "Directeur Commercial · NSIA",  score: "IELTS 7.5",  texte: "La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", etoiles: 5, couleur: "#0891b2" },
-  { avatar: "👩🏽‍💻", nom: "Fatoumata Diallo",  role: "Ingénieure IT · MTN CI",       score: "TOEFL 104",  texte: "Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", etoiles: 5, couleur: "#1e4080" },
-  { avatar: "👨🏽‍🎓", nom: "Sonia Ravin",       role: "Étudiante · Université HEC",   score: "TOEIC 920",  texte: "Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", etoiles: 5, couleur: "#e93747" },
+  { avatar: "👩🏾‍⚖️", nom: "Awa Koné",         role: "Étudiante en droit",          score: "TOEIC 850",  texte: "En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", etoiles: 5, couleur: "#d97706", video_url: null },
+  { avatar: "👨🏿‍💼", nom: "Kouamé Brou",       role: "Directeur Commercial · NSIA",  score: "IELTS 7.5",  texte: "La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", etoiles: 5, couleur: "#0891b2", video_url: null },
+  { avatar: "👩🏽‍💻", nom: "Fatoumata Diallo",  role: "Ingénieure IT · MTN CI",       score: "TOEFL 104",  texte: "Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", etoiles: 5, couleur: "#1e4080", video_url: null },
+  { avatar: "👨🏽‍🎓", nom: "Sonia Ravin",       role: "Étudiante · Université HEC",   score: "TOEIC 920",  texte: "Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", etoiles: 5, couleur: "#e93747", video_url: null },
 ];
 
+function buildTestiEmbedUrl(url) {
+  if (!url) return null;
+  const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}?rel=0&modestbranding=1`;
+  const vm = url.match(/vimeo\.com\/(\d+)/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  return null; // URL directe (MP4…)
+}
+
+const TestiVideoCard = ({ ti }) => {
+  const videoRef = React.useRef(null);
+  const [playing, setPlaying] = React.useState(false);
+
+  if (!ti.video_url) {
+    return (
+      <div style={{ borderRadius: 16, overflow: "hidden", background: `linear-gradient(135deg,${ti.couleur}22,${ti.couleur}08)`, border: `2px solid ${ti.couleur}33`, aspectRatio: "16/9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+        <div style={{ fontSize: "4rem" }}>{ti.avatar}</div>
+        <div style={{ fontWeight: 800, fontSize: "1rem", color: ti.couleur }}>{ti.nom}</div>
+        <div style={{ fontSize: ".8rem", color: "#64748b" }}>{ti.role}</div>
+      </div>
+    );
+  }
+
+  const embedUrl = buildTestiEmbedUrl(ti.video_url);
+
+  // YouTube / Vimeo → iframe
+  if (embedUrl) {
+    return (
+      <div style={{ borderRadius: 16, overflow: "hidden", position: "relative", background: "#000", aspectRatio: "16/9" }}>
+        <iframe
+          src={embedUrl}
+          title={ti.nom}
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          style={{ width: "100%", height: "100%", display: "block", border: "none" }}
+        />
+      </div>
+    );
+  }
+
+  // Fichier direct (MP4, webm…) → <video> avec bouton play custom
+  const toggle = () => {
+    if (!videoRef.current) return;
+    if (playing) { videoRef.current.pause(); setPlaying(false); }
+    else { videoRef.current.play(); setPlaying(true); }
+  };
+
+  return (
+    <div style={{ borderRadius: 16, overflow: "hidden", position: "relative", background: "#000", aspectRatio: "16/9", cursor: "pointer" }} onClick={toggle}>
+      <video ref={videoRef} src={ti.video_url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onEnded={() => setPlaying(false)} />
+      <div style={{ position: "absolute", top: 12, left: 14, background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", borderRadius: 6, padding: "4px 10px", color: "#fff", fontWeight: 700, fontSize: ".78rem" }}>{ti.nom}</div>
+      {!playing && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.18)" }}>
+          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(255,255,255,.92)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 24px rgba(0,0,0,.3)" }}>
+            <div style={{ width: 0, height: 0, borderTop: "11px solid transparent", borderBottom: "11px solid transparent", borderLeft: `18px solid ${ti.couleur||"#1e4080"}`, marginLeft: 4 }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TestiTextCard = ({ ti }) => (
+  <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 16 }}>
+    <div style={{ display: "flex", gap: 4 }}>
+      {Array.from({ length: ti.etoiles ?? 5 }).map((_, i) => (
+        <span key={i} style={{ color: "#f59e0b", fontSize: "1.1rem" }}>★</span>
+      ))}
+    </div>
+    <h3 style={{ fontFamily: "'Montserrat','Segoe UI',sans-serif", fontSize: "clamp(1.4rem,2.5vw,2rem)", fontWeight: 800, color: "#0f172a", margin: 0, lineHeight: 1.2 }}>{ti.nom}</h3>
+    <p style={{ fontSize: "1rem", color: "#334155", lineHeight: 1.75, margin: 0 }}>"{ti.texte}"</p>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span style={{ fontSize: ".82rem", color: "#64748b" }}>{ti.role}</span>
+      <span style={{ background: ti.couleur + "20", color: ti.couleur, borderRadius: 999, padding: "3px 12px", fontSize: ".75rem", fontWeight: 800 }}>{ti.score}</span>
+    </div>
+  </div>
+);
+
 const TestimonialsSection = () => {
-  const [ref, inView] = useInView();
-  const [active,  setActive]  = useState(0);
-  const [testis,  setTestis]  = useState(TESTIS); // fallback immédiat sur les mocks
+  const [testis, setTestis] = useState(TESTIS);
 
   useEffect(() => {
     supabase
       .from("temoignages")
-      .select("id, nom, role, score, texte, avatar, couleur, etoiles, ordre")
+      .select("id, nom, role, score, texte, avatar, couleur, etoiles, ordre, video_url")
       .eq("actif", true)
       .eq("statut", "actif")
       .order("ordre", { ascending: true })
       .then(({ data }) => { if (data?.length) setTestis(data); });
   }, []);
 
-  useEffect(() => {
-    if (!inView || testis.length === 0) return;
-    const t = setInterval(() => setActive(p => (p + 1) % testis.length), 5000);
-    return () => clearInterval(t);
-  }, [inView, testis.length]);
-
-  const t = testis[active] ?? testis[0];
-
   return (
-    <section ref={ref} style={{ padding: "80px 0", background: "#fff" }}>
+    <section style={{ padding: "80px 0", background: "#eef2f8" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
+        {/* En-tête */}
+        <div style={{ textAlign: "center", marginBottom: 64 }}>
           <span style={SH.badge}>💬 ILS ONT RÉUSSI</span>
-          <h2 style={SH.h2}>Ils ont choisi BET<br /><span style={SH.accent}>et ils ne le regrettent pas</span></h2>
-          <div style={SH.line} />
+          <h2 style={{ ...SH.h2, marginTop: 8 }}>Ils ont choisi BET<br /><span style={SH.accent}>et ils ne le regrettent pas</span></h2>
+          <p style={{ color: "#64748b", fontSize: ".95rem", maxWidth: 620, margin: "14px auto 0", lineHeight: 1.7 }}>
+            Rencontrez certains des apprenants qui ont rejoint BET et ont obtenu de vrais résultats. Ces témoignages illustrent la puissance de notre accompagnement.
+          </p>
+          <div style={{ ...SH.line, marginTop: 20 }} />
         </div>
 
-        <div className="bet-testi-row" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 48, alignItems: "center" }}>
-          {/* Avatars liste */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {testis.map((ti, i) => (
-              <button key={ti.id ?? i} onClick={() => setActive(i)} style={{
-                display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 14,
-                border: `2px solid ${i === active ? ti.couleur : "#e2e8f0"}`,
-                background: i === active ? ti.couleur + "0d" : "#fff",
-                cursor: "pointer", transition: "all .2s", textAlign: "left",
-              }}>
-                <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg,${ti.couleur}33,${ti.couleur}11)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0 }}>{ti.avatar}</div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: ".88rem", color: "#0b1f40" }}>{ti.nom}</div>
-                  <div style={{ fontSize: ".75rem", color: "#64748b" }}>{ti.role}</div>
-                </div>
-                <div style={{ marginLeft: "auto", background: ti.couleur + "22", color: ti.couleur, borderRadius: 999, padding: "3px 10px", fontSize: ".7rem", fontWeight: 800, whiteSpace: "nowrap" }}>{ti.score}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Témoignage actif */}
-          <div key={active} style={{ background: "linear-gradient(135deg,#0b1f40,#1e4080)", borderRadius: 24, padding: "40px 44px", animation: "scaleIn .3s ease", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,.04)" }} />
-            <div style={{ color: "#fbbf24", fontSize: "1.5rem", marginBottom: 16, letterSpacing: 2 }}>{"★".repeat(t.etoiles)}</div>
-            <p style={{ fontFamily: "'Montserrat', 'Segoe UI', sans-serif", fontSize: "1.2rem", color: "#fff", lineHeight: 1.65, margin: "0 0 28px", fontStyle: "italic" }}>"{t.texte}"</p>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 52, height: 52, borderRadius: "50%", background: `rgba(255,255,255,.1)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.6rem" }}>{t.avatar}</div>
-              <div>
-                <div style={{ fontWeight: 800, color: "#fff", fontSize: ".95rem" }}>{t.nom}</div>
-                <div style={{ fontSize: ".8rem", color: "rgba(255,255,255,.55)" }}>{t.role}</div>
-              </div>
-              <div style={{ marginLeft: "auto", background: "#e93747", color: "#fff", borderRadius: 999, padding: "5px 14px", fontSize: ".8rem", fontWeight: 800 }}>{t.score}</div>
+        {/* Lignes alternées vidéo / texte */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 64 }}>
+          {testis.map((ti, i) => (
+            <div key={ti.id ?? i} className="bet-testi-alt-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 52, alignItems: "center" }}>
+              {i % 2 === 0 ? (
+                <><TestiVideoCard ti={ti} /><TestiTextCard ti={ti} /></>
+              ) : (
+                <><TestiTextCard ti={ti} /><TestiVideoCard ti={ti} /></>
+              )}
             </div>
-          </div>
+          ))}
         </div>
 
-        {/* CTA sous temoignages */}
-        <div style={{ textAlign: "center", marginTop: 48 }}>
+        {/* CTA */}
+        <div style={{ textAlign: "center", marginTop: 64 }}>
           <p style={{ color: "#64748b", fontSize: ".92rem", marginBottom: 20 }}>Rejoignez +3 000 apprenants qui ont transformé leur carrière avec BET</p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <a href="#programmes">
-              <button style={{ background: "linear-gradient(135deg,#e93747,#1e4080)", color: "#fff", border: "none", borderRadius: 999, padding: "14px 36px", fontWeight: 800, fontSize: "1rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", boxShadow: "0 6px 24px rgba(233,55,71,.3)", transition: "transform .2s" }}
+              <button style={{ background: "linear-gradient(135deg,#e93747,#1e4080)", color: "#fff", border: "none", borderRadius: 999, padding: "14px 36px", fontWeight: 800, fontSize: "1rem", cursor: "pointer", fontFamily: "'Montserrat','Segoe UI',sans-serif", boxShadow: "0 6px 24px rgba(233,55,71,.3)", transition: "transform .2s" }}
                 onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
                 onMouseLeave={e => e.currentTarget.style.transform = "none"}>
                 Commencer ma formation →
               </button>
             </a>
             <Link to="/temoignages">
-              <button style={{ background: "#fff", color: "#1e4080", border: "2px solid #1e4080", borderRadius: 999, padding: "14px 28px", fontWeight: 700, fontSize: ".95rem", cursor: "pointer", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", transition: "all .2s" }}
+              <button style={{ background: "#fff", color: "#1e4080", border: "2px solid #1e4080", borderRadius: 999, padding: "14px 28px", fontWeight: 700, fontSize: ".95rem", cursor: "pointer", fontFamily: "'Montserrat','Segoe UI',sans-serif", transition: "all .2s" }}
                 onMouseEnter={e => { e.currentTarget.style.background = "#1e4080"; e.currentTarget.style.color = "#fff"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#1e4080"; }}>
                 Voir tous les témoignages →
@@ -927,43 +1134,6 @@ const TestimonialsSection = () => {
   );
 };
 
-/* ─────────────────────────────────────────────────────────
-   7. CABINET AGRÉÉ BANNER
-───────────────────────────────────────────────────────── */
-const AgreeeBanner = () => {
-  const [ref, inView] = useInView();
-  return (
-    <section ref={ref} style={{ padding: "0 0 80px", background: "#f8fafc" }}>
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px" }}>
-        <div style={{
-          background: "linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%)", borderRadius: 24, padding: "48px 52px",
-          display: "flex", gap: 48, alignItems: "center", flexWrap: "wrap",
-          opacity: inView ? 1 : 0, transform: inView ? "none" : "translateY(20px)", transition: "all .6s ease",
-          position: "relative", overflow: "hidden",
-        }}>
-          <div style={{ position: "absolute", width: 300, height: 300, borderRadius: "50%", background: "rgba(8,145,178,.12)", top: -100, right: -60, pointerEvents: "none" }} />
-          <div style={{ flex: 1, minWidth: 280, position: "relative", zIndex: 1 }}>
-            <span style={{ display: "inline-block", background: "rgba(255,255,255,.15)", color: "#7dd3fc", borderRadius: 999, padding: "4px 14px", fontSize: ".7rem", fontWeight: 700, letterSpacing: ".06em", marginBottom: 14 }}>🏛️ CABINET DE FORMATION AGRÉÉ PAR L'ÉTAT DE CÔTE D'IVOIRE</span>
-            <h3 style={{ fontFamily: "'Montserrat', 'Segoe UI', sans-serif", fontSize: "1.7rem", color: "#fff", margin: "0 0 12px", lineHeight: 1.2 }}>Votre certificat BET a une valeur officielle et reconnue.</h3>
-            <p style={{ color: "rgba(255,255,255,.65)", fontSize: ".9rem", lineHeight: 1.7, margin: "0 0 20px", maxWidth: 480 }}>BET est agréé par l'État de Côte d'Ivoire. Vos certifications sont reconnues par les recruteurs, universités et administrations locales et internationales.</p>
-            <Link to="/certification/toeic">
-              <button style={{ background: "rgba(255,255,255,.1)", border: "2px solid rgba(255,255,255,.3)", color: "#fff", borderRadius: 999, padding: "10px 22px", fontWeight: 700, cursor: "pointer", fontSize: ".88rem", fontFamily: "'Montserrat', 'Segoe UI', sans-serif", transition: "all .2s" }}
-                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.2)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.6)"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.1)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.3)"; }}>
-                En savoir plus sur nos certifications →
-              </button>
-            </Link>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, position: "relative", zIndex: 1 }}>
-            {["🎓 Agréé État", "📜 Certifié", "🌍 International", "⭐ 15 ans", "🏆 100% réussite", "✅ FDFP"].map((item, i) => (
-              <div key={i} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12, padding: "12px", textAlign: "center", fontSize: ".78rem", color: "rgba(255,255,255,.8)", fontWeight: 600, lineHeight: 1.4 }}>{item}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-};
 
 /* ─────────────────────────────────────────────────────────
    8. PARTNERS MARQUEE
@@ -1257,14 +1427,7 @@ const StickyBar = ({ onEnroll, visible }) => {
 export default function Accueil() {
   const [activeProfile, setActiveProfile] = useState("tous");
   const [enrollProgram, setEnrollProgram] = useState(null);
-  const [stickyVisible, setStickyVisible] = useState(false);
-
-  // Affiche la sticky bar après 3 secondes ou 400px de scroll
   useEffect(() => {
-    const onScroll = () => { if (window.scrollY > 400) setStickyVisible(true); };
-    window.addEventListener("scroll", onScroll);
-    const t = setTimeout(() => setStickyVisible(true), 4000);
-    return () => { window.removeEventListener("scroll", onScroll); clearTimeout(t); };
   }, []);
 
   const handleTest = useCallback(() => {
@@ -1281,17 +1444,12 @@ export default function Accueil() {
       />
 
       <div style={{ fontFamily: "'Montserrat', 'Segoe UI', sans-serif", color: "#0f172a", overflowX: "hidden", background: "#fff", paddingBottom: 72 }}>
-        <HeroSection
-          activeProfile={activeProfile}
-          setActiveProfile={setActiveProfile}
-          onTest={handleTest}
-        />
+        <HeroSection />
         <ProofStrip />
         <ProgramsSection activeProfile={activeProfile} onFilter={setActiveProfile} onEnroll={setEnrollProgram} />
         <TestBand />
         <ModesSection />
         <TestimonialsSection />
-        <AgreeeBanner />
         <BlogSection/>
         <CoachesSection />
         <PartnersSection />
@@ -1303,8 +1461,6 @@ export default function Accueil() {
         <PaymentModal program={enrollProgram} onClose={() => setEnrollProgram(null)} />
       )}
 
-      {/* Sticky bar */}
-      <StickyBar onEnroll={setEnrollProgram} visible={stickyVisible} />
     </>
   );
 }

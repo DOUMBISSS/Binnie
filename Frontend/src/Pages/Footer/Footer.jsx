@@ -1,10 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./Footer.css";
 import { useTranslation } from 'react-i18next';
+
+const API_URL = process.env.REACT_APP_API_URL || "";
+const LS_KEY  = "bet_contact_config";
 
 const Footer = () => {
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
+  const [contactConfig, setContactConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
+    catch { return {}; }
+  });
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/config-contact`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setContactConfig(d); localStorage.setItem(LS_KEY, JSON.stringify(d)); } })
+      .catch(() => {});
+    const handler = (e) => {
+      if (e.key === LS_KEY && e.newValue) {
+        try { setContactConfig(JSON.parse(e.newValue)); } catch {}
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
   const [status, setStatus] = useState(null); // 'success', 'error', 'duplicate'
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState(null);   // { type, message }
@@ -66,21 +87,31 @@ const Footer = () => {
             {t('footer.description')}
           </p>
           <div className="social-links">
-            <a href="#" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-              <i className="fa-brands fa-facebook"></i>
-            </a>
-            <a href="#" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-              <i className="fa-brands fa-instagram"></i>
-            </a>
-            <a href="#" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
-              <i className="fa-brands fa-linkedin"></i>
-            </a>
-            <a href="#" target="_blank" rel="noopener noreferrer" aria-label="TikTok">
-              <i className="fa-brands fa-tiktok"></i>
-            </a>
-            <a href="#" target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">
-              <i className="fa-brands fa-x-twitter"></i>
-            </a>
+            {contactConfig.social_facebook && contactConfig.social_facebook_visible !== false && (
+              <a href={contactConfig.social_facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+                <i className="fa-brands fa-facebook"></i>
+              </a>
+            )}
+            {contactConfig.social_instagram && contactConfig.social_instagram_visible !== false && (
+              <a href={contactConfig.social_instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+                <i className="fa-brands fa-instagram"></i>
+              </a>
+            )}
+            {contactConfig.social_linkedin && contactConfig.social_linkedin_visible !== false && (
+              <a href={contactConfig.social_linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+                <i className="fa-brands fa-linkedin"></i>
+              </a>
+            )}
+            {contactConfig.social_tiktok && contactConfig.social_tiktok_visible !== false && (
+              <a href={contactConfig.social_tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok">
+                <i className="fa-brands fa-tiktok"></i>
+              </a>
+            )}
+            {contactConfig.social_twitter && contactConfig.social_twitter_visible !== false && (
+              <a href={contactConfig.social_twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">
+                <i className="fa-brands fa-x-twitter"></i>
+              </a>
+            )}
           </div>
         </div>
 
@@ -139,9 +170,26 @@ const Footer = () => {
             )}
           </form>
           <div className="footer-contact-compact">
-            <p>📍 Abidjan, Côte d'Ivoire</p>
-            <p>📞 +225 00 00 00 00</p>
-            <p>✉️ {t('footer.email')}</p>
+            <p>📍 {contactConfig.localisation || "Abidjan, Côte d'Ivoire"}</p>
+            {contactConfig.whatsapp_number && (
+              <p>
+                <a
+                  href={`https://wa.me/${contactConfig.whatsapp_number}?text=${encodeURIComponent(contactConfig.whatsapp_message||"")}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ color:"inherit", textDecoration:"none" }}
+                >
+                  📱 +{contactConfig.whatsapp_number}
+                </a>
+              </p>
+            )}
+            {contactConfig.email_central && (
+              <p>
+                <a href={`mailto:${contactConfig.email_central}`} style={{ color:"inherit", textDecoration:"none" }}>
+                  ✉️ {contactConfig.email_central}
+                </a>
+              </p>
+            )}
+            {!contactConfig.email_central && <p>✉️ {t('footer.email')}</p>}
           </div>
         </div>
       </div>

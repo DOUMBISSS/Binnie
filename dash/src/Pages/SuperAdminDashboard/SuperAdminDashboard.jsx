@@ -1,7 +1,7 @@
 // src/Pages/SuperAdminDashboard/SuperAdminDashboard.jsx
 // Route : <Route path="/superadmin-dashboard" element={<SuperAdminDashboard />} />
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import CloudinaryUpload, { AvatarUpload } from "../../Components/CloudinaryUpload";
 import MessagerieTab from "../../Components/MessagerieTab";
@@ -950,7 +950,11 @@ export default function SuperAdminDashboard() {
   const [temos, setTemos]                   = useState([]);
   const [temosLoading, setTemosLoading]     = useState(false);
   const [temoFiltre, setTemoFiltre]         = useState("tous");
-  const [temoForm, setTemoForm]             = useState({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0 });
+  const [temoForm, setTemoForm]             = useState({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0, photo_url:"", video_url:"" });
+  const [temoUploading, setTemoUploading]   = useState(null); // "photo" | "video" | null
+  const [temoUploadPct, setTemoUploadPct]   = useState(0);
+  const temoFileRef = React.useRef(null);
+  const [temoFileTarget, setTemoFileTarget] = useState(null); // "photo" | "video"
   const [temoFormOpen, setTemoFormOpen]     = useState(false);
   const [temoRejetId, setTemoRejetId]       = useState(null);
   const [temoMotif, setTemoMotif]           = useState("");
@@ -975,10 +979,11 @@ export default function SuperAdminDashboard() {
       const res = await fetch(`${API_URL}/api/temoignages/${id}`, {
         method: "PATCH", headers: authHeaders(), body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Erreur ${res.status}`);
       setTemos(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
       toast.success("Témoignage mis à jour");
-    } catch { toast.error("Erreur mise à jour"); }
+    } catch (e) { toast.error(e.message || "Erreur mise à jour"); }
   };
 
   const temoDelete = async (id) => {
@@ -996,10 +1001,11 @@ export default function SuperAdminDashboard() {
       const res = await fetch(`${API_URL}/api/temoignages`, {
         method: "POST", headers: authHeaders(), body: JSON.stringify(temoForm),
       });
-      if (!res.ok) throw new Error();
-      const created = await res.json();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Erreur ${res.status}`);
+      const created = data;
       setTemos(prev => [created, ...prev]);
-      setTemoForm({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0 });
+      setTemoForm({ nom:"", role:"", score:"", certType:"", certScore:"", texte:"", avatar:"🎓", couleur:"#1e4080", etoiles:5, ordre:0, photo_url:"", video_url:"" });
       setTemoFormOpen(false);
       toast.success("Témoignage créé");
     } catch { toast.error("Erreur création"); }
@@ -1020,6 +1026,36 @@ export default function SuperAdminDashboard() {
       setTemoRejetId(null); setTemoMotif("");
       toast.success("Rejeté");
     } catch { toast.error("Erreur"); }
+  };
+
+  const temoUploadMedia = async (file, target) => {
+    if (!file) return;
+    const isVideo = file.type.startsWith("video/");
+    const endpoint = isVideo ? "/api/upload/video" : "/api/upload/image";
+    setTemoUploading(target); setTemoUploadPct(0);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const url = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}${endpoint}`);
+        xhr.setRequestHeader("Authorization", `Bearer ${localStorage.getItem("admin_token")}`);
+        xhr.upload.onprogress = e => { if (e.lengthComputable) setTemoUploadPct(Math.round(e.loaded / e.total * 100)); };
+        xhr.onload = () => {
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (xhr.status >= 400) { reject(new Error(d.error || "Erreur upload")); return; }
+            resolve(d.file?.url || d.url || "");
+          } catch { reject(new Error("Réponse invalide")); }
+        };
+        xhr.onerror = () => reject(new Error("Erreur réseau"));
+        xhr.send(formData);
+      });
+      if (!url) throw new Error("URL non reçue");
+      setTemoForm(f => ({ ...f, [target === "photo" ? "photo_url" : "video_url"]: url }));
+      toast.success(`${target === "photo" ? "Photo" : "Vidéo"} uploadée !`);
+    } catch (e) { toast.error(e.message); }
+    finally { setTemoUploading(null); setTemoUploadPct(0); }
   };
 
   const temosPending = temos.filter(t => t.statut === "en_attente").length;
@@ -1142,7 +1178,45 @@ export default function SuperAdminDashboard() {
 
   const [waCenters,      setWaCenters]      = useState(readLSCenters);
   const [waLoading,      setWaLoading]      = useState(false);
-  const [waSavingIdx,    setWaSavingIdx]    = useState(null); // index du centre en cours de sauvegarde
+  const [waSavingIdx,    setWaSavingIdx]    = useState(null);
+
+  // Config contact centrale (bouton flottant, footer, page contact)
+  const [contactConfig,     setContactConfig]     = useState({ whatsapp_number:"", whatsapp_message:"", email_central:"", localisation:"", maps_embed_url:"" });
+  const [contactConfigLoad, setContactConfigLoad] = useState(false);
+  const [contactConfigSave, setContactConfigSave] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setContactConfigLoad(true);
+      try {
+        const r = await fetch(`${API_URL}/api/config-contact`);
+        if (r.ok) { const d = await r.json(); setContactConfig(d); }
+      } catch {}
+      setContactConfigLoad(false);
+    };
+    load();
+  }, []); // eslint-disable-line
+
+  const saveContactConfig = async () => {
+    setContactConfigSave(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const r = await fetch(`${API_URL}/api/config-contact`, {
+        method: "PUT",
+        headers: { "Content-Type":"application/json", Authorization:`Bearer ${token}` },
+        body: JSON.stringify(contactConfig),
+      });
+      if (r.ok) {
+        toast.success("✓ Configuration de contact sauvegardée");
+        // Notifie le frontend pour rechargement immédiat
+        localStorage.setItem("bet_contact_config", JSON.stringify(contactConfig));
+        window.dispatchEvent(new StorageEvent("storage", { key:"bet_contact_config", newValue:JSON.stringify(contactConfig) }));
+      } else {
+        toast.error("Erreur lors de la sauvegarde");
+      }
+    } catch { toast.error("Erreur réseau"); }
+    setContactConfigSave(false);
+  };
 
   // Charger depuis Supabase au montage (Supabase = source de vérité)
   useEffect(() => {
@@ -1642,10 +1716,97 @@ export default function SuperAdminDashboard() {
     finally { setProdImageUploading(false); }
   };
 
+  // ── Gestion Articles Blog ────────────────────────────────
+  const BLOG_CATEGORIES = ["Actualités","Conseils","Certifications","Entreprises","Réussite","Événements","Général"];
+  const BLOG_FORM_INIT  = { titre:"", extrait:"", contenu:"", categorie:"Actualités", auteur:"Admin", read_time:"", image_url:"", video_url:"", publie:false };
+  const [blogInnerTab,     setBlogInnerTab]     = useState("articles");
+  const [blogArticles,     setBlogArticles]     = useState([]);
+  const [blogLoading,      setBlogLoading]      = useState(false);
+  const [blogForm,         setBlogForm]         = useState(BLOG_FORM_INIT);
+  const [blogFormOpen,     setBlogFormOpen]     = useState(false);
+  const [blogEditId,       setBlogEditId]       = useState(null);
+  const [blogSearch,       setBlogSearch]       = useState("");
+  const [blogUploading,    setBlogUploading]    = useState(null);
+  const [blogUploadPct,    setBlogUploadPct]    = useState(0);
+  const [blogFileTarget,   setBlogFileTarget]   = useState("image");
+  const blogFileRef = useRef(null);
+
+  const fetchBlogArticles = async () => {
+    setBlogLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/blog/admin/all`, { headers: authHeaders() });
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      setBlogArticles(d.articles || []);
+    } catch { toast.error("Erreur chargement articles"); }
+    finally { setBlogLoading(false); }
+  };
+
+  const blogSave = async () => {
+    if (!blogForm.titre.trim()) return toast.error("Titre requis");
+    try {
+      const method = blogEditId ? "PUT" : "POST";
+      const url    = blogEditId ? `${API_URL}/api/blog/${blogEditId}` : `${API_URL}/api/blog`;
+      const r = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(blogForm) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Erreur");
+      toast.success(blogEditId ? "Article mis à jour" : "Article créé");
+      setBlogFormOpen(false); setBlogEditId(null); setBlogForm(BLOG_FORM_INIT);
+      fetchBlogArticles();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const blogTogglePublie = async (id, publie) => {
+    try {
+      await fetch(`${API_URL}/api/blog/${id}/publie`, { method:"PATCH", headers: authHeaders(), body: JSON.stringify({ publie: !publie }) });
+      setBlogArticles(p => p.map(a => a.id===id ? {...a, publie:!publie} : a));
+    } catch { toast.error("Erreur"); }
+  };
+
+  const blogDelete = async (id) => {
+    if (!window.confirm("Supprimer cet article définitivement ?")) return;
+    try {
+      await fetch(`${API_URL}/api/blog/${id}`, { method:"DELETE", headers: authHeaders() });
+      setBlogArticles(p => p.filter(a => a.id !== id));
+      toast.success("Article supprimé");
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const blogUploadMedia = async (file, target) => {
+    if (!file) return;
+    const isVideo = file.type.startsWith("video/");
+    const endpoint = isVideo ? "/api/upload/video" : "/api/upload/image";
+    setBlogUploading(target); setBlogUploadPct(0);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const url = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}${endpoint}`);
+        xhr.setRequestHeader("Authorization", `Bearer ${localStorage.getItem("admin_token")}`);
+        xhr.upload.onprogress = e => { if (e.lengthComputable) setBlogUploadPct(Math.round(e.loaded / e.total * 100)); };
+        xhr.onload = () => {
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (xhr.status >= 400) { reject(new Error(d.error || "Erreur upload")); return; }
+            resolve(d.file?.url || d.url || "");
+          } catch { reject(new Error("Réponse invalide")); }
+        };
+        xhr.onerror = () => reject(new Error("Erreur réseau"));
+        xhr.send(formData);
+      });
+      if (!url) throw new Error("URL non reçue");
+      setBlogForm(f => ({ ...f, [target === "video" ? "video_url" : "image_url"]: url }));
+      toast.success(`${target === "video" ? "Vidéo" : "Image"} uploadée !`);
+    } catch (e) { toast.error(e.message); }
+    finally { setBlogUploading(null); setBlogUploadPct(0); }
+  };
+
   // ── Commentaires Blog ────────────────────────────────────
   const [blogComments,        setBlogComments]        = useState([]);
   const [blogCommentsLoading, setBlogCommentsLoading] = useState(false);
   const [blogCommentsSearch,  setBlogCommentsSearch]  = useState("");
+  const [blogExpandedArticle, setBlogExpandedArticle] = useState(null);
 
   const fetchBlogComments = async () => {
     setBlogCommentsLoading(true);
@@ -1739,6 +1900,107 @@ export default function SuperAdminDashboard() {
   };
   useEffect(() => { if (activeTab === "paiements") fetchPaiements(); }, [activeTab]);
 
+  // ── Paiements CinetPay (en ligne) ───────────────────────────────────────
+  const [paiementsSubTab,       setPaiementsSubTab]       = useState("manuel");
+  const [cinetpayPaiements,     setCinetpayPaiements]     = useState([]);
+  const [cinetpayLoading,       setCinetpayLoading]       = useState(false);
+  const [cinetpaySearch,        setCinetpaySearch]        = useState("");
+  const [cinetpayStatutFiltre,  setCinetpayStatutFiltre]  = useState("tous");
+  const [cinetpayTraiteeFiltre, setCinetpayTraiteeFiltre] = useState("tous");
+
+  const fetchCinetpayPaiements = async () => {
+    setCinetpayLoading(true);
+    try {
+      const res  = await fetch(`${API_URL}/api/cinetpay/admin/all`, { headers: authHeaders() });
+      const data = await res.json();
+      setCinetpayPaiements(data.paiements || []);
+    } catch(e) { console.error("Erreur chargement cinetpay", e); }
+    finally { setCinetpayLoading(false); }
+  };
+
+  const marquerTraite = async (id, notes) => {
+    try {
+      await fetch(`${API_URL}/api/cinetpay/admin/${id}/traiter`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ notes_assistante: notes }),
+      });
+      setCinetpayPaiements(prev => prev.map(p => p.id === id ? { ...p, traitee: true, notes_assistante: notes } : p));
+      toast.success("Marqué comme traité ✓");
+    } catch { toast.error("Erreur"); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "paiements" && paiementsSubTab === "cinetpay") fetchCinetpayPaiements();
+  }, [activeTab, paiementsSubTab]); // eslint-disable-line
+
+  // ── Audit global ─────────────────────────────────────────────────────────
+  const [auditLogs,         setAuditLogs]         = useState([]);
+  const [auditStats,        setAuditStats]        = useState(null);
+  const [auditLoading,      setAuditLoading]      = useState(false);
+  const [auditTotal,        setAuditTotal]        = useState(0);
+  const [auditPage,         setAuditPage]         = useState(1);
+  const [auditView,         setAuditView]         = useState("logs"); // "logs" | "stats" | "profil" | "centre"
+  const [auditSelectedProfile, setAuditSelectedProfile] = useState(null);
+  const [auditSelectedCentre, setAuditSelectedCentre]  = useState(null);
+  const [auditProfileLogs, setAuditProfileLogs]  = useState([]);
+  const [auditCentreLogs,  setAuditCentreLogs]   = useState([]);
+  const AUDIT_LIMIT = 50;
+  const [auditFilters, setAuditFilters] = useState({
+    module: "", action_type: "", statut: "", centre: "", search: "",
+    date_debut: "", date_fin: "",
+  });
+
+  const fetchAuditLogs = useCallback(async (page = 1, filters = auditFilters) => {
+    setAuditLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page, limit: AUDIT_LIMIT,
+        ...(filters.module     && { module: filters.module }),
+        ...(filters.action_type && { action_type: filters.action_type }),
+        ...(filters.statut     && { statut: filters.statut }),
+        ...(filters.centre     && { centre: filters.centre }),
+        ...(filters.search     && { search: filters.search }),
+        ...(filters.date_debut && { date_debut: filters.date_debut }),
+        ...(filters.date_fin   && { date_fin: filters.date_fin }),
+      });
+      const res = await fetch(`${API_URL}/api/audit/logs?${params}`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setAuditLogs(data.logs || []);
+      setAuditTotal(data.total || 0);
+    } catch { toast.error("Erreur chargement audit"); }
+    finally { setAuditLoading(false); }
+  }, [auditFilters]); // eslint-disable-line
+
+  const fetchAuditStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/audit/stats`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setAuditStats(await res.json());
+    } catch {}
+  }, []); // eslint-disable-line
+
+  const fetchAuditByProfile = async (acteur_id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/audit/by-profile/${acteur_id}`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setAuditProfileLogs(await res.json());
+    } catch { toast.error("Erreur"); }
+  };
+
+  const fetchAuditByCentre = async (centre) => {
+    try {
+      const res = await fetch(`${API_URL}/api/audit/by-centre/${centre}`, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setAuditCentreLogs(await res.json());
+    } catch { toast.error("Erreur"); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "audit") { fetchAuditLogs(1); fetchAuditStats(); }
+  }, [activeTab]); // eslint-disable-line
+
   // ── Groupes admin ────────────────────────────────────────────────────────
   const [adminGroupes, setAdminGroupes]         = useState([]);
   const [adminGroupesLoading, setAdminGroupesLoading] = useState(false);
@@ -1827,13 +2089,13 @@ export default function SuperAdminDashboard() {
     { key: "overview",      label: "Vue d'ensemble", icon: "🏠" },
     { key: "platform",      label: "Plateforme",     icon: "🏢" },
     { key: "permissions",   label: "Gestion des droits", icon: "🔐", badge: stats.enAttente, danger: stats.enAttente>0 },
-    { key: "audit",         label: "Audit global",   icon: "📜", badge: auditLog.length },
+    { key: "audit",         label: "Audit global",   icon: "📜", badge: auditStats?.alertes_today||null, danger: (auditStats?.alertes_today||0)>0 },
     { key: "logs",          label: "Logs système",           icon: "📋" },
     { key: "trafic",        label: "Trafic web",             icon: "🌐" },
     { key: "clients",       label: "Clients & Prospects",    icon: "👥" },
     { key: "offres",        label: "Offres & Formations",    icon: "🎓" },
     { key: "ca",            label: "Chiffre d'affaires",     icon: "💰" },
-    { key: "paiements",     label: "Paiements",              icon: "💳" },
+    { key: "paiements",     label: "Paiements",              icon: "💳", badge: cinetpayPaiements.filter(p=>p.statut==="validé"&&!p.traitee).length||null, danger: cinetpayPaiements.filter(p=>p.statut==="validé"&&!p.traitee).length>0 },
     { key: "suivi_apprenants", label: "Apprenants", icon: "🎓", badge: apprenants.length || null },
     { key: "assistantes",   label: "Planning assistantes",   icon: "📅", badge: assistantesAdmin.filter(a=>!a.actif).length||null, danger: assistantesAdmin.filter(a=>!a.actif).length>0 },
     { key: "coachs",        label: "Coachs",                 icon: "👨‍🏫", badge: COACHS_MOCK.length },
@@ -1852,27 +2114,57 @@ export default function SuperAdminDashboard() {
   ];
 
   const [platformSubTab, setPlatformSubTab] = useState("partenaires");
+  const [catalogueSubTab, setCatalogueSubTab] = useState("centres");
+  const CATALOGUE_TABS = [
+    { key:"centres",          label:"Nos centres",      icon:"📍" },
+    { key:"offres_en_ligne",  label:"Offres En ligne",  icon:"💻" },
+    { key:"offres_domicile",  label:"Offres À domicile",icon:"🏠" },
+    { key:"certifications",   label:"Certifications",   icon:"🏆" },
+    { key:"interpretariat",   label:"Interprétariat",   icon:"🌍" },
+    { key:"traduction",       label:"Traduction",        icon:"📄" },
+  ];
+
+  // ── Médias pages (offre_media) ──────────────────────────────────
+  const OFFRE_MEDIA_TYPES = [
+    { key:"en-ligne",  label:"Cours en ligne",    icon:"💻", color:"#1e3a8a" },
+    { key:"cabinet",   label:"Cours en cabinet",  icon:"🏫", color:"#0891b2" },
+    { key:"domicile",  label:"Cours à domicile",  icon:"🏠", color:"#059669" },
+    { key:"toeic",     label:"TOEIC",             icon:"🏆", color:"#7c3aed" },
+    { key:"toefl",     label:"TOEFL",             icon:"🎓", color:"#b45309" },
+    { key:"ielts",     label:"IELTS",             icon:"🌍", color:"#dc2626" },
+  ];
+  const OFFRE_MEDIA_BLANK = { type:"video", url:"", titre:"", actif:true };
+  const [offreMediaType,       setOffreMediaType]       = useState("toeic");
+  const [offreMediaList,       setOffreMediaList]       = useState([]);
+  const [offreMediaLoading,    setOffreMediaLoading]    = useState(false);
+  const [offreMediaForm,       setOffreMediaForm]       = useState(OFFRE_MEDIA_BLANK);
+  const [offreMediaSaving,     setOffreMediaSaving]     = useState(false);
+  const [offreMediaUploading,  setOffreMediaUploading]  = useState(false);
+  const [offreMediaUploadPct,  setOffreMediaUploadPct]  = useState(0);
+  const [offreMediaDragOver,   setOffreMediaDragOver]   = useState(false);
+  const offreMediaFileRef = React.useRef(null);
   const platformTabs = [
-    { key:"partenaires",   label:"Config. Partenaires",  icon:"🤝" },
-    { key:"whatsapp",      label:"Messages WhatsApp",   icon:"💬" },
+    { key:"partenaires",   label:"Config. Partenaires", icon:"🤝" },
+    { key:"whatsapp",      label:"Contact & WhatsApp",  icon:"📞" },
     { key:"coachs_photos", label:"Équipe Coachs",       icon:"👨‍🏫" },
-    { key:"marquee",          label:"Marquee",             icon:"📢" },
-    { key:"centres",          label:"Nos centres",         icon:"📍" },
-    { key:"offres_en_ligne",  label:"Offres En ligne",     icon:"💻" },
-    { key:"offres_domicile",  label:"Offres À domicile",   icon:"🏠" },
-    { key:"certifications",   label:"Certifications",       icon:"🏆" },
-    { key:"temoignages",      label:"Témoignages",          icon:"⭐", badge: temosPending||null, danger: temosPending>0 },
-    { key:"avis_offres",      label:"Avis offres",          icon:"💬", badge: avisOffres.filter(a=>!a.actif).length||null },
-    { key:"boutique",         label:"Boutique",             icon:"🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
-    { key:"blog_comments",    label:"Commentaires Blog",    icon:"💬", badge: blogComments.length || null },
+    { key:"marquee",       label:"Marquee",             icon:"📢" },
+    { key:"catalogue",     label:"Offres & Contenus",   icon:"📦" },
+    { key:"avis_offres",   label:"Avis offres",         icon:"💬", badge: avisOffres.filter(a=>!a.actif).length||null },
+    { key:"boutique",      label:"Boutique",            icon:"🛍️", badge: commandes.filter(c=>c.statut==="en_attente").length||null, danger: commandes.filter(c=>c.statut==="en_attente").length>0 },
+    { key:"contenu",       label:"Blog & Témoignages",  icon:"📋", badge: (blogArticles.filter(a=>!a.publie).length + temosPending + blogComments.length)||null, danger: temosPending>0 },
+    { key:"faq",           label:"FAQ",                 icon:"❓" },
+    { key:"carrousel",     label:"Carrousel & Médias",  icon:"🖼️" },
   ];
   // useEffects dépendant de platformSubTab (déclarés après useState)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (activeTab === "platform" && platformSubTab === "temoignages") fetchTemos(); }, [activeTab, platformSubTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (activeTab === "platform" && platformSubTab === "avis_offres") fetchAvisOffres(); }, [activeTab, platformSubTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (activeTab === "platform" && platformSubTab === "blog_comments") fetchBlogComments(); }, [activeTab, platformSubTab]);
+  useEffect(() => {
+    if (activeTab === "platform" && platformSubTab === "contenu") {
+      fetchBlogArticles(); fetchTemos(); fetchBlogComments();
+    }
+  }, [activeTab, platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (activeTab === "platform" && platformSubTab === "boutique") { fetchProduits(); fetchCommandes(); } }, [activeTab, platformSubTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1884,6 +2176,15 @@ export default function SuperAdminDashboard() {
   const [marqueeForm,     setMarqueeForm]     = useState(null); // null=fermé
   const [marqueeSavingId, setMarqueeSavingId] = useState(null);
   const [marqueePage,     setMarqueePage]     = useState(1);
+
+  // ── FAQ ─────────────────────────────────────────────────────────────────────
+  const [faqItems,      setFaqItems]      = useState([]);
+  const [faqLoading,    setFaqLoading]    = useState(false);
+  const [faqForm,       setFaqForm]       = useState(null);
+  const [faqSavingId,   setFaqSavingId]   = useState(null);
+  const [faqSearch,     setFaqSearch]     = useState("");
+  const [faqCatFilter,  setFaqCatFilter]  = useState("Tous");
+  const FAQ_CATEGORIES = ["Cours & formations","Certifications","Tarifs & paiement","Nos centres","Entreprises","Compte & espace personnel","Général"];
   const MARQUEE_PER_PAGE = 5;
 
   // ── Centres master (source de vérité partagée) ───────────────────────────────
@@ -2073,6 +2374,62 @@ export default function SuperAdminDashboard() {
   }, []); // eslint-disable-line
   const [offreEditModal, setOffreEditModal] = useState(null); // { mode:"en_ligne"|"domicile", idx, data }
 
+  const DEFAULT_SERVICE_INTERP = {
+    description: "Services d'interprétation professionnelle assurés par des interprètes certifiés pour vos événements, conférences et réunions d'affaires.",
+    tagline: "Conférences · Réunions · Événements",
+    details: [
+      { icon:"🎤", label:"Types", val:"Simultané · Consécutif · Liaison" },
+      { icon:"🌐", label:"Langues", val:"Anglais · Français · et autres" },
+      { icon:"📍", label:"Déplacement", val:"Abidjan & déplacements sur demande" },
+      { icon:"📅", label:"Disponibilité", val:"7j/7 · Sur réservation" },
+      { icon:"📜", label:"Certification", val:"Interprètes certifiés AIIC" },
+      { icon:"⚡", label:"Délai", val:"Devis sous 24h" },
+    ],
+    plans: [
+      { nom:"Demi-journée", prix:"Sur devis", detail:"Jusqu'à 4h · 1 interprète" },
+      { nom:"Journée",      prix:"Sur devis", detail:"Journée complète · 1-2 interprètes", popular:true },
+      { nom:"Événement",    prix:"Sur devis", detail:"Multi-jours · Équipe dédiée" },
+    ],
+  };
+  const DEFAULT_SERVICE_TRAD = {
+    description: "Service de traduction professionnelle de documents juridiques, commerciaux et techniques. Traductions certifiées disponibles pour vos démarches officielles.",
+    tagline: "Documents · Contrats · Certifiée",
+    details: [
+      { icon:"📋", label:"Documents", val:"Contrats · Actes · Brochures · Sites web" },
+      { icon:"🌐", label:"Langues", val:"Anglais ↔ Français (+ autres sur demande)" },
+      { icon:"📜", label:"Certifiée", val:"Traductions certifiées disponibles" },
+      { icon:"⚡", label:"Délais", val:"Express 24h · Standard 3-5 jours" },
+      { icon:"🔒", label:"Confidentialité", val:"NDA disponible sur demande" },
+      { icon:"💬", label:"Révisions", val:"1 révision gratuite incluse" },
+    ],
+    plans: [
+      { nom:"Standard",  prix:"Sur devis", detail:"3-5 jours ouvrés · Tarif /mot" },
+      { nom:"Express",   prix:"Sur devis", detail:"24-48h · Majoration urgence", popular:true },
+      { nom:"Certifiée", prix:"Sur devis", detail:"Avec cachet officiel · Légalisation" },
+    ],
+  };
+  const readServiceInterp = () => { try { const s=localStorage.getItem("bet_service_interpretariat"); return s ? JSON.parse(s) : DEFAULT_SERVICE_INTERP; } catch { return DEFAULT_SERVICE_INTERP; } };
+  const readServiceTrad   = () => { try { const s=localStorage.getItem("bet_service_traduction");    return s ? JSON.parse(s) : DEFAULT_SERVICE_TRAD;  } catch { return DEFAULT_SERVICE_TRAD;  } };
+  const saveServiceInterp = async (data) => {
+    localStorage.setItem("bet_service_interpretariat", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_service_interpretariat", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"service_interpretariat", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase service_interpretariat:", e); }
+  };
+  const saveServiceTrad = async (data) => {
+    localStorage.setItem("bet_service_traduction", JSON.stringify(data));
+    window.dispatchEvent(new StorageEvent("storage", { key:"bet_service_traduction", newValue:JSON.stringify(data) }));
+    try { await supabase.from("plateforme_config").upsert({ key:"service_traduction", valeur:data, updated_at:new Date().toISOString() }, { onConflict:"key" }); } catch(e) { console.error("Supabase service_traduction:", e); }
+  };
+  const [serviceInterp, setServiceInterp] = useState(readServiceInterp);
+  const [serviceTrad,   setServiceTrad]   = useState(readServiceTrad);
+  useEffect(() => {
+    supabase.from("plateforme_config").select("valeur").eq("key","service_interpretariat").maybeSingle()
+      .then(({ data, error }) => { if (!error && data?.valeur) { localStorage.setItem("bet_service_interpretariat", JSON.stringify(data.valeur)); setServiceInterp(data.valeur); } });
+    supabase.from("plateforme_config").select("valeur").eq("key","service_traduction").maybeSingle()
+      .then(({ data, error }) => { if (!error && data?.valeur) { localStorage.setItem("bet_service_traduction", JSON.stringify(data.valeur)); setServiceTrad(data.valeur); } });
+  }, []); // eslint-disable-line
+  const [serviceEditModal, setServiceEditModal] = useState(null);
+
   // ── Config page Aperçu (CourseDetail) ────────────────────────────────────
   const DEFAULT_COURSE_APERCU = {
     en_ligne: {
@@ -2190,6 +2547,61 @@ export default function SuperAdminDashboard() {
       setMarqueeMessages(prev => prev.map(m => m.id === msg.id ? { ...m, actif: !m.actif } : m));
     } catch { toast.error("Erreur"); }
   };
+  const fetchFaq = async () => {
+    setFaqLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/faq`, { headers: authHeaders() });
+      const d = await r.json();
+      setFaqItems(d.items || []);
+    } catch { toast.error("Erreur chargement FAQ"); }
+    finally { setFaqLoading(false); }
+  };
+
+  const saveFaq = async (form) => {
+    setFaqSavingId(form.id || "__new");
+    try {
+      const isEdit = !!form.id;
+      const url    = isEdit ? `${API_URL}/api/faq/${form.id}` : `${API_URL}/api/faq`;
+      const method = isEdit ? "PATCH" : "POST";
+      const r = await fetch(url, {
+        method,
+        headers: authHeaders(),
+        body: JSON.stringify({
+          question:  form.question,
+          reponse:   form.reponse,
+          categorie: form.categorie || "Général",
+          ordre:     form.ordre != null ? Number(form.ordre) : undefined,
+          actif:     form.actif !== false,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || "Erreur");
+      toast.success(isEdit ? "FAQ mise à jour" : "FAQ créée");
+      setFaqForm(null);
+      fetchFaq();
+    } catch (e) { toast.error(e.message); }
+    finally { setFaqSavingId(null); }
+  };
+
+  const deleteFaq = async (id) => {
+    if (!window.confirm("Supprimer cette FAQ ?")) return;
+    try {
+      await fetch(`${API_URL}/api/faq/${id}`, { method: "DELETE", headers: authHeaders() });
+      toast.success("FAQ supprimée");
+      fetchFaq();
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const toggleFaqActif = async (item) => {
+    try {
+      await fetch(`${API_URL}/api/faq/${item.id}`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ actif: !item.actif }),
+      });
+      setFaqItems(prev => prev.map(f => f.id === item.id ? { ...f, actif: !f.actif } : f));
+    } catch { toast.error("Erreur"); }
+  };
+
   const [coachsList, setCoachsList]           = useState([]);
   const [coachsLoading, setCoachsLoading]     = useState(false);
   const [coachsEdits, setCoachsEdits]         = useState({});
@@ -2271,6 +2683,242 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => { if (platformSubTab === "coachs_photos") fetchCoachs(); }, [platformSubTab, fetchCoachs]);
   useEffect(() => { if (platformSubTab === "marquee") fetchMarquee(); }, [platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "faq") fetchFaq(); }, [activeTab, platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Carrousel ──────────────────────────────────────────────────────────────
+  const CAROUSEL_BLANK = { type:"image", url:"", titre:"", description:"", link_url:"", link_label:"", ordre:0, actif:true };
+  const [carouselSlides,     setCarouselSlides]     = useState([]);
+  const [carouselLoading,    setCarouselLoading]    = useState(false);
+  const [carouselForm,       setCarouselForm]       = useState(null);
+  const [carouselSaving,     setCarouselSaving]     = useState(false);
+  const [carouselUploading,  setCarouselUploading]  = useState(false);
+  const [carouselUploadPct,  setCarouselUploadPct]  = useState(0);
+  const [carouselDragOver,   setCarouselDragOver]   = useState(false);
+  const carouselFileRef = React.useRef(null);
+
+  const fetchCarousel = async () => {
+    setCarouselLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/carousel`, { headers: authHeaders() });
+      const d = await r.json();
+      setCarouselSlides(d.slides || []);
+    } catch { toast.error("Erreur chargement carrousel"); }
+    finally { setCarouselLoading(false); }
+  };
+
+  const saveCarousel = async () => {
+    if (!carouselForm?.url?.trim()) return toast.error("L'URL est requise");
+    setCarouselSaving(true);
+    try {
+      const isEdit = !!carouselForm.id;
+      const url    = isEdit ? `${API_URL}/api/carousel/${carouselForm.id}` : `${API_URL}/api/carousel`;
+      const method = isEdit ? "PATCH" : "POST";
+      const r = await fetch(url, {
+        method,
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(carouselForm),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error || "Erreur"); }
+      toast.success(isEdit ? "Slide mise à jour" : "Slide ajoutée");
+      setCarouselForm(null);
+      fetchCarousel();
+    } catch (e) { toast.error(e.message); }
+    finally { setCarouselSaving(false); }
+  };
+
+  const deleteCarousel = async (id) => {
+    if (!window.confirm("Supprimer cette slide ?")) return;
+    try {
+      await fetch(`${API_URL}/api/carousel/${id}`, { method: "DELETE", headers: authHeaders() });
+      toast.success("Slide supprimée");
+      fetchCarousel();
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const toggleCarouselActif = async (item) => {
+    try {
+      await fetch(`${API_URL}/api/carousel/${item.id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ actif: !item.actif }),
+      });
+      fetchCarousel();
+    } catch { toast.error("Erreur"); }
+  };
+
+  const moveCarouselSlide = async (slideId, direction) => {
+    const idx = carouselSlides.findIndex(s => s.id === slideId);
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= carouselSlides.length) return;
+    // Réordonner localement puis normaliser les valeurs d'ordre (0,1,2,...)
+    const reordered = [...carouselSlides];
+    const [moved] = reordered.splice(idx, 1);
+    reordered.splice(targetIdx, 0, moved);
+    try {
+      await Promise.all(reordered.map((s, i) =>
+        fetch(`${API_URL}/api/carousel/${s.id}`, {
+          method: "PATCH",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ ordre: i }),
+        })
+      ));
+      fetchCarousel();
+    } catch { toast.error("Erreur réorganisation"); }
+  };
+
+  const uploadCarouselFile = async (file) => {
+    if (!file) return;
+    const isVideo = file.type.startsWith("video/");
+    const isImage = file.type.startsWith("image/");
+    if (!isVideo && !isImage) return toast.error("Fichier non supporté (image ou vidéo uniquement)");
+    const maxMb = isVideo ? 200 : 10;
+    if (file.size > maxMb * 1024 * 1024) return toast.error(`Fichier trop lourd (max ${maxMb} Mo)`);
+
+    setCarouselUploading(true);
+    setCarouselUploadPct(0);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}/api/upload/${isVideo ? "video" : "image"}`);
+        const tok = localStorage.getItem("admin_token");
+        if (tok) xhr.setRequestHeader("Authorization", `Bearer ${tok}`);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setCarouselUploadPct(Math.round((e.loaded / e.total) * 100)); };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const data = JSON.parse(xhr.responseText);
+            const url  = data.file?.url || data.url || "";
+            setCarouselForm(p => ({ ...p, url, type: isVideo ? "video" : "image" }));
+            toast.success(isVideo ? "Vidéo uploadée ✓" : "Image uploadée ✓");
+            resolve();
+          } else {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.error || "Erreur upload"));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Erreur réseau"));
+        xhr.send(formData);
+      });
+    } catch (e) { toast.error(e.message); }
+    finally { setCarouselUploading(false); setCarouselUploadPct(0); }
+  };
+
+  useEffect(() => { if (activeTab === "platform" && platformSubTab === "carrousel") fetchCarousel(); }, [activeTab, platformSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Offre Média ────────────────────────────────────────────────────────────
+  const fetchOffreMedia = useCallback(async (offreType) => {
+    setOffreMediaLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/offre-media/${offreType}`, { headers: authHeaders() });
+      const d = await r.json();
+      setOffreMediaList(d.media || []);
+    } catch { toast.error("Erreur chargement médias"); }
+    finally { setOffreMediaLoading(false); }
+  }, []);
+
+  const getActiveOffreMediaType = () => {
+    const typeMap = { offres_en_ligne:"en-ligne", offres_domicile:"domicile", centres:"cabinet" };
+    return typeMap[catalogueSubTab] || offreMediaType;
+  };
+
+  const saveOffreMedia = async () => {
+    if (!offreMediaForm.url.trim()) return toast.error("URL requise");
+    const activeType = getActiveOffreMediaType();
+    setOffreMediaSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/api/offre-media`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ ...offreMediaForm, offre_type: activeType }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+      toast.success("Média ajouté");
+      setOffreMediaForm(OFFRE_MEDIA_BLANK);
+      fetchOffreMedia(activeType);
+    } catch (e) { toast.error(e.message); }
+    finally { setOffreMediaSaving(false); }
+  };
+
+  const deleteOffreMedia = async (id) => {
+    if (!window.confirm("Supprimer ce média ?")) return;
+    const activeType = getActiveOffreMediaType();
+    try {
+      await fetch(`${API_URL}/api/offre-media/${id}`, { method:"DELETE", headers: authHeaders() });
+      toast.success("Supprimé");
+      fetchOffreMedia(activeType);
+    } catch { toast.error("Erreur suppression"); }
+  };
+
+  const toggleOffreMediaActif = async (item) => {
+    const activeType = getActiveOffreMediaType();
+    try {
+      await fetch(`${API_URL}/api/offre-media/${item.id}`, {
+        method:"PATCH", headers: authHeaders(),
+        body: JSON.stringify({ actif: !item.actif }),
+      });
+      fetchOffreMedia(activeType);
+    } catch { toast.error("Erreur"); }
+  };
+
+  const moveOffreMedia = async (itemId, direction) => {
+    const list = [...offreMediaList];
+    const idx  = list.findIndex(s => s.id === itemId);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    const reordered = list.map((s, i) => ({ ...s, ordre: i }));
+    setOffreMediaList(reordered);
+    try {
+      await Promise.all(reordered.map(s =>
+        fetch(`${API_URL}/api/offre-media/${s.id}`, {
+          method:"PATCH", headers: authHeaders(),
+          body: JSON.stringify({ ordre: s.ordre }),
+        })
+      ));
+    } catch { toast.error("Erreur réordonnancement"); }
+  };
+
+  const uploadOffreMediaFile = async (file) => {
+    if (!file) return;
+    const isVideo = file.type.startsWith("video/");
+    if (isVideo && file.size > 200 * 1024 * 1024) return toast.error("Vidéo trop lourde (max 200 Mo)");
+    setOffreMediaUploading(true); setOffreMediaUploadPct(0);
+    try {
+      const endpoint = isVideo ? "/api/upload/video" : "/api/upload/image";
+      const formData = new FormData();
+      formData.append("file", file);
+      const url = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}${endpoint}`);
+        xhr.setRequestHeader("Authorization", `Bearer ${localStorage.getItem("admin_token")}`);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setOffreMediaUploadPct(Math.round(e.loaded/e.total*100)); };
+        xhr.onload = () => {
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (xhr.status >= 400) { reject(new Error(d.error || "Erreur upload")); return; }
+            resolve(d.file?.url || d.url || d.secure_url || "");
+          }
+          catch { reject(new Error("Réponse invalide")); }
+        };
+        xhr.onerror = () => reject(new Error("Erreur réseau"));
+        xhr.send(formData);
+      });
+      if (!url) throw new Error("URL non reçue du serveur");
+      setOffreMediaForm(f => ({ ...f, url, type: isVideo ? "video" : "image" }));
+      toast.success("Fichier uploadé !");
+    } catch (e) { toast.error(e.message); }
+    finally { setOffreMediaUploading(false); setOffreMediaUploadPct(0); }
+  };
+
+  useEffect(() => {
+    if (activeTab !== "platform" || platformSubTab !== "catalogue") return;
+    const typeMap = { offres_en_ligne:"en-ligne", offres_domicile:"domicile", centres:"cabinet" };
+    if (typeMap[catalogueSubTab]) fetchOffreMedia(typeMap[catalogueSubTab]);
+    else if (catalogueSubTab === "certifications") fetchOffreMedia(offreMediaType);
+  }, [activeTab, platformSubTab, catalogueSubTab, offreMediaType, fetchOffreMedia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Codes Promo ────────────────────────────────────────────────────────────
   const PROMO_BLANK = { code:"", description:"", type_reduction:"pourcentage", valeur:"", applicable_a:["tous"], date_expiration:"", usage_max:"", actif:true };
@@ -2292,8 +2940,8 @@ export default function SuperAdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (["centres","offres_en_ligne","offres_domicile","certifications"].includes(platformSubTab)) fetchCodesPromo();
-  }, [platformSubTab, fetchCodesPromo]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (platformSubTab === "catalogue") fetchCodesPromo();
+  }, [platformSubTab, catalogueSubTab, fetchCodesPromo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const savePromoCode = async () => {
     if (!promoForm.code.trim()) return toast.error("Le code est requis");
@@ -2339,7 +2987,130 @@ export default function SuperAdminDashboard() {
     } catch { toast.error("Erreur"); }
   };
 
-  // ── Panneau codes promo intégré dans chaque onglet offre ───────────────────
+  // ── Panneau médias intégré dans chaque onglet offre ────────────────────────
+  const renderOffreMediaPanel = (fixedType, accentCol = BET_COLOR, label = "") => (
+    <div style={{ marginTop:28, borderTop:"1.5px dashed #e2e8f0", paddingTop:22 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+        <span style={{ fontSize:16 }}>🎬</span>
+        <div>
+          <h4 style={{ margin:0, fontSize:13, fontWeight:800, color:"#0f172a" }}>Vidéo / image de présentation{label ? ` — ${label}` : ""}</h4>
+          <p style={{ margin:0, fontSize:11, color:"#9ca3af" }}>Affichée dans le hero de la page. YouTube, Vimeo ou fichier uploadé.</p>
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, alignItems:"start" }}>
+        {/* ── Formulaire ajout ── */}
+        <div style={{ background:"#f8fafc", borderRadius:12, border:"1px solid #e5e7eb", padding:14 }}>
+          <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:7, padding:"6px 10px", marginBottom:12, fontSize:10, color:"#1e40af" }}>
+            📐 Images : 1280×720 px · Vidéos : MP4 max 200 Mo — ou URL YouTube/Vimeo
+          </div>
+
+          {/* Zone upload */}
+          <div
+            onDragOver={e => { e.preventDefault(); setOffreMediaDragOver(true); }}
+            onDragLeave={() => setOffreMediaDragOver(false)}
+            onDrop={e => { e.preventDefault(); setOffreMediaDragOver(false); const f=e.dataTransfer.files[0]; if(f) uploadOffreMediaFile(f); }}
+            onClick={() => !offreMediaUploading && offreMediaFileRef.current?.click()}
+            style={{ border:`2px dashed ${offreMediaDragOver?"#1e3a8a":"#cbd5e1"}`, borderRadius:9, padding:"12px 10px", textAlign:"center", cursor:"pointer", background:offreMediaDragOver?"#eff6ff":"#fff", marginBottom:10, transition:"all .2s" }}
+          >
+            <input ref={offreMediaFileRef} type="file" accept="image/*,video/*" style={{ display:"none" }}
+              onChange={e => { const f=e.target.files?.[0]; if(f) uploadOffreMediaFile(f); e.target.value=""; }}
+            />
+            {offreMediaUploading ? (
+              <div>
+                <div style={{ fontSize:11, color:"#1e3a8a", marginBottom:5 }}>Upload… {offreMediaUploadPct}%</div>
+                <div style={{ height:5, background:"#e2e8f0", borderRadius:3 }}>
+                  <div style={{ height:"100%", width:`${offreMediaUploadPct}%`, background:accentCol, borderRadius:3, transition:"width .3s" }} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize:11, color:"#64748b" }}>
+                <div style={{ fontSize:18, marginBottom:3 }}>☁️</div>
+                Glissez ou <span style={{ color:accentCol, fontWeight:700, textDecoration:"underline" }}>parcourir</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign:"center", fontSize:10, color:"#94a3b8", marginBottom:8 }}>— ou URL —</div>
+          <input
+            value={offreMediaForm.url}
+            onChange={e => setOffreMediaForm(f => ({ ...f, url: e.target.value }))}
+            placeholder="https://youtube.com/... ou https://..."
+            style={{ width:"100%", padding:"8px 10px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:12, marginBottom:8, boxSizing:"border-box", outline:"none" }}
+          />
+          {offreMediaForm.url && offreMediaForm.type === "image" && (
+            <img src={offreMediaForm.url} alt="" onError={e => e.target.style.display="none"}
+              style={{ width:"100%", height:80, objectFit:"cover", borderRadius:7, marginBottom:8 }} />
+          )}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+            <select value={offreMediaForm.type} onChange={e => setOffreMediaForm(f => ({ ...f, type: e.target.value }))}
+              style={{ padding:"7px 8px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:11, outline:"none" }}>
+              <option value="video">🎬 Vidéo</option>
+              <option value="image">🖼️ Image</option>
+            </select>
+            <input value={offreMediaForm.titre} onChange={e => setOffreMediaForm(f => ({ ...f, titre: e.target.value }))}
+              placeholder="Titre (optionnel)"
+              style={{ padding:"7px 8px", border:"1.5px solid #e2e8f0", borderRadius:7, fontSize:11, boxSizing:"border-box", outline:"none" }} />
+          </div>
+          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"#374151", marginBottom:10, cursor:"pointer" }}>
+            <input type="checkbox" checked={offreMediaForm.actif} onChange={e => setOffreMediaForm(f => ({ ...f, actif: e.target.checked }))} />
+            Visible sur le site
+          </label>
+          <button onClick={saveOffreMedia} disabled={offreMediaSaving || !offreMediaForm.url.trim()} style={{
+            width:"100%", padding:"8px", background: offreMediaForm.url.trim() ? accentCol : "#e5e7eb",
+            color:"#fff", border:"none", borderRadius:7, fontWeight:800, fontSize:12, cursor: offreMediaForm.url.trim() ? "pointer" : "default",
+          }}>
+            {offreMediaSaving ? "Enregistrement…" : "💾 Ajouter"}
+          </button>
+        </div>
+
+        {/* ── Liste ── */}
+        <div>
+          {offreMediaLoading && <div style={{ textAlign:"center", padding:20, color:"#94a3b8", fontSize:12 }}>Chargement…</div>}
+          {!offreMediaLoading && offreMediaList.length === 0 && (
+            <div style={{ textAlign:"center", padding:"20px 12px", background:"#f8fafc", borderRadius:10, border:"1.5px dashed #e2e8f0" }}>
+              <div style={{ fontSize:24, marginBottom:6 }}>🎬</div>
+              <p style={{ margin:0, fontSize:11, color:"#94a3b8" }}>Aucun média configuré</p>
+            </div>
+          )}
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {offreMediaList.map((item, idx) => (
+              <div key={item.id} style={{ background:"#fff", borderRadius:10, border:`1.5px solid ${item.actif?"#e0f2fe":"#fee2e2"}`, padding:10, display:"flex", gap:8, alignItems:"flex-start" }}>
+                <div style={{ width:60, height:40, borderRadius:5, overflow:"hidden", flexShrink:0, background:"#0f172a", position:"relative" }}>
+                  {item.type === "image"
+                    ? <img src={item.url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e => e.target.style.display="none"} />
+                    : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🎬</div>
+                  }
+                  <div style={{ position:"absolute", top:1, left:1, background:item.type==="video"?"#dc2626":"#1e3a8a", color:"#fff", fontSize:7, fontWeight:800, borderRadius:2, padding:"1px 3px" }}>
+                    {item.type === "video" ? "VID" : "IMG"}
+                  </div>
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:11, color:"#0f172a", marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {item.titre || `Média #${idx + 1}`}
+                  </div>
+                  <div style={{ fontSize:9, color:"#94a3b8", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.url}</div>
+                  <div style={{ display:"flex", gap:3, marginTop:5, flexWrap:"wrap" }}>
+                    <button onClick={() => toggleOffreMediaActif(item)} style={{ padding:"2px 6px", borderRadius:999, border:"none", cursor:"pointer", fontSize:9, fontWeight:700, background:item.actif?"#d1fae5":"#fee2e2", color:item.actif?"#065f46":"#991b1b" }}>
+                      {item.actif ? "✅" : "❌"}
+                    </button>
+                    <button onClick={() => moveOffreMedia(item.id, "up")} disabled={idx===0} style={{ padding:"2px 6px", borderRadius:5, border:"1px solid #e5e7eb", background:"#f8fafc", cursor:idx===0?"default":"pointer", fontSize:10, color:idx===0?"#cbd5e1":"#374151" }}>↑</button>
+                    <button onClick={() => moveOffreMedia(item.id, "down")} disabled={idx===offreMediaList.length-1} style={{ padding:"2px 6px", borderRadius:5, border:"1px solid #e5e7eb", background:"#f8fafc", cursor:idx===offreMediaList.length-1?"default":"pointer", fontSize:10, color:idx===offreMediaList.length-1?"#cbd5e1":"#374151" }}>↓</button>
+                    <button onClick={() => deleteOffreMedia(item.id)} style={{ padding:"2px 6px", borderRadius:5, border:"none", background:"#fee2e2", color:"#dc2626", cursor:"pointer", fontSize:10, fontWeight:700 }}>🗑️</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {offreMediaList.length > 0 && (
+            <p style={{ margin:"8px 0 0", fontSize:10, color:"#059669" }}>💡 Le premier média actif apparaît dans le hero de la page.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Panneau codes promo intégré dans chaque onglet offre ────────────────────────────────────────────
   const renderPromoPanel = (offreType, accentCol = BET_COLOR) => {
     const filtered = codesPromo.filter(c => {
       const a = c.applicable_a || ["tous"];
@@ -2703,71 +3474,200 @@ export default function SuperAdminDashboard() {
 
                 {platformSubTab === "whatsapp" && (
                   <div>
-                    <div style={{ marginBottom:20 }}>
-                      <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>💬 Messages WhatsApp — Centres BET</h3>
-                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>
-                        {waLoading ? "⏳ Chargement depuis la base de données…" : "Chaque centre dispose de son propre bouton Enregistrer."}
-                      </p>
+
+                    {/* ── CONFIG CENTRALE ── */}
+                    <div style={{ background:"#fff", borderRadius:14, border:"1.5px solid #6366f1", padding:24, marginBottom:28 }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a" }}>📞 Coordonnées centrales BET</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#6b7280" }}>Ces informations s'affichent sur le bouton WhatsApp flottant, le footer et la page Contact.</p>
+                        </div>
+                        {contactConfigLoad && <span style={{ fontSize:12, color:"#9ca3af" }}>⏳ Chargement…</span>}
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>✉️ Email central</label>
+                          <input
+                            value={contactConfig.email_central||""}
+                            onChange={e=>setContactConfig(p=>({...p,email_central:e.target.value}))}
+                            placeholder="contact@bet-ci.com"
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>📱 Numéro WhatsApp (sans +)</label>
+                          <input
+                            value={contactConfig.whatsapp_number||""}
+                            onChange={e=>setContactConfig(p=>({...p,whatsapp_number:e.target.value}))}
+                            placeholder="2250700000000"
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom:16 }}>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>📍 Adresse / Localisation (affichée dans la carte Maps de la page Contact)</label>
+                        <input
+                          value={contactConfig.localisation||""}
+                          onChange={e=>setContactConfig(p=>({...p,localisation:e.target.value}))}
+                          placeholder="Angré 7ème Tranche, Immeuble Le Palace, Abidjan"
+                          style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}
+                        />
+                      </div>
+                      <div style={{ marginBottom:16 }}>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>🗺️ URL d'intégration Google Maps (iframe embed)</label>
+                        <input
+                          value={contactConfig.maps_embed_url||""}
+                          onChange={e=>setContactConfig(p=>({...p,maps_embed_url:e.target.value}))}
+                          placeholder="https://www.google.com/maps/embed?pb=..."
+                          style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}
+                        />
+                        <p style={{ margin:"4px 0 0", fontSize:11, color:"#9ca3af" }}>Depuis Google Maps → Partager → Intégrer une carte → copier le lien src de l'iframe</p>
+                      </div>
+                      <div style={{ marginBottom:16 }}>
+                        <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>💬 Message WhatsApp pré-rempli</label>
+                        <textarea
+                          value={contactConfig.whatsapp_message||""}
+                          onChange={e=>setContactConfig(p=>({...p,whatsapp_message:e.target.value}))}
+                          rows={3}
+                          placeholder="Bonjour ! Je souhaite avoir des informations sur les cours d'anglais chez BET."
+                          style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }}
+                        />
+                      </div>
+                      {contactConfig.whatsapp_number && (
+                        <div style={{ marginBottom:14, padding:"8px 12px", borderRadius:8, background:"#f0fdf4", border:"1px solid #bbf7d0", fontSize:12, color:"#166534" }}>
+                          🔗 Aperçu lien : <strong>https://wa.me/{contactConfig.whatsapp_number}</strong>
+                        </div>
+                      )}
+                      <button
+                        onClick={saveContactConfig}
+                        disabled={contactConfigSave}
+                        style={{ padding:"10px 22px", background:"#6366f1", color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:13, opacity:contactConfigSave?0.6:1 }}
+                      >
+                        {contactConfigSave ? "Sauvegarde…" : "💾 Enregistrer les coordonnées"}
+                      </button>
                     </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(340px, 1fr))", gap:16 }}>
-                      {waCenters.map((centre, cIdx) => (
-                        <div key={centre.key} style={{ background:"#fff", borderRadius:12, padding:16, border:`1.5px solid ${centre.color}33`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)", display:"flex", flexDirection:"column" }}>
-                          {/* En-tête centre */}
-                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                              <span style={{ width:10, height:10, borderRadius:"50%", background:centre.color, display:"inline-block", flexShrink:0 }} />
-                              <span style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>BET {centre.name}</span>
-                            </div>
-                            <button onClick={() => resetWACentre(cIdx)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:"#94a3b8", fontWeight:600, padding:"2px 6px" }} title="Réinitialiser ce centre">↺ reset</button>
-                          </div>
-                          {/* Assistantes */}
-                          <div style={{ flex:1 }}>
-                            {centre.assistantes.map((a, aIdx) => (
-                              <div key={aIdx} style={{ marginBottom: aIdx < centre.assistantes.length - 1 ? 14 : 0 }}>
-                                <div style={{ display:"flex", gap:8, marginBottom:6 }}>
-                                  <div style={{ flex:1 }}>
-                                    <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Prénom / Nom</label>
-                                    <input
-                                      value={a.nom}
-                                      onChange={e => updateWAField(cIdx, aIdx, "nom", e.target.value)}
-                                      style={{ width:"100%", padding:"6px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, boxSizing:"border-box" }}
-                                      placeholder="Ex : Aminata Koné"
-                                    />
-                                  </div>
-                                  <div style={{ flex:1 }}>
-                                    <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Numéro WhatsApp</label>
-                                    <input
-                                      value={a.phone}
-                                      onChange={e => updateWAField(cIdx, aIdx, "phone", e.target.value.replace(/\D/g,""))}
-                                      style={{ width:"100%", padding:"6px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, boxSizing:"border-box" }}
-                                      placeholder="2250700000000"
-                                    />
-                                  </div>
-                                </div>
-                                <label style={{ fontSize:11, fontWeight:600, color:"#64748b", display:"block", marginBottom:3 }}>Message pré-rempli</label>
-                                <textarea
-                                  value={a.message}
-                                  onChange={e => updateWAField(cIdx, aIdx, "message", e.target.value)}
-                                  rows={3}
-                                  style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:"1px solid #e2e8f0", fontSize:12, resize:"vertical", fontFamily:"inherit", boxSizing:"border-box", lineHeight:1.5 }}
-                                  placeholder="Bonjour, je souhaite…"
-                                />
-                              </div>
-                            ))}
+
+                    {/* ── RÉSEAUX SOCIAUX ── */}
+                    {(() => {
+                      const SOCIALS = [
+                        { key:"social_facebook",  label:"Facebook",    icon:"📘", bg:"#1877f2",  previewLabel:"f",  placeholder:"https://facebook.com/binnieset" },
+                        { key:"social_instagram", label:"Instagram",   icon:"📸", bg:"linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)", previewLabel:"📷", placeholder:"https://instagram.com/binnieset" },
+                        { key:"social_linkedin",  label:"LinkedIn",    icon:"💼", bg:"#0077b5",  previewLabel:"in", placeholder:"https://linkedin.com/company/binnieset" },
+                        { key:"social_tiktok",    label:"TikTok",      icon:"🎵", bg:"#010101",  previewLabel:"♪",  placeholder:"https://tiktok.com/@binnieset" },
+                        { key:"social_twitter",   label:"X (Twitter)", icon:"🐦", bg:"#000",     previewLabel:"𝕏",  placeholder:"https://x.com/binnieset" },
+                      ];
+                      const visibleCount = SOCIALS.filter(s => contactConfig[s.key] && contactConfig[`${s.key}_visible`] !== false).length;
+                      return (
+                        <div style={{ background:"#fff", borderRadius:14, border:"1.5px solid #e2e8f0", padding:24 }}>
+                          <div style={{ marginBottom:18 }}>
+                            <h3 style={{ margin:0, fontSize:15, fontWeight:800, color:"#0f172a" }}>🌐 Réseaux sociaux</h3>
+                            <p style={{ margin:"3px 0 0", fontSize:12, color:"#6b7280" }}>Configurez les liens et activez/désactivez leur affichage dans le footer.</p>
                           </div>
 
-                          {/* Bouton Enregistrer propre à ce centre */}
+                          <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
+                            {SOCIALS.map(({ key, label, icon, placeholder }) => {
+                              const visKey  = `${key}_visible`;
+                              const url     = contactConfig[key] || "";
+                              const visible = contactConfig[visKey] !== false;
+                              const hasUrl  = !!url.trim();
+                              return (
+                                <div key={key} style={{
+                                  display:"grid", gridTemplateColumns:"1fr auto",
+                                  gap:12, alignItems:"center",
+                                  padding:"12px 14px", borderRadius:10,
+                                  border:`1.5px solid ${hasUrl && visible ? "#86efac" : hasUrl ? "#fde68a" : "#e5e7eb"}`,
+                                  background: hasUrl && visible ? "#f0fdf4" : hasUrl ? "#fffbeb" : "#fafafa",
+                                  transition:"all .2s",
+                                }}>
+                                  {/* Colonne gauche : label + input */}
+                                  <div>
+                                    <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                                      <span>{icon}</span>{label}
+                                      {hasUrl && (
+                                        <a href={url} target="_blank" rel="noopener noreferrer"
+                                          style={{ marginLeft:"auto", fontSize:11, color:BET_COLOR, fontWeight:600, textDecoration:"none" }}>
+                                          Tester ↗
+                                        </a>
+                                      )}
+                                    </label>
+                                    <input
+                                      value={url}
+                                      onChange={e => setContactConfig(p => ({ ...p, [key]: e.target.value }))}
+                                      placeholder={placeholder}
+                                      style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1.5px solid #e2e8f0", fontSize:13, boxSizing:"border-box", background:"#fff" }}
+                                    />
+                                  </div>
+                                  {/* Colonne droite : toggle visibilité */}
+                                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, minWidth:60 }}>
+                                    <ToggleSwitch
+                                      on={hasUrl && visible}
+                                      onChange={v => setContactConfig(p => ({ ...p, [visKey]: v }))}
+                                      color="#22c55e"
+                                    />
+                                    <span style={{ fontSize:10, fontWeight:700, color: hasUrl && visible ? "#16a34a" : "#9ca3af", whiteSpace:"nowrap" }}>
+                                      {hasUrl && visible ? "Visible" : hasUrl ? "Masqué" : "Vide"}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Aperçu footer */}
+                          <div style={{ marginBottom:18, padding:"12px 16px", borderRadius:10, background:"#f8fafc", border:"1px solid #e2e8f0" }}>
+                            <p style={{ margin:"0 0 10px", fontSize:11, fontWeight:700, color:"#6b7280", letterSpacing:".05em" }}>APERÇU FOOTER</p>
+                            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                              {SOCIALS.map(({ key, bg, previewLabel }) => {
+                                const url     = contactConfig[key];
+                                const visible = contactConfig[`${key}_visible`] !== false;
+                                const active  = url && visible;
+                                return (
+                                  <div key={key} style={{
+                                    width:34, height:34, borderRadius:"50%",
+                                    background: active ? bg : "#e5e7eb",
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    color: active ? "#fff" : "#9ca3af",
+                                    fontSize:13, fontWeight:700,
+                                    cursor: active ? "pointer" : "default",
+                                    opacity: url && !visible ? 0.3 : active ? 1 : 0.45,
+                                    transition:"all .2s",
+                                    position:"relative",
+                                  }}
+                                    title={active ? url : url ? "Masqué" : "Non configuré"}
+                                    onClick={() => active && window.open(url, "_blank")}
+                                  >
+                                    {previewLabel}
+                                    {url && !visible && (
+                                      <span style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>🚫</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p style={{ margin:"8px 0 0", fontSize:11, color:"#9ca3af" }}>
+                              {visibleCount} / 5 réseau{visibleCount !== 1 ? "x" : ""} visible{visibleCount !== 1 ? "s" : ""} sur le site
+                            </p>
+                          </div>
+
                           <button
-                            onClick={() => saveWACentre(cIdx)}
-                            disabled={waSavingIdx === cIdx}
-                            style={{ marginTop:14, width:"100%", padding:"9px 0", background: centre.color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, opacity: waSavingIdx === cIdx ? 0.7 : 1, transition:"opacity .15s" }}
+                            onClick={saveContactConfig}
+                            disabled={contactConfigSave}
+                            style={{ padding:"10px 22px", background:"#6366f1", color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:13, opacity:contactConfigSave ? 0.6 : 1 }}
                           >
-                            {waSavingIdx === cIdx ? "⏳ Enregistrement…" : "💾 Enregistrer BET " + centre.name}
+                            {contactConfigSave ? "Sauvegarde…" : "💾 Enregistrer les réseaux sociaux"}
                           </button>
                         </div>
-                      ))}
+                      );
+                    })()}
+
+                    {/* ── CONFIG PAR CENTRE (désactivé temporairement) ── */}
+                    {/*
+                    <div style={{ marginBottom:20 }}>
+                      <h3>💬 Messages WhatsApp — Centres BET</h3>
+                      ...
+                    </div>
+                    */}
                   </div>
-                </div>
                 )}
                 {/* ── Sous-onglet : Marquee ── */}
                 {platformSubTab === "marquee" && (
@@ -2939,7 +3839,29 @@ export default function SuperAdminDashboard() {
                   </div>
                 )}
 
-                {platformSubTab === "centres" && (
+                {/* ── Sous-onglets internes : Offres & Contenus ── */}
+                {platformSubTab === "catalogue" && (
+                  <div style={{ display:"flex", gap:2, marginBottom:16, background:"#f8fafc", borderRadius:10, padding:4, border:"1px solid #e5e7eb" }}>
+                    {CATALOGUE_TABS.map(t => {
+                      const active = catalogueSubTab === t.key;
+                      return (
+                        <button key={t.key} onClick={() => setCatalogueSubTab(t.key)} style={{
+                          flex:1, padding:"8px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                          fontWeight:700, fontSize:12,
+                          background: active ? "#fff" : "transparent",
+                          color: active ? BET_COLOR : "#6b7280",
+                          boxShadow: active ? "0 1px 4px rgba(0,0,0,.08)" : "none",
+                          display:"flex", alignItems:"center", justifyContent:"center", gap:5,
+                          transition:"all .18s",
+                        }}>
+                          <span style={{ fontSize:14 }}>{t.icon}</span>{t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {platformSubTab === "catalogue" && catalogueSubTab === "centres" && (
                   <div>
                     {/* Header */}
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
@@ -3396,12 +4318,13 @@ export default function SuperAdminDashboard() {
                         </div>
                       );
                     })()}
+                  {renderOffreMediaPanel("cabinet", BET_COLOR, "Cours en cabinet")}
                   {renderPromoPanel("centres", BET_COLOR)}
                   </div>
                 )}
 
                 {/* ── Sous-onglet : Offres En ligne ── */}
-                {platformSubTab === "offres_en_ligne" && (() => {
+                {platformSubTab === "catalogue" && catalogueSubTab === "offres_en_ligne" && (() => {
                   const saveAndSet = async (data) => { setOffresEnLigne(data); await saveOffresEnLigne(data); toast.success("Offres en ligne synchronisées"); };
                   const ICONS = ["👥","👤","🎯","🎓","💻","📱","🌐","⚡","🏆","📋"];
                   return (
@@ -3514,13 +4437,14 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {renderOffreMediaPanel("en-ligne", BET_COLOR, "Cours en ligne")}
                       {renderPromoPanel("en_ligne", BET_COLOR)}
                     </div>
                   );
                 })()}
 
                 {/* ── Sous-onglet : Offres À domicile ── */}
-                {platformSubTab === "offres_domicile" && (() => {
+                {platformSubTab === "catalogue" && catalogueSubTab === "offres_domicile" && (() => {
                   const saveAndSet = async (data) => { setOffresDomicile(data); await saveOffresDomicile(data); toast.success("Offres à domicile synchronisées"); };
                   const ICONS = ["🏠","👧","👥","👤","🎯","🎓","⭐","🏆","📋","✨"];
                   return (
@@ -3640,13 +4564,14 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {renderOffreMediaPanel("domicile", "#059669", "Cours à domicile")}
                       {renderPromoPanel("domicile", "#059669")}
                     </div>
                   );
                 })()}
 
                 {/* ── Sous-onglet : Certifications ── */}
-                {platformSubTab === "certifications" && (() => {
+                {platformSubTab === "catalogue" && catalogueSubTab === "certifications" && (() => {
                   const CERT_KEYS = ["toeic","ielts","toefl"];
                   const CERT_META = {
                     toeic:{ color:"#1e3a8a", bg:"#eff6ff", route:"/certifications/toeic" },
@@ -3815,7 +4740,227 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                       )}
+                      {/* Sélecteur certif pour les médias */}
+                      <div style={{ marginTop:28, borderTop:"1.5px dashed #e2e8f0", paddingTop:20 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                          <span style={{ fontSize:16 }}>🎬</span>
+                          <div>
+                            <h4 style={{ margin:0, fontSize:13, fontWeight:800, color:"#0f172a" }}>Vidéo / image de présentation par certification</h4>
+                            <p style={{ margin:0, fontSize:11, color:"#9ca3af" }}>Choisissez la certification pour configurer son média hero.</p>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+                          {[{key:"toeic",label:"TOEIC",color:"#1e3a8a"},{key:"toefl",label:"TOEFL",color:"#059669"},{key:"ielts",label:"IELTS",color:"#dc2626"}].map(c => (
+                            <button key={c.key} onClick={() => setOffreMediaType(c.key)} style={{
+                              padding:"6px 16px", borderRadius:20, border:`2px solid ${(offreMediaType||"toeic")===c.key ? c.color : "#e5e7eb"}`,
+                              background:(offreMediaType||"toeic")===c.key ? c.color+"18" : "#f8fafc",
+                              color:(offreMediaType||"toeic")===c.key ? c.color : "#64748b",
+                              fontWeight:800, fontSize:12, cursor:"pointer", transition:"all .15s",
+                            }}>
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {renderOffreMediaPanel(offreMediaType || "toeic", ["toeic","toefl","ielts"].includes(offreMediaType) ? {toeic:"#1e3a8a",toefl:"#059669",ielts:"#dc2626"}[offreMediaType] : "#1e3a8a", (offreMediaType||"toeic").toUpperCase())}
                       {renderPromoPanel("certifications", "#1e3a8a")}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Sous-onglet : Interprétariat ── */}
+                {platformSubTab === "catalogue" && catalogueSubTab === "interpretariat" && (() => {
+                  const svc = serviceInterp;
+                  const color = "#059669";
+                  const renderServicePanel = (svcData, setSvcData, saveSvc, svcKey) => {
+                    const addDetail = () => setSvcData(s => ({ ...s, details: [...(s.details||[]), { icon:"📌", label:"", val:"" }] }));
+                    const updDetail = (i, field, val) => setSvcData(s => ({ ...s, details: s.details.map((d,idx) => idx===i ? {...d,[field]:val} : d) }));
+                    const delDetail = (i) => setSvcData(s => ({ ...s, details: s.details.filter((_,idx) => idx!==i) }));
+                    const addPlan   = () => setSvcData(s => ({ ...s, plans: [...(s.plans||[]), { nom:"", prix:"Sur devis", detail:"", popular:false }] }));
+                    const updPlan   = (i, field, val) => setSvcData(s => ({ ...s, plans: s.plans.map((p,idx) => idx===i ? {...p,[field]:val} : p) }));
+                    const delPlan   = (i) => setSvcData(s => ({ ...s, plans: s.plans.filter((_,idx) => idx!==i) }));
+                    return (
+                      <div>
+                        {/* Description & Tagline */}
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", marginBottom:14 }}>📝 Informations générales</div>
+                          <div style={{ marginBottom:12 }}>
+                            <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Tagline (sous-titre)</label>
+                            <input value={svcData.tagline||""} onChange={e => setSvcData(s=>({...s,tagline:e.target.value}))}
+                              style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Description</label>
+                            <textarea value={svcData.description||""} onChange={e => setSvcData(s=>({...s,description:e.target.value}))}
+                              rows={3} style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }} />
+                          </div>
+                        </div>
+                        {/* Details */}
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>📊 Points clés (détails)</div>
+                            <button onClick={addDetail} style={{ padding:"6px 14px", background:color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Ajouter</button>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                            {(svcData.details||[]).map((d, i) => (
+                              <div key={i} style={{ display:"grid", gridTemplateColumns:"60px 1fr 1fr auto", gap:8, alignItems:"center" }}>
+                                <input value={d.icon} onChange={e=>updDetail(i,"icon",e.target.value)} placeholder="🎤" style={{ padding:"7px 8px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:18, textAlign:"center", boxSizing:"border-box" }} />
+                                <input value={d.label} onChange={e=>updDetail(i,"label",e.target.value)} placeholder="Label" style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                <input value={d.val} onChange={e=>updDetail(i,"val",e.target.value)} placeholder="Valeur" style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                <button onClick={()=>delDetail(i)} style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Plans */}
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>💼 Formules / Tarifs</div>
+                            <button onClick={addPlan} style={{ padding:"6px 14px", background:color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Ajouter</button>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                            {(svcData.plans||[]).map((p, i) => (
+                              <div key={i} style={{ background:"#f8fafc", border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 14px" }}>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:8 }}>
+                                  <input value={p.nom} onChange={e=>updPlan(i,"nom",e.target.value)} placeholder="Nom de la formule"
+                                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                  <input value={p.prix} onChange={e=>updPlan(i,"prix",e.target.value)} placeholder="Prix"
+                                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                  <button onClick={()=>delPlan(i)} style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                                </div>
+                                <input value={p.detail} onChange={e=>updPlan(i,"detail",e.target.value)} placeholder="Détail (ex: Jusqu'à 4h · 1 interprète)"
+                                  style={{ width:"100%", padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box", marginBottom:6 }} />
+                                <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, fontWeight:600, color:"#374151", cursor:"pointer" }}>
+                                  <input type="checkbox" checked={!!p.popular} onChange={e=>updPlan(i,"popular",e.target.checked)} style={{ width:15, height:15 }} />
+                                  Populaire (badge affiché)
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Save */}
+                        <button onClick={async () => { await saveSvc(svcData); toast.success("Service mis à jour !"); }}
+                          style={{ padding:"10px 28px", background:color, color:"#fff", border:"none", borderRadius:10, cursor:"pointer", fontWeight:800, fontSize:14 }}>
+                          💾 Enregistrer les modifications
+                        </button>
+                      </div>
+                    );
+                  };
+                  return (
+                    <div>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>🌍 Interprétariat</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Contenu affiché dans "Nos offres" → Interprétariat de la navbar.</p>
+                        </div>
+                      </div>
+                      {/* Aperçu navbar */}
+                      <div style={{ background:`#f0fdf4`, border:`2px solid #059669`, borderRadius:14, padding:"14px 18px", marginBottom:20, display:"flex", gap:14, alignItems:"flex-start" }}>
+                        <div style={{ width:52, height:52, borderRadius:12, background:"#05966918", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>🌍</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Interprétariat</div>
+                          <div style={{ fontSize:12, color:"#059669", fontWeight:600, marginTop:2 }}>{svc.tagline}</div>
+                          <div style={{ fontSize:12, color:"#475569", marginTop:4, lineHeight:1.5 }}>{(svc.description||"").slice(0,100)}…</div>
+                          <div style={{ fontSize:11, color:"#9ca3af", marginTop:4 }}>{(svc.plans||[]).length} formule(s)</div>
+                        </div>
+                      </div>
+                      {renderServicePanel(serviceInterp, setServiceInterp, saveServiceInterp, "interpretariat")}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Sous-onglet : Traduction ── */}
+                {platformSubTab === "catalogue" && catalogueSubTab === "traduction" && (() => {
+                  const svc = serviceTrad;
+                  const color = "#dc2626";
+                  const renderServicePanel = (svcData, setSvcData, saveSvc, svcKey) => {
+                    const addDetail = () => setSvcData(s => ({ ...s, details: [...(s.details||[]), { icon:"📌", label:"", val:"" }] }));
+                    const updDetail = (i, field, val) => setSvcData(s => ({ ...s, details: s.details.map((d,idx) => idx===i ? {...d,[field]:val} : d) }));
+                    const delDetail = (i) => setSvcData(s => ({ ...s, details: s.details.filter((_,idx) => idx!==i) }));
+                    const addPlan   = () => setSvcData(s => ({ ...s, plans: [...(s.plans||[]), { nom:"", prix:"Sur devis", detail:"", popular:false }] }));
+                    const updPlan   = (i, field, val) => setSvcData(s => ({ ...s, plans: s.plans.map((p,idx) => idx===i ? {...p,[field]:val} : p) }));
+                    const delPlan   = (i) => setSvcData(s => ({ ...s, plans: s.plans.filter((_,idx) => idx!==i) }));
+                    return (
+                      <div>
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", marginBottom:14 }}>📝 Informations générales</div>
+                          <div style={{ marginBottom:12 }}>
+                            <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Tagline (sous-titre)</label>
+                            <input value={svcData.tagline||""} onChange={e => setSvcData(s=>({...s,tagline:e.target.value}))}
+                              style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Description</label>
+                            <textarea value={svcData.description||""} onChange={e => setSvcData(s=>({...s,description:e.target.value}))}
+                              rows={3} style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }} />
+                          </div>
+                        </div>
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>📊 Points clés (détails)</div>
+                            <button onClick={addDetail} style={{ padding:"6px 14px", background:color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Ajouter</button>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                            {(svcData.details||[]).map((d, i) => (
+                              <div key={i} style={{ display:"grid", gridTemplateColumns:"60px 1fr 1fr auto", gap:8, alignItems:"center" }}>
+                                <input value={d.icon} onChange={e=>updDetail(i,"icon",e.target.value)} placeholder="📄" style={{ padding:"7px 8px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:18, textAlign:"center", boxSizing:"border-box" }} />
+                                <input value={d.label} onChange={e=>updDetail(i,"label",e.target.value)} placeholder="Label" style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                <input value={d.val} onChange={e=>updDetail(i,"val",e.target.value)} placeholder="Valeur" style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                <button onClick={()=>delDetail(i)} style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:20, marginBottom:18 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>💼 Formules / Tarifs</div>
+                            <button onClick={addPlan} style={{ padding:"6px 14px", background:color, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>➕ Ajouter</button>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                            {(svcData.plans||[]).map((p, i) => (
+                              <div key={i} style={{ background:"#f8fafc", border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 14px" }}>
+                                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, marginBottom:8 }}>
+                                  <input value={p.nom} onChange={e=>updPlan(i,"nom",e.target.value)} placeholder="Nom de la formule"
+                                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                  <input value={p.prix} onChange={e=>updPlan(i,"prix",e.target.value)} placeholder="Prix"
+                                    style={{ padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box" }} />
+                                  <button onClick={()=>delPlan(i)} style={{ padding:"7px 10px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                                </div>
+                                <input value={p.detail} onChange={e=>updPlan(i,"detail",e.target.value)} placeholder="Détail (ex: 3-5 jours ouvrés)"
+                                  style={{ width:"100%", padding:"7px 10px", border:"1.5px solid #e5e7eb", borderRadius:7, fontSize:12, boxSizing:"border-box", marginBottom:6 }} />
+                                <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, fontWeight:600, color:"#374151", cursor:"pointer" }}>
+                                  <input type="checkbox" checked={!!p.popular} onChange={e=>updPlan(i,"popular",e.target.checked)} style={{ width:15, height:15 }} />
+                                  Populaire (badge affiché)
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <button onClick={async () => { await saveSvc(svcData); toast.success("Service mis à jour !"); }}
+                          style={{ padding:"10px 28px", background:color, color:"#fff", border:"none", borderRadius:10, cursor:"pointer", fontWeight:800, fontSize:14 }}>
+                          💾 Enregistrer les modifications
+                        </button>
+                      </div>
+                    );
+                  };
+                  return (
+                    <div>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:"#0f172a" }}>📄 Traduction</h3>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Contenu affiché dans "Nos offres" → Traduction de la navbar.</p>
+                        </div>
+                      </div>
+                      <div style={{ background:`#fef2f2`, border:`2px solid #dc2626`, borderRadius:14, padding:"14px 18px", marginBottom:20, display:"flex", gap:14, alignItems:"flex-start" }}>
+                        <div style={{ width:52, height:52, borderRadius:12, background:"#dc262618", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>📄</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Traduction</div>
+                          <div style={{ fontSize:12, color:"#dc2626", fontWeight:600, marginTop:2 }}>{svc.tagline}</div>
+                          <div style={{ fontSize:12, color:"#475569", marginTop:4, lineHeight:1.5 }}>{(svc.description||"").slice(0,100)}…</div>
+                          <div style={{ fontSize:11, color:"#9ca3af", marginTop:4 }}>{(svc.plans||[]).length} formule(s)</div>
+                        </div>
+                      </div>
+                      {renderServicePanel(serviceTrad, setServiceTrad, saveServiceTrad, "traduction")}
                     </div>
                   );
                 })()}
@@ -3922,9 +5067,31 @@ export default function SuperAdminDashboard() {
           })()}
 
           {/* ════ TÉMOIGNAGES ════ */}
-          {platformSubTab === "temoignages" && (
-            <div style={{ background:"#fff", padding:24, borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
-              {(() => {
+          {platformSubTab === "contenu" && (
+            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+
+              {/* ── Navigation interne ── */}
+              <div style={{ display:"flex", gap:4, padding:"16px 20px 0", borderBottom:"2px solid #e2e8f0", background:"#f8fafc" }}>
+                {[
+                  { key:"articles",      label:"📝 Articles Blog",    badge: blogArticles.filter(a=>!a.publie).length },
+                  { key:"temoignages",   label:"⭐ Témoignages",       badge: temosPending, danger: temosPending>0 },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setBlogInnerTab(t.key)} style={{ padding:"8px 16px", borderRadius:"8px 8px 0 0", border:"none", fontWeight:700, fontSize:12, cursor:"pointer", position:"relative",
+                    background: blogInnerTab===t.key ? "#fff" : "transparent",
+                    color: blogInnerTab===t.key ? "#0f172a" : "#6b7280",
+                    borderBottom: blogInnerTab===t.key ? "2px solid #1e3a8a" : "2px solid transparent",
+                    marginBottom: blogInnerTab===t.key ? -2 : 0,
+                  }}>
+                    {t.label}
+                    {t.badge > 0 && <span style={{ marginLeft:6, background: t.danger ? "#dc2626" : "#6366f1", color:"#fff", borderRadius:999, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{t.badge}</span>}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ padding:24 }}>
+
+              {/* ══ TÉMOIGNAGES ══ */}
+              {blogInnerTab === "temoignages" && (() => {
             const EMOJI_LIST = ["🎓","👩🏾‍⚖️","👨🏿‍💼","👩🏽‍💻","👨🏽‍🎓","🌟","💪","🏆","👑","✨"];
             const filtered   = temoFiltre === "tous" ? temos : temos.filter(t => t.statut === temoFiltre);
             const temoTotalPages = Math.max(1, Math.ceil(filtered.length / TEMO_PER_PAGE));
@@ -4024,6 +5191,49 @@ export default function SuperAdminDashboard() {
                         <input type="number" value={temoForm.ordre} min={0}
                           onChange={e => setTemoForm(f=>({...f,ordre:Number(e.target.value)}))} />
                       </div>
+
+                      {/* ── Médias photo + vidéo ── */}
+                      <div className="temo-form-grid--full" style={{ marginTop:4 }}>
+                        <label style={{ fontWeight:700, fontSize:12, color:"#374151", marginBottom:8, display:"block" }}>📎 Photo ou vidéo de témoignage</label>
+                        <input ref={temoFileRef} type="file" accept={temoFileTarget==="video" ? "video/*" : "image/*"} style={{ display:"none" }}
+                          onChange={e => { const f=e.target.files?.[0]; if(f) temoUploadMedia(f, temoFileTarget); e.target.value=""; }} />
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                          {/* Photo */}
+                          <div style={{ background:"#f8fafc", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                            <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🖼️ Photo (diplôme, résultat…)</div>
+                            {temoForm.photo_url ? (
+                              <div style={{ position:"relative" }}>
+                                <img src={temoForm.photo_url} alt="" style={{ width:"100%", height:80, objectFit:"cover", borderRadius:6, display:"block" }} />
+                                <button onClick={() => setTemoForm(f=>({...f,photo_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setTemoFileTarget("photo"); temoFileRef.current?.click(); }} disabled={!!temoUploading}
+                                style={{ width:"100%", padding:"10px 0", background:"#eff6ff", color:"#1e40af", border:"1px solid #bfdbfe", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                                {temoUploading==="photo" ? `Upload… ${temoUploadPct}%` : "☁️ Uploader une photo"}
+                              </button>
+                            )}
+                            <input value={temoForm.photo_url} onChange={e=>setTemoForm(f=>({...f,photo_url:e.target.value}))}
+                              placeholder="ou coller une URL…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                          </div>
+                          {/* Vidéo */}
+                          <div style={{ background:"#f8fafc", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                            <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🎬 Vidéo (témoignage filmé)</div>
+                            {temoForm.video_url ? (
+                              <div style={{ position:"relative" }}>
+                                <video src={temoForm.video_url} style={{ width:"100%", height:80, objectFit:"cover", borderRadius:6, display:"block" }} />
+                                <button onClick={() => setTemoForm(f=>({...f,video_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setTemoFileTarget("video"); temoFileRef.current?.click(); }} disabled={!!temoUploading}
+                                style={{ width:"100%", padding:"10px 0", background:"#f0fdf4", color:"#15803d", border:"1px solid #bbf7d0", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                                {temoUploading==="video" ? `Upload… ${temoUploadPct}%` : "☁️ Uploader une vidéo"}
+                              </button>
+                            )}
+                            <input value={temoForm.video_url} onChange={e=>setTemoForm(f=>({...f,video_url:e.target.value}))}
+                              placeholder="ou coller une URL MP4…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <div className="temo-form-footer">
                       <button className="temo-btn temo-btn--outline" onClick={() => setTemoFormOpen(false)}>Annuler</button>
@@ -4117,8 +5327,15 @@ export default function SuperAdminDashboard() {
 
                           {/* Photo diplôme */}
                           {t.photo_url && (
-                            <div style={{ marginBottom:10, borderRadius:8, overflow:"hidden", border:"1px solid #e5e7eb", maxHeight:110 }}>
-                              <img src={t.photo_url} alt="Diplôme" style={{ width:"100%", height:110, objectFit:"cover", display:"block" }} />
+                            <div style={{ marginBottom:8, borderRadius:8, overflow:"hidden", border:"1px solid #e5e7eb" }}>
+                              <img src={t.photo_url} alt="Diplôme" style={{ width:"100%", height:90, objectFit:"cover", display:"block" }} />
+                            </div>
+                          )}
+                          {/* Vidéo témoignage */}
+                          {t.video_url && (
+                            <div style={{ marginBottom:8, borderRadius:8, overflow:"hidden", border:"1px solid #e5e7eb", position:"relative" }}>
+                              <video src={t.video_url} controls style={{ width:"100%", height:110, objectFit:"cover", display:"block", background:"#000" }} />
+                              <span style={{ position:"absolute",top:6,left:6,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4 }}>🎬 Vidéo</span>
                             </div>
                           )}
 
@@ -4196,6 +5413,220 @@ export default function SuperAdminDashboard() {
               </div>
             );
               })()}
+
+              {/* ══ ARTICLES BLOG ══ */}
+              {blogInnerTab === "articles" && (
+              <div style={{ paddingTop:8 }}>
+              {/* Header */}
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:20 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>📝 Gestion des Articles Blog</h2>
+                  <p style={{ margin:"4px 0 0", fontSize:13, color:"#6b7280" }}>{blogArticles.length} article{blogArticles.length>1?"s":""} · {blogArticles.filter(a=>!a.publie).length} brouillon{blogArticles.filter(a=>!a.publie).length>1?"s":""}</p>
+                </div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <button onClick={fetchBlogArticles} style={{ padding:"8px 16px", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>🔄 Actualiser</button>
+                  <button onClick={() => { setBlogForm(BLOG_FORM_INIT); setBlogEditId(null); setBlogFormOpen(f=>!f); }}
+                    style={{ padding:"8px 18px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                    {blogFormOpen && !blogEditId ? "✕ Fermer" : "➕ Nouvel article"}
+                  </button>
+                </div>
+              </div>
+              {blogFormOpen && (
+                <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:22, marginBottom:24 }}>
+                  <h3 style={{ margin:"0 0 18px", fontSize:15, fontWeight:800, color:"#0f172a" }}>{blogEditId ? "✏️ Modifier l'article" : "➕ Créer un article"}</h3>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Titre *</label>
+                      <input value={blogForm.titre} onChange={e=>setBlogForm(f=>({...f,titre:e.target.value}))} placeholder="Titre de l'article…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Catégorie</label>
+                      <select value={blogForm.categorie} onChange={e=>setBlogForm(f=>({...f,categorie:e.target.value}))}
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}>
+                        {BLOG_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Auteur</label>
+                      <input value={blogForm.auteur} onChange={e=>setBlogForm(f=>({...f,auteur:e.target.value}))} placeholder="Admin"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Temps de lecture</label>
+                      <input value={blogForm.read_time} onChange={e=>setBlogForm(f=>({...f,read_time:e.target.value}))} placeholder="Ex: 5 min"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Extrait / Résumé</label>
+                      <textarea value={blogForm.extrait} onChange={e=>setBlogForm(f=>({...f,extrait:e.target.value}))} rows={2} placeholder="Courte description affichée sur la liste…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }} />
+                    </div>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Contenu (HTML)</label>
+                      <textarea value={blogForm.contenu} onChange={e=>setBlogForm(f=>({...f,contenu:e.target.value}))} rows={6} placeholder="Contenu HTML de l'article…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"monospace" }} />
+                    </div>
+                  </div>
+                  <input ref={blogFileRef} type="file" accept={blogFileTarget==="video" ? "video/*" : "image/*"} style={{ display:"none" }}
+                    onChange={e => { const f=e.target.files?.[0]; if(f) blogUploadMedia(f, blogFileTarget); e.target.value=""; }} />
+                  <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:10 }}>📎 Médias</label>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+                    <div style={{ background:"#fff", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🖼️ Image principale</div>
+                      {blogForm.image_url ? (
+                        <div style={{ position:"relative" }}>
+                          <img src={blogForm.image_url} alt="" style={{ width:"100%", height:80, objectFit:"cover", borderRadius:6, display:"block" }} />
+                          <button onClick={()=>setBlogForm(f=>({...f,image_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={()=>{ setBlogFileTarget("image"); blogFileRef.current?.click(); }} disabled={!!blogUploading}
+                          style={{ width:"100%", padding:"10px 0", background:"#eff6ff", color:"#1e40af", border:"1px solid #bfdbfe", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                          {blogUploading==="image" ? `Upload… ${blogUploadPct}%` : "☁️ Uploader une image"}
+                        </button>
+                      )}
+                      <input value={blogForm.image_url} onChange={e=>setBlogForm(f=>({...f,image_url:e.target.value}))}
+                        placeholder="ou coller une URL…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                    </div>
+                    <div style={{ background:"#fff", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🎬 Vidéo (YouTube, Vimeo ou MP4)</div>
+                      {blogForm.video_url ? (
+                        <div style={{ position:"relative" }}>
+                          <div style={{ width:"100%", height:80, background:"#0f172a", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            <span style={{ color:"#fff", fontSize:22 }}>▶</span>
+                          </div>
+                          <button onClick={()=>setBlogForm(f=>({...f,video_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={()=>{ setBlogFileTarget("video"); blogFileRef.current?.click(); }} disabled={!!blogUploading}
+                          style={{ width:"100%", padding:"10px 0", background:"#f0fdf4", color:"#15803d", border:"1px solid #bbf7d0", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                          {blogUploading==="video" ? `Upload… ${blogUploadPct}%` : "☁️ Uploader une vidéo"}
+                        </button>
+                      )}
+                      <input value={blogForm.video_url} onChange={e=>setBlogForm(f=>({...f,video_url:e.target.value}))}
+                        placeholder="ou coller une URL YouTube/Vimeo/MP4…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+                    <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:13, fontWeight:700, color:"#374151" }}>
+                      <input type="checkbox" checked={blogForm.publie} onChange={e=>setBlogForm(f=>({...f,publie:e.target.checked}))} style={{ width:16, height:16 }} />
+                      Publier immédiatement
+                    </label>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <button onClick={()=>{ setBlogFormOpen(false); setBlogEditId(null); setBlogForm(BLOG_FORM_INIT); }}
+                        style={{ padding:"9px 18px", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                      <button onClick={blogSave}
+                        style={{ padding:"9px 22px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                        {blogEditId ? "💾 Mettre à jour" : "✓ Créer l'article"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div style={{ marginBottom:16 }}>
+                <input value={blogSearch} onChange={e=>setBlogSearch(e.target.value)} placeholder="🔍 Rechercher un article…"
+                  style={{ width:"100%", padding:"9px 14px", borderRadius:9, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box", outline:"none" }} />
+              </div>
+              {blogLoading ? (
+                <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:14 }}>⏳ Chargement…</div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {blogArticles.filter(a => !blogSearch || a.titre?.toLowerCase().includes(blogSearch.toLowerCase()) || a.categorie?.toLowerCase().includes(blogSearch.toLowerCase()) || a.auteur?.toLowerCase().includes(blogSearch.toLowerCase())).map(article => {
+                    const isExpanded = blogExpandedArticle === article.id;
+                    const articleComments = blogComments.filter(c => c.article_id === article.id);
+                    return (
+                    <div key={article.id} style={{ background:"#f9fafb", border:"1.5px solid #e5e7eb", borderRadius:12, overflow:"hidden" }}>
+                      {/* Carte article */}
+                      <div style={{ padding:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+                        <div style={{ width:64, height:64, borderRadius:8, overflow:"hidden", flexShrink:0, background:"#e2e8f0" }}>
+                          {article.image_url ? <img src={article.image_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:3 }}>
+                            <span style={{ fontWeight:800, fontSize:14, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:320 }}>{article.titre}</span>
+                            <span style={{ padding:"2px 8px", borderRadius:999, fontSize:11, fontWeight:700, background: article.publie ? "#dcfce7" : "#fef9c3", color: article.publie ? "#166534" : "#854d0e" }}>
+                              {article.publie ? "✅ Publié" : "📝 Brouillon"}
+                            </span>
+                            {article.video_url && <span style={{ padding:"2px 8px", borderRadius:999, fontSize:11, fontWeight:700, background:"#f0fdf4", color:"#15803d" }}>🎬 Vidéo</span>}
+                          </div>
+                          <div style={{ fontSize:12, color:"#6b7280" }}>
+                            {article.categorie} · {article.auteur} · {article.read_time || "—"}
+                          </div>
+                          <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>{article.created_at ? new Date(article.created_at).toLocaleDateString("fr-FR") : ""}</div>
+                        </div>
+                        <div style={{ display:"flex", gap:8, flexShrink:0, flexWrap:"wrap" }}>
+                          <button
+                            onClick={() => {
+                              if (!isExpanded && blogComments.length === 0) fetchBlogComments();
+                              setBlogExpandedArticle(isExpanded ? null : article.id);
+                            }}
+                            style={{ padding:"6px 12px", background: isExpanded ? "#1e3a8a" : "#eff6ff", color: isExpanded ? "#fff" : "#1e40af", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12, position:"relative" }}>
+                            💬 {article.nb_commentaires || 0}
+                            {article.nb_en_attente > 0 && <span style={{ position:"absolute", top:-5, right:-5, background:"#d97706", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:9, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800 }}>{article.nb_en_attente}</span>}
+                          </button>
+                          <button onClick={()=>blogTogglePublie(article.id, article.publie)}
+                            style={{ padding:"6px 12px", background: article.publie ? "#fef9c3" : "#dcfce7", color: article.publie ? "#854d0e" : "#166534", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                            {article.publie ? "↩ Dépublier" : "✅ Publier"}
+                          </button>
+                          <button onClick={()=>{ setBlogForm({ titre:article.titre, extrait:article.extrait||"", contenu:article.contenu||"", categorie:article.categorie||"Actualités", auteur:article.auteur||"Admin", read_time:article.read_time||"", image_url:article.image_url||"", video_url:article.video_url||"", publie:article.publie }); setBlogEditId(article.id); setBlogFormOpen(true); window.scrollTo({top:0,behavior:"smooth"}); }}
+                            style={{ padding:"6px 12px", background:"#eff6ff", color:"#1e40af", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>✏️ Modifier</button>
+                          <button onClick={()=>blogDelete(article.id)}
+                            style={{ padding:"6px 12px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                        </div>
+                      </div>
+                      {/* Commentaires inline */}
+                      {isExpanded && (
+                        <div style={{ borderTop:"1.5px solid #e2e8f0", background:"#fff", padding:"16px 20px" }}>
+                          <div style={{ fontWeight:800, fontSize:13, color:"#0f172a", marginBottom:12 }}>
+                            💬 Commentaires · {articleComments.length} au total
+                            {blogCommentsLoading && <span style={{ fontWeight:400, color:"#9ca3af", marginLeft:8 }}>Chargement…</span>}
+                          </div>
+                          {articleComments.length === 0 && !blogCommentsLoading ? (
+                            <p style={{ color:"#9ca3af", fontSize:13, margin:0 }}>Aucun commentaire pour cet article.</p>
+                          ) : (
+                            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                              {articleComments.map(c => (
+                                <div key={c.id} style={{ border:"1.5px solid #e5e7eb", borderRadius:10, padding:"12px 16px", background:"#f8fafc", display:"flex", gap:12, alignItems:"flex-start" }}>
+                                  <div style={{ width:36, height:36, borderRadius:"50%", background:"linear-gradient(135deg,#1e3a8a,#0891b2)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:".85rem", flexShrink:0 }}>
+                                    {(c.nom||"?")[0].toUpperCase()}
+                                  </div>
+                                  <div style={{ flex:1, minWidth:0 }}>
+                                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
+                                      <div>
+                                        <span style={{ fontWeight:800, color:"#0f172a", fontSize:13 }}>{c.nom}</span>
+                                        {c.email && <span style={{ fontSize:11, color:"#94a3b8", marginLeft:8 }}>{c.email}</span>}
+                                      </div>
+                                      <span style={{ fontSize:11, color:"#94a3b8", flexShrink:0 }}>
+                                        {new Date(c.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                                      </span>
+                                    </div>
+                                    <p style={{ fontSize:13, color:"#334155", margin:"6px 0 0", lineHeight:1.6, wordBreak:"break-word" }}>{c.commentaire}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => deleteBlogComment(c.id)}
+                                    title="Supprimer"
+                                    style={{ padding:"5px 10px", background:"#fff1f2", color:"#dc2626", border:"1.5px solid #fecdd3", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}>
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })}
+                  {blogArticles.length === 0 && !blogLoading && (
+                    <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:14 }}>Aucun article. Créez-en un avec le bouton "➕ Nouvel article".</div>
+                  )}
+                </div>
+              )}
+              </div>
+              )}
+
+
+            </div>
             </div>
           )}
 
@@ -4608,9 +6039,183 @@ export default function SuperAdminDashboard() {
             </div>
           )}
 
-          {/* ══ COMMENTAIRES BLOG ══ */}
-          {platformSubTab === "blog_comments" && (
-            <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+          {/* [old blog block removed - now inside contenu inner tabs] */}
+          {false && (
+            <div>
+              {/* Header */}
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:20 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" }}>📝 Gestion des Articles Blog</h2>
+                  <p style={{ margin:"4px 0 0", fontSize:13, color:"#6b7280" }}>{blogArticles.length} article{blogArticles.length>1?"s":""} · {blogArticles.filter(a=>!a.publie).length} brouillon{blogArticles.filter(a=>!a.publie).length>1?"s":""}</p>
+                </div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <button onClick={fetchBlogArticles} style={{ padding:"8px 16px", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>🔄 Actualiser</button>
+                  <button onClick={() => { setBlogForm(BLOG_FORM_INIT); setBlogEditId(null); setBlogFormOpen(f=>!f); }}
+                    style={{ padding:"8px 18px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                    {blogFormOpen && !blogEditId ? "✕ Fermer" : "➕ Nouvel article"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Formulaire création / édition */}
+              {blogFormOpen && (
+                <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:22, marginBottom:24 }}>
+                  <h3 style={{ margin:"0 0 18px", fontSize:15, fontWeight:800, color:"#0f172a" }}>{blogEditId ? "✏️ Modifier l'article" : "➕ Créer un article"}</h3>
+
+                  {/* Champs principaux */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Titre *</label>
+                      <input value={blogForm.titre} onChange={e=>setBlogForm(f=>({...f,titre:e.target.value}))} placeholder="Titre de l'article…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Catégorie</label>
+                      <select value={blogForm.categorie} onChange={e=>setBlogForm(f=>({...f,categorie:e.target.value}))}
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }}>
+                        {BLOG_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Auteur</label>
+                      <input value={blogForm.auteur} onChange={e=>setBlogForm(f=>({...f,auteur:e.target.value}))} placeholder="Admin"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Temps de lecture</label>
+                      <input value={blogForm.read_time} onChange={e=>setBlogForm(f=>({...f,read_time:e.target.value}))} placeholder="Ex: 5 min"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box" }} />
+                    </div>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Extrait / Résumé</label>
+                      <textarea value={blogForm.extrait} onChange={e=>setBlogForm(f=>({...f,extrait:e.target.value}))} rows={2} placeholder="Courte description affichée sur la liste…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }} />
+                    </div>
+                    <div style={{ gridColumn:"1/-1" }}>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Contenu (HTML)</label>
+                      <textarea value={blogForm.contenu} onChange={e=>setBlogForm(f=>({...f,contenu:e.target.value}))} rows={6} placeholder="Contenu HTML de l'article…"
+                        style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:13, resize:"vertical", boxSizing:"border-box", fontFamily:"monospace" }} />
+                    </div>
+                  </div>
+
+                  {/* Médias image + vidéo */}
+                  <input ref={blogFileRef} type="file" accept={blogFileTarget==="video" ? "video/*" : "image/*"} style={{ display:"none" }}
+                    onChange={e => { const f=e.target.files?.[0]; if(f) blogUploadMedia(f, blogFileTarget); e.target.value=""; }} />
+                  <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:10 }}>📎 Médias</label>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+                    {/* Image principale */}
+                    <div style={{ background:"#fff", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🖼️ Image principale</div>
+                      {blogForm.image_url ? (
+                        <div style={{ position:"relative" }}>
+                          <img src={blogForm.image_url} alt="" style={{ width:"100%", height:80, objectFit:"cover", borderRadius:6, display:"block" }} />
+                          <button onClick={()=>setBlogForm(f=>({...f,image_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={()=>{ setBlogFileTarget("image"); blogFileRef.current?.click(); }} disabled={!!blogUploading}
+                          style={{ width:"100%", padding:"10px 0", background:"#eff6ff", color:"#1e40af", border:"1px solid #bfdbfe", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                          {blogUploading==="image" ? `Upload… ${blogUploadPct}%` : "☁️ Uploader une image"}
+                        </button>
+                      )}
+                      <input value={blogForm.image_url} onChange={e=>setBlogForm(f=>({...f,image_url:e.target.value}))}
+                        placeholder="ou coller une URL…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                    </div>
+                    {/* Vidéo */}
+                    <div style={{ background:"#fff", border:"1.5px dashed #cbd5e1", borderRadius:9, padding:12 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#374151", marginBottom:8 }}>🎬 Vidéo (YouTube, Vimeo ou MP4)</div>
+                      {blogForm.video_url ? (
+                        <div style={{ position:"relative" }}>
+                          <div style={{ width:"100%", height:80, background:"#0f172a", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            <span style={{ color:"#fff", fontSize:22 }}>▶</span>
+                          </div>
+                          <button onClick={()=>setBlogForm(f=>({...f,video_url:""}))} style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.6)",color:"#fff",border:"none",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={()=>{ setBlogFileTarget("video"); blogFileRef.current?.click(); }} disabled={!!blogUploading}
+                          style={{ width:"100%", padding:"10px 0", background:"#f0fdf4", color:"#15803d", border:"1px solid #bbf7d0", borderRadius:7, fontWeight:700, fontSize:11, cursor:"pointer" }}>
+                          {blogUploading==="video" ? `Upload… ${blogUploadPct}%` : "☁️ Uploader une vidéo"}
+                        </button>
+                      )}
+                      <input value={blogForm.video_url} onChange={e=>setBlogForm(f=>({...f,video_url:e.target.value}))}
+                        placeholder="ou coller une URL YouTube/Vimeo/MP4…" style={{ width:"100%",marginTop:6,padding:"6px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",outline:"none" }} />
+                    </div>
+                  </div>
+
+                  {/* Statut + actions */}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+                    <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:13, fontWeight:700, color:"#374151" }}>
+                      <input type="checkbox" checked={blogForm.publie} onChange={e=>setBlogForm(f=>({...f,publie:e.target.checked}))} style={{ width:16, height:16 }} />
+                      Publier immédiatement
+                    </label>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <button onClick={()=>{ setBlogFormOpen(false); setBlogEditId(null); setBlogForm(BLOG_FORM_INIT); }}
+                        style={{ padding:"9px 18px", background:"#f1f5f9", border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, color:"#374151" }}>Annuler</button>
+                      <button onClick={blogSave}
+                        style={{ padding:"9px 22px", background:"#1e3a8a", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                        {blogEditId ? "💾 Mettre à jour" : "✓ Créer l'article"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Recherche */}
+              <div style={{ marginBottom:16 }}>
+                <input value={blogSearch} onChange={e=>setBlogSearch(e.target.value)} placeholder="🔍 Rechercher un article…"
+                  style={{ width:"100%", padding:"9px 14px", borderRadius:9, border:"1.5px solid #e5e7eb", fontSize:13, boxSizing:"border-box", outline:"none" }} />
+              </div>
+
+              {/* Liste articles */}
+              {blogLoading ? (
+                <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:14 }}>⏳ Chargement…</div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {blogArticles.filter(a => !blogSearch || a.titre?.toLowerCase().includes(blogSearch.toLowerCase()) || a.categorie?.toLowerCase().includes(blogSearch.toLowerCase()) || a.auteur?.toLowerCase().includes(blogSearch.toLowerCase())).map(article => (
+                    <div key={article.id} style={{ background:"#f9fafb", border:"1.5px solid #e5e7eb", borderRadius:12, padding:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+                      {/* Miniature */}
+                      <div style={{ width:64, height:64, borderRadius:8, overflow:"hidden", flexShrink:0, background:"#e2e8f0" }}>
+                        {article.image_url ? <img src={article.image_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>}
+                      </div>
+                      {/* Info */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:3 }}>
+                          <span style={{ fontWeight:800, fontSize:14, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:320 }}>{article.titre}</span>
+                          <span style={{ padding:"2px 8px", borderRadius:999, fontSize:11, fontWeight:700, background: article.publie ? "#dcfce7" : "#fef9c3", color: article.publie ? "#166534" : "#854d0e" }}>
+                            {article.publie ? "✅ Publié" : "📝 Brouillon"}
+                          </span>
+                          {article.video_url && <span style={{ padding:"2px 8px", borderRadius:999, fontSize:11, fontWeight:700, background:"#f0fdf4", color:"#15803d" }}>🎬 Vidéo</span>}
+                        </div>
+                        <div style={{ fontSize:12, color:"#6b7280" }}>
+                          {article.categorie} · {article.auteur} · {article.read_time || "—"}
+                          {article.nb_commentaires > 0 && ` · 💬 ${article.nb_commentaires} commentaire${article.nb_commentaires>1?"s":""}`}
+                          {article.nb_en_attente > 0 && <span style={{ color:"#d97706" }}> (⏳{article.nb_en_attente})</span>}
+                        </div>
+                        <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>{article.created_at ? new Date(article.created_at).toLocaleDateString("fr-FR") : ""}</div>
+                      </div>
+                      {/* Actions */}
+                      <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                        <button onClick={()=>blogTogglePublie(article.id, article.publie)}
+                          style={{ padding:"6px 12px", background: article.publie ? "#fef9c3" : "#dcfce7", color: article.publie ? "#854d0e" : "#166534", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                          {article.publie ? "↩ Dépublier" : "✅ Publier"}
+                        </button>
+                        <button onClick={()=>{ setBlogForm({ titre:article.titre, extrait:article.extrait||"", contenu:article.contenu||"", categorie:article.categorie||"Actualités", auteur:article.auteur||"Admin", read_time:article.read_time||"", image_url:article.image_url||"", video_url:article.video_url||"", publie:article.publie }); setBlogEditId(article.id); setBlogFormOpen(true); window.scrollTo({top:0,behavior:"smooth"}); }}
+                          style={{ padding:"6px 12px", background:"#eff6ff", color:"#1e40af", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>✏️ Modifier</button>
+                        <button onClick={()=>blogDelete(article.id)}
+                          style={{ padding:"6px 12px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑</button>
+                      </div>
+                    </div>
+                  ))}
+                  {blogArticles.length === 0 && !blogLoading && (
+                    <div style={{ textAlign:"center", padding:40, color:"#9ca3af", fontSize:14 }}>Aucun article. Créez-en un avec le bouton "➕ Nouvel article".</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* [old blog_comments block removed - now inside contenu inner tabs] */}
+          {false && (
+            <div>
               {/* Header */}
               <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
@@ -4711,6 +6316,438 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
           )}
+
+          {platformSubTab === "carrousel" && (() => {
+            const isEdit = !!carouselForm?.id;
+            return (
+              <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+                {/* Header */}
+                <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>🖼️ Carrousel & Médias</h2>
+                    <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                      {carouselSlides.length} slide{carouselSlides.length !== 1 ? "s" : ""} · {carouselSlides.filter(s=>s.actif).length} visible{carouselSlides.filter(s=>s.actif).length !== 1 ? "s" : ""} sur le site
+                    </p>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={fetchCarousel} style={{ padding:"9px 16px", background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13 }}>🔄 Actualiser</button>
+                    <button onClick={() => setCarouselForm({ ...CAROUSEL_BLANK, ordre: carouselSlides.length })}
+                      style={{ padding:"9px 18px", background:"#fff", color:BET_COLOR, border:"none", borderRadius:8, fontWeight:800, cursor:"pointer", fontSize:13 }}>
+                      ➕ Ajouter une slide
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ padding:"28px" }}>
+                  {/* Formulaire add/edit */}
+                  {carouselForm && (
+                    <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"22px 24px", marginBottom:28 }}>
+                      <h3 style={{ margin:"0 0 4px", fontSize:"1rem", fontWeight:800, color:"#0f172a" }}>
+                        {isEdit ? "✏️ Modifier la slide" : "➕ Nouvelle slide"}
+                      </h3>
+
+                      {/* Fiche dimensions recommandées */}
+                      <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:8, padding:"6px 12px", fontSize:12 }}>
+                          <span style={{ fontSize:15 }}>🖼️</span>
+                          <div>
+                            <span style={{ fontWeight:700, color:"#1e40af" }}>Image recommandée</span>
+                            <span style={{ color:"#3b82f6", marginLeft:6 }}>1600 × 900 px · 16:9 · JPG/PNG/WebP · max 10 Mo</span>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, background:"#fefce8", border:"1px solid #fde68a", borderRadius:8, padding:"6px 12px", fontSize:12 }}>
+                          <span style={{ fontSize:15 }}>🎬</span>
+                          <div>
+                            <span style={{ fontWeight:700, color:"#92400e" }}>Vidéo</span>
+                            <span style={{ color:"#b45309", marginLeft:6 }}>MP4/MOV/WebM · max 200 Mo  —  ou lien YouTube/Vimeo (embed)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+                        {/* Type */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Type *</label>
+                          <select value={carouselForm.type} onChange={e=>setCarouselForm(p=>({...p,type:e.target.value,url:""}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, background:"#fff" }}>
+                            <option value="image">🖼️ Image</option>
+                            <option value="video">🎬 Vidéo</option>
+                          </select>
+                        </div>
+                        {/* Ordre */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Ordre d'affichage</label>
+                          <input type="number" min="0" value={carouselForm.ordre}
+                            onChange={e=>setCarouselForm(p=>({...p,ordre:Number(e.target.value)}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+
+                        {/* Zone upload depuis PC */}
+                        <div style={{ gridColumn:"1/-1" }}>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:8 }}>
+                            {carouselForm.type === "video" ? "📁 Uploader une vidéo depuis le PC" : "📁 Uploader une image depuis le PC"}
+                          </label>
+                          <input
+                            ref={carouselFileRef}
+                            type="file"
+                            accept={carouselForm.type === "video" ? "video/mp4,video/mov,video/avi,video/mkv,video/webm" : "image/jpeg,image/png,image/webp,image/gif"}
+                            style={{ display:"none" }}
+                            onChange={e => { if (e.target.files?.[0]) uploadCarouselFile(e.target.files[0]); e.target.value=""; }}
+                          />
+                          <div
+                            onClick={() => !carouselUploading && carouselFileRef.current?.click()}
+                            onDragOver={e => { e.preventDefault(); setCarouselDragOver(true); }}
+                            onDragLeave={() => setCarouselDragOver(false)}
+                            onDrop={e => { e.preventDefault(); setCarouselDragOver(false); if (!carouselUploading && e.dataTransfer.files?.[0]) uploadCarouselFile(e.dataTransfer.files[0]); }}
+                            style={{
+                              border:`2px dashed ${carouselDragOver ? BET_COLOR : "#d1d5db"}`,
+                              borderRadius:10, padding:"22px 16px", textAlign:"center",
+                              cursor: carouselUploading ? "not-allowed" : "pointer",
+                              background: carouselDragOver ? "#fff1f2" : "#fff",
+                              transition:"all .2s",
+                            }}>
+                            {carouselUploading ? (
+                              <div>
+                                <div style={{ fontSize:13, fontWeight:700, color:BET_COLOR, marginBottom:10 }}>⏳ Upload en cours… {carouselUploadPct}%</div>
+                                <div style={{ height:8, background:"#f1f5f9", borderRadius:4, overflow:"hidden" }}>
+                                  <div style={{ height:"100%", width:`${carouselUploadPct}%`, background:BET_COLOR, borderRadius:4, transition:"width .2s" }} />
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize:28, marginBottom:6 }}>{carouselForm.type === "video" ? "🎬" : "🖼️"}</div>
+                                <div style={{ fontSize:13, fontWeight:700, color:"#374151" }}>
+                                  Glisser-déposer ou <span style={{ color:BET_COLOR, textDecoration:"underline" }}>cliquer pour choisir</span>
+                                </div>
+                                <div style={{ fontSize:11, color:"#9ca3af", marginTop:4 }}>
+                                  {carouselForm.type === "video"
+                                    ? "MP4 · MOV · WebM · max 200 Mo"
+                                    : "JPG · PNG · WebP · 1600×900 px recommandé · max 10 Mo"}
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Séparateur OU + champ URL */}
+                          <div style={{ display:"flex", alignItems:"center", gap:10, margin:"12px 0 8px" }}>
+                            <div style={{ flex:1, height:1, background:"#e5e7eb" }} />
+                            <span style={{ fontSize:11, color:"#9ca3af", fontWeight:700, whiteSpace:"nowrap" }}>ou coller une URL</span>
+                            <div style={{ flex:1, height:1, background:"#e5e7eb" }} />
+                          </div>
+                          <input type="url"
+                            placeholder={carouselForm.type === "video" ? "https://youtube.com/embed/xxx  ou  https://...mp4" : "https://..."}
+                            value={carouselForm.url}
+                            onChange={e=>setCarouselForm(p=>({...p,url:e.target.value}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+
+                        {/* Titre */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Titre superposé</label>
+                          <input type="text" placeholder="Votre anglais, votre avenir."
+                            value={carouselForm.titre}
+                            onChange={e=>setCarouselForm(p=>({...p,titre:e.target.value}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+                        {/* Description */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Description courte</label>
+                          <input type="text" placeholder="Sous-titre ou accroche…"
+                            value={carouselForm.description}
+                            onChange={e=>setCarouselForm(p=>({...p,description:e.target.value}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+                        {/* Lien CTA */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Lien CTA (optionnel)</label>
+                          <input type="url" placeholder="https://... ou /parcours"
+                            value={carouselForm.link_url}
+                            onChange={e=>setCarouselForm(p=>({...p,link_url:e.target.value}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+                        {/* Label CTA */}
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:700, color:"#374151", display:"block", marginBottom:5 }}>Texte du bouton CTA</label>
+                          <input type="text" placeholder="Découvrir →"
+                            value={carouselForm.link_label}
+                            onChange={e=>setCarouselForm(p=>({...p,link_label:e.target.value}))}
+                            style={{ width:"100%", padding:"9px 12px", border:"1.5px solid #d1d5db", borderRadius:8, fontSize:13, boxSizing:"border-box" }} />
+                        </div>
+                        {/* Visible */}
+                        <div style={{ display:"flex", alignItems:"center", gap:10, gridColumn:"1/-1" }}>
+                          <ToggleSwitch checked={carouselForm.actif} onChange={v=>setCarouselForm(p=>({...p,actif:v}))} />
+                          <span style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Visible sur le site</span>
+                        </div>
+                      </div>
+
+                      {/* Aperçu après upload ou URL */}
+                      {carouselForm.type === "image" && carouselForm.url && (
+                        <div style={{ marginTop:14 }}>
+                          <p style={{ fontSize:11, color:"#9ca3af", margin:"0 0 6px", fontWeight:600 }}>APERÇU</p>
+                          <div style={{ position:"relative", display:"inline-block", width:"100%" }}>
+                            <img src={carouselForm.url} alt="preview"
+                              style={{ width:"100%", maxHeight:200, objectFit:"cover", borderRadius:8, border:"1px solid #e5e7eb", display:"block" }}
+                              onError={e=>{e.target.style.display="none";}} />
+                            {/* ratio indicator */}
+                            <span style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,.55)", color:"#fff", fontSize:10, fontWeight:700, borderRadius:5, padding:"2px 7px" }}>16:9 idéal</span>
+                          </div>
+                        </div>
+                      )}
+                      {carouselForm.type === "video" && carouselForm.url && (
+                        <div style={{ marginTop:14, background:"#0f172a", borderRadius:8, padding:"10px 14px", fontSize:12, color:"rgba(255,255,255,.6)", display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ fontSize:20 }}>🎬</span>
+                          <span style={{ wordBreak:"break-all", color:"#fff" }}>{carouselForm.url.length > 70 ? carouselForm.url.slice(0,70)+"…" : carouselForm.url}</span>
+                        </div>
+                      )}
+
+                      <div style={{ display:"flex", gap:10, marginTop:18 }}>
+                        <button onClick={saveCarousel} disabled={carouselSaving || carouselUploading}
+                          style={{ padding:"10px 22px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:700, fontSize:13, opacity:(carouselSaving||carouselUploading)?0.6:1 }}>
+                          {carouselSaving ? "Sauvegarde…" : isEdit ? "💾 Mettre à jour" : "✅ Ajouter la slide"}
+                        </button>
+                        <button onClick={() => setCarouselForm(null)} disabled={carouselUploading}
+                          style={{ padding:"10px 18px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:9, cursor:"pointer", fontWeight:600, fontSize:13 }}>
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Liste des slides */}
+                  {carouselLoading && <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:14 }}>⏳ Chargement…</div>}
+                  {!carouselLoading && carouselSlides.length === 0 && (
+                    <div style={{ textAlign:"center", padding:"52px 0" }}>
+                      <div style={{ fontSize:42, marginBottom:12 }}>🖼️</div>
+                      <div style={{ fontWeight:700, color:"#0f172a", marginBottom:6 }}>Aucune slide pour le moment</div>
+                      <p style={{ color:"#9ca3af", fontSize:13 }}>Ajoutez votre première slide pour animer le carrousel de la page d'accueil.</p>
+                    </div>
+                  )}
+                  {!carouselLoading && carouselSlides.length > 0 && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                      {carouselSlides.map((slide, slidePos) => (
+                        <div key={slide.id} style={{ display:"flex", gap:14, alignItems:"flex-start", padding:"14px 16px", background: slide.actif ? "#f8fafc" : "#f1f5f9", border:`1.5px solid ${slide.actif?"#e2e8f0":"#d1d5db"}`, borderRadius:10 }}>
+                          {/* Vignette */}
+                          <div style={{ width:110, height:70, borderRadius:8, overflow:"hidden", flexShrink:0, background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {slide.type === "image" ? (
+                              <img src={slide.url} alt={slide.titre || "slide"}
+                                style={{ width:"100%", height:"100%", objectFit:"cover" }}
+                                onError={e=>{e.target.style.display="none";e.target.parentNode.innerHTML='<span style="font-size:28px;opacity:.5">🖼️</span>';}} />
+                            ) : (
+                              <span style={{ fontSize:28, opacity:.7 }}>🎬</span>
+                            )}
+                          </div>
+                          {/* Infos */}
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                              <span style={{ padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, background: slide.type==="video"?"#fef3c7":"#ede9fe", color: slide.type==="video"?"#92400e":"#6d28d9" }}>
+                                {slide.type === "video" ? "🎬 Vidéo" : "🖼️ Image"}
+                              </span>
+                              <span style={{ padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:800, background:"#f1f5f9", color:"#475569" }}>#{slidePos + 1}</span>
+                              {!slide.actif && <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, background:"#f1f5f9", color:"#9ca3af", fontWeight:600 }}>Masqué</span>}
+                            </div>
+                            {slide.titre && <p style={{ margin:"0 0 3px", fontSize:13, fontWeight:700, color:"#0f172a" }}>{slide.titre}</p>}
+                            {slide.description && <p style={{ margin:"0 0 3px", fontSize:12, color:"#475569", overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{slide.description}</p>}
+                            {slide.link_url && (
+                              <p style={{ margin:0, fontSize:11, color:"#6366f1" }}>
+                                🔗 {slide.link_label || slide.link_url}
+                              </p>
+                            )}
+                            <p style={{ margin:"4px 0 0", fontSize:11, color:"#94a3b8", overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{slide.url}</p>
+                          </div>
+                          {/* Actions */}
+                          <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0, alignItems:"flex-end" }}>
+                            <ToggleSwitch checked={slide.actif} onChange={() => toggleCarouselActif(slide)} />
+                            {/* Réorganisation ↑↓ */}
+                            <div style={{ display:"flex", gap:3 }}>
+                              <button
+                                onClick={() => moveCarouselSlide(slide.id, "up")}
+                                disabled={carouselSlides.indexOf(slide) === 0}
+                                title="Monter"
+                                style={{ padding:"5px 9px", background:"#f8fafc", color:"#374151", border:"1px solid #e2e8f0", borderRadius:6, cursor:"pointer", fontSize:12, opacity: carouselSlides.indexOf(slide)===0 ? 0.35 : 1 }}>↑</button>
+                              <button
+                                onClick={() => moveCarouselSlide(slide.id, "down")}
+                                disabled={carouselSlides.indexOf(slide) === carouselSlides.length - 1}
+                                title="Descendre"
+                                style={{ padding:"5px 9px", background:"#f8fafc", color:"#374151", border:"1px solid #e2e8f0", borderRadius:6, cursor:"pointer", fontSize:12, opacity: carouselSlides.indexOf(slide)===carouselSlides.length-1 ? 0.35 : 1 }}>↓</button>
+                            </div>
+                            <div style={{ display:"flex", gap:5 }}>
+                              <button onClick={() => setCarouselForm({ ...slide })}
+                                style={{ padding:"6px 11px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>✏️</button>
+                              <button onClick={() => deleteCarousel(slide.id)}
+                                style={{ padding:"6px 11px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑️</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {carouselSlides.length > 0 && (
+                    <p style={{ textAlign:"right", fontSize:12, color:"#94a3b8", marginTop:16 }}>
+                      {carouselSlides.filter(s=>s.actif).length} slide{carouselSlides.filter(s=>s.actif).length!==1?"s":""} active{carouselSlides.filter(s=>s.actif).length!==1?"s":""} / {carouselSlides.length} total
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {platformSubTab === "faq" && (() => {
+            const faqCats = ["Tous", ...FAQ_CATEGORIES];
+            const filtered = faqItems.filter(item => {
+              const matchCat = faqCatFilter === "Tous" || item.categorie === faqCatFilter;
+              const q = faqSearch.toLowerCase();
+              const matchSearch = !q || item.question.toLowerCase().includes(q) || item.reponse.toLowerCase().includes(q) || item.categorie.toLowerCase().includes(q);
+              return matchCat && matchSearch;
+            });
+            return (
+              <div style={{ background:"#fff", borderRadius:"0 12px 12px 12px", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", overflow:"hidden" }}>
+                {/* Header */}
+                <div style={{ background: BET_GRADIENT, padding:"24px 28px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <h2 style={{ color:"#fff", margin:0, fontSize:"1.3rem", fontWeight:800 }}>❓ Gestion FAQ</h2>
+                    <p style={{ color:"rgba(255,255,255,0.7)", margin:"4px 0 0", fontSize:".85rem" }}>
+                      {faqItems.length} question{faqItems.length !== 1 ? "s" : ""} · {faqItems.filter(f => f.actif).length} visible{faqItems.filter(f => f.actif).length !== 1 ? "s" : ""} sur le site
+                    </p>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={fetchFaq} style={{ padding:"9px 16px", background:"rgba(255,255,255,0.15)", color:"#fff", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, fontWeight:700, cursor:"pointer", fontSize:13 }}>🔄 Actualiser</button>
+                    <button onClick={() => setFaqForm({ question:"", reponse:"", categorie:"Général", ordre:"", actif:true })}
+                      style={{ padding:"9px 18px", background:"#fff", color:BET_COLOR, border:"none", borderRadius:8, cursor:"pointer", fontWeight:800, fontSize:13 }}>
+                      ➕ Nouvelle FAQ
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ padding:24 }}>
+                  {/* Formulaire création / édition */}
+                  {faqForm && (
+                    <div style={{ background:"#f8fafc", border:`1.5px solid ${BET_COLOR}44`, borderRadius:14, padding:22, marginBottom:24 }}>
+                      <h4 style={{ margin:"0 0 16px", fontSize:14, fontWeight:800, color:"#0f172a" }}>
+                        {faqForm.id ? "✏️ Modifier la FAQ" : "➕ Nouvelle question"}
+                      </h4>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+                        <div style={{ gridColumn:"1 / -1" }}>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Question *</label>
+                          <input
+                            value={faqForm.question}
+                            onChange={e => setFaqForm(p => ({ ...p, question: e.target.value }))}
+                            placeholder="Quels types de cours proposez-vous ?"
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }}
+                          />
+                        </div>
+                        <div style={{ gridColumn:"1 / -1" }}>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Réponse *</label>
+                          <textarea
+                            value={faqForm.reponse}
+                            onChange={e => setFaqForm(p => ({ ...p, reponse: e.target.value }))}
+                            placeholder="Rédigez une réponse claire et complète…"
+                            rows={4}
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e2e8f0", fontSize:13, boxSizing:"border-box", resize:"vertical", fontFamily:"inherit" }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Catégorie</label>
+                          <select
+                            value={faqForm.categorie}
+                            onChange={e => setFaqForm(p => ({ ...p, categorie: e.target.value }))}
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e2e8f0", fontSize:13, boxSizing:"border-box", background:"#fff" }}
+                          >
+                            {FAQ_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:4 }}>Ordre d'affichage</label>
+                          <input
+                            type="number"
+                            value={faqForm.ordre}
+                            onChange={e => setFaqForm(p => ({ ...p, ordre: e.target.value }))}
+                            placeholder="0"
+                            style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #e2e8f0", fontSize:13, boxSizing:"border-box" }}
+                          />
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:18 }}>
+                          <ToggleSwitch on={faqForm.actif !== false} onChange={v => setFaqForm(p => ({ ...p, actif: v }))} color={BET_COLOR} />
+                          <span style={{ fontSize:13, color:"#374151" }}>Visible sur le site</span>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                        <button onClick={() => setFaqForm(null)} style={{ padding:"9px 18px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:13 }}>Annuler</button>
+                        <button
+                          onClick={() => saveFaq(faqForm)}
+                          disabled={!faqForm.question?.trim() || !faqForm.reponse?.trim() || !!faqSavingId}
+                          style={{ padding:"9px 20px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, opacity:(!faqForm.question?.trim() || !faqForm.reponse?.trim() || !!faqSavingId) ? 0.6 : 1 }}
+                        >
+                          {faqSavingId ? "⏳ Enregistrement…" : "💾 Enregistrer"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Filtres */}
+                  <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+                    <input
+                      value={faqSearch}
+                      onChange={e => setFaqSearch(e.target.value)}
+                      placeholder="🔍 Rechercher question, réponse…"
+                      style={{ flex:1, minWidth:220, padding:"8px 12px", border:"1.5px solid #e5e7eb", borderRadius:8, fontSize:13, boxSizing:"border-box" }}
+                    />
+                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                      {faqCats.map(c => (
+                        <button key={c} onClick={() => setFaqCatFilter(c)}
+                          style={{ padding:"6px 12px", borderRadius:20, border:"1.5px solid", borderColor: faqCatFilter === c ? BET_COLOR : "#e2e8f0", background: faqCatFilter === c ? BET_COLOR : "#fff", color: faqCatFilter === c ? "#fff" : "#475569", fontWeight:600, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Liste */}
+                  {faqLoading ? (
+                    <div style={{ textAlign:"center", padding:48, color:"#9ca3af" }}>⏳ Chargement…</div>
+                  ) : filtered.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:48, color:"#9ca3af", fontSize:13 }}>
+                      {faqItems.length === 0 ? "Aucune FAQ. Créez-en une ci-dessus." : "Aucun résultat pour ces filtres."}
+                    </div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                      {filtered.map(item => (
+                        <div key={item.id} style={{ background:"#fff", borderRadius:10, border:`1.5px solid ${item.actif ? "#d1fae5" : "#e5e7eb"}`, padding:"14px 18px", display:"flex", gap:14, alignItems:"flex-start", boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
+                          {/* Toggle actif */}
+                          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6, paddingTop:2, minWidth:32 }}>
+                            <ToggleSwitch on={item.actif} onChange={() => toggleFaqActif(item)} color={BET_COLOR} />
+                            <span style={{ fontSize:10, color:"#9ca3af", fontWeight:700 }}>#{item.ordre}</span>
+                          </div>
+                          {/* Contenu */}
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                              <span style={{ padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:BET_LIGHT, color:BET_COLOR }}>{item.categorie}</span>
+                              {!item.actif && <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, background:"#f1f5f9", color:"#9ca3af", fontWeight:600 }}>Masqué</span>}
+                            </div>
+                            <p style={{ margin:"0 0 6px", fontSize:13, fontWeight:700, color:"#0f172a", lineHeight:1.4 }}>❓ {item.question}</p>
+                            <p style={{ margin:0, fontSize:12, color:"#475569", lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{item.reponse}</p>
+                          </div>
+                          {/* Actions */}
+                          <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                            <button onClick={() => setFaqForm({ ...item })}
+                              style={{ padding:"6px 11px", background:BET_LIGHT, color:BET_COLOR, border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>✏️</button>
+                            <button onClick={() => deleteFaq(item.id)}
+                              style={{ padding:"6px 11px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:7, cursor:"pointer", fontWeight:700, fontSize:12 }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {filtered.length > 0 && (
+                    <p style={{ textAlign:"right", fontSize:12, color:"#94a3b8", marginTop:14 }}>
+                      {filtered.length} / {faqItems.length} question{faqItems.length > 1 ? "s" : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
               </div>
             )}
@@ -4880,11 +6917,331 @@ export default function SuperAdminDashboard() {
             )}
 
             {/* ================= ONGLET AUDIT GLOBAL ================= */}
-            {activeTab === "audit" && (
-              <div><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}><div><h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>📜 Journal d'Audit global</h2><p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Traçabilité complète de toutes les actions sur la plateforme</p></div><button onClick={()=>{const csv="Acteur,Rôle,Action,Détail,Date,IP,Statut\n"+auditLog.map(a=>[a.acteur,a.role,a.action,`"${a.detail}"`,a.date,a.ip,a.statut].join(",")).join("\n");const el=document.createElement("a");el.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(csv);el.download=`superadmin_audit_${new Date().toISOString().split("T")[0]}.csv`;el.click();toast.success("Export CSV effectué");}} style={{ padding:"9px 16px", background:"#e5e7eb", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export complet</button></div>
-                <div style={{ display:"flex", gap:8, marginBottom:16 }}>{["Tous","success","warning","danger"].map(f=>{const meta={Tous:{bg:"#f3f4f6",c:"#374151"},success:{bg:"#dcfce7",c:"#166534"},warning:{bg:"#fef3c7",c:"#92400e"},danger:{bg:"#fee2e2",c:"#991b1b"}};const m=meta[f];return <button key={f} onClick={()=>setFiltreAudit(f)} style={{ padding:"5px 14px", borderRadius:20, border:"1px solid", fontSize:12, cursor:"pointer", background:filtreAudit===f?m.bg:"#fff", color:filtreAudit===f?m.c:"#6b7280", borderColor:filtreAudit===f?m.bg:"#e5e7eb", fontWeight:filtreAudit===f?700:400 }}>{f==="Tous"?"Tous":f==="success"?"✅ Succès":f==="warning"?"⚠️ Attention":"🚨 Alertes"}</button>})}<span style={{ fontSize:12, color:"#9ca3af", alignSelf:"center", marginLeft:"auto" }}>{auditFiltres.length} entrée(s)</span></div>
-                <div style={{ overflowX:"auto" }}><table style={{ width:"100%", borderCollapse:"collapse" }}><thead><tr style={{ background:"#f9fafb" }}><th style={{ padding:"10px 12px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}></th><th>Acteur</th><th>Action</th><th>Détail</th><th>Date & Heure</th><th>IP Source</th></tr></thead><tbody>{auditFiltres.map(a=>{const meta={success:{bg:"#f0fdf4",dot:"#22c55e",c:"#166534"},warning:{bg:"#fff7ed",dot:"#f59e0b",c:"#92400e"},danger:{bg:"#fff1f2",dot:"#ef4444",c:"#991b1b"}};const m=meta[a.statut]||meta.success;const r=ROLES_DEF[a.role];return <tr key={a.id} style={{ borderTop:"1px solid #f1f5f9", background:a.statut==="danger"?"#fff8f8":a.statut==="warning"?"#fffaf0":"#fff" }}><td style={{ padding:"10px 12px" }}><div style={{ width:8, height:8, borderRadius:"50%", background:m.dot, boxShadow:`0 0 0 3px ${m.dot}30` }}/></td><td style={{ padding:"10px 12px" }}><div style={{ fontWeight:600, fontSize:13 }}>{a.acteur}</div>{r&&<RoleBadge role={a.role}/>}</td><td style={{ padding:"10px 12px" }}><span style={{ padding:"3px 9px", borderRadius:8, fontSize:11, fontWeight:700, background:m.bg, color:m.c }}>{a.action.replace(/_/g," ")}</span></td><td style={{ padding:"10px 12px", fontSize:12, color:"#374151", maxWidth:260 }}>{a.detail}</td><td style={{ padding:"10px 12px", fontSize:12, color:"#6b7280", whiteSpace:"nowrap" }}>{a.date}</td><td style={{ padding:"10px 12px" }}><code style={{ fontSize:11, padding:"2px 7px", borderRadius:5, background:"#f3f4f6", color:"#374151" }}>{a.ip}</code></td></tr>})}</tbody></table></div></div>
-            )}
+            {activeTab === "audit" && (() => {
+              const STATUT_META = {
+                success: { bg:"#dcfce7", color:"#166534", dot:"#22c55e", label:"✅ Succès" },
+                warning: { bg:"#fef9c3", color:"#854d0e", dot:"#f59e0b", label:"⚠️ Attention" },
+                danger:  { bg:"#fee2e2", color:"#991b1b", dot:"#ef4444", label:"🚨 Alerte" },
+                info:    { bg:"#e0f2fe", color:"#0369a1", dot:"#0891b2", label:"ℹ️ Info" },
+              };
+              const MODULE_ICONS = { auth:"🔐", users:"👤", admin:"🔧", paiements:"💳", boutique:"🛍️", inscriptions:"📋", leads:"📞", devis:"📄", blog:"📝", temoignages:"⭐", sondage:"📊", coachs:"🎓", centres:"📍", system:"⚙️", cinetpay:"💳", parcours:"🎯" };
+              const CENTRES_LIST = ["angre","bouake","plateaux","yopougon","koumassi","abatta","cocody"];
+              const totalPages = Math.max(1, Math.ceil(auditTotal / AUDIT_LIMIT));
+
+              const exportCSV = () => {
+                const rows = [["ID","Acteur","Email","Rôle","Action","Module","Entité","Centre","Détail","IP","Statut","Date"]];
+                auditLogs.forEach(l => rows.push([l.id,l.acteur_nom||"",l.acteur_email||"",l.acteur_role||"",l.action_type||"",l.module||"",`${l.entite_type||""}:${l.entite_id||""}`,l.centre||"",`"${(l.detail||"").replace(/"/g,'""')}"`,l.ip_address||"",l.statut||"",l.created_at||""]));
+                const csv = rows.map(r => r.join(",")).join("\n");
+                const a = document.createElement("a"); a.href="data:text/csv;charset=utf-8,﻿"+encodeURIComponent(csv); a.download=`audit_${new Date().toISOString().split("T")[0]}.csv`; a.click();
+                toast.success("Export CSV effectué");
+              };
+
+              const AuditRow = ({ log }) => {
+                const sm = STATUT_META[log.statut] || STATUT_META.info;
+                const initiales = (log.acteur_nom||"??").split(" ").map(x=>x[0]||"").join("").toUpperCase().slice(0,2);
+                return (
+                  <tr style={{ borderBottom:"1px solid #f1f5f9", background: log.statut==="danger"?"#fff8f8":log.statut==="warning"?"#fffdf0":"#fff" }}>
+                    <td style={{ padding:"10px 8px", width:16 }}>
+                      <div style={{ width:8, height:8, borderRadius:"50%", background:sm.dot, boxShadow:`0 0 0 3px ${sm.dot}22`, margin:"auto" }} />
+                    </td>
+                    <td style={{ padding:"10px 10px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <div style={{ width:30, height:30, borderRadius:"50%", background: log.statut==="danger"?"#fee2e2":log.statut==="warning"?"#fef9c3":"#e0f2fe", color: log.statut==="danger"?"#dc2626":log.statut==="warning"?"#b45309":BET_COLOR, fontWeight:800, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales}</div>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:12, color:"#0f172a" }}>{log.acteur_nom||"Système"}</div>
+                          <div style={{ fontSize:10, color:"#9ca3af" }}>{log.acteur_role||"—"}{log.acteur_email ? ` · ${log.acteur_email}` : ""}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding:"10px 10px" }}>
+                      <span style={{ padding:"3px 9px", borderRadius:6, fontSize:10, fontWeight:700, background:sm.bg, color:sm.color, whiteSpace:"nowrap" }}>
+                        {log.action_type?.replace(/_/g," ")||"—"}
+                      </span>
+                    </td>
+                    <td style={{ padding:"10px 10px" }}>
+                      <span style={{ fontSize:11, color:"#6b7280" }}>{MODULE_ICONS[log.module]||"📦"} {log.module||"—"}</span>
+                      {log.entite_type && <div style={{ fontSize:10, color:"#94a3b8" }}>{log.entite_type}{log.entite_id ? ` #${String(log.entite_id).slice(0,8)}` : ""}</div>}
+                    </td>
+                    <td style={{ padding:"10px 10px", fontSize:12, color:"#374151", maxWidth:280 }}>
+                      <span title={log.detail}>{log.detail?.length>80 ? log.detail.slice(0,80)+"…" : log.detail||"—"}</span>
+                    </td>
+                    <td style={{ padding:"10px 10px" }}>
+                      {log.centre && <span style={{ fontSize:10, background:"#f1f5f9", padding:"2px 7px", borderRadius:4, color:"#475569", fontWeight:600 }}>📍 {log.centre}</span>}
+                    </td>
+                    <td style={{ padding:"10px 10px", fontSize:10, color:"#9ca3af", whiteSpace:"nowrap" }}>
+                      {log.created_at ? new Date(log.created_at).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—"}
+                    </td>
+                    <td style={{ padding:"10px 10px" }}>
+                      <code style={{ fontSize:9, padding:"2px 6px", borderRadius:4, background:"#f3f4f6", color:"#374151" }}>{log.ip_address||"—"}</code>
+                    </td>
+                  </tr>
+                );
+              };
+
+              return (
+                <div>
+                  {/* Header */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                    <div>
+                      <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>📜 Audit global</h2>
+                      <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Traçabilité complète — chaque action, chaque profil, chaque centre</p>
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={() => { fetchAuditLogs(1); fetchAuditStats(); }} style={{ padding:"9px 12px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🔄 Actualiser</button>
+                      <button onClick={exportCSV} style={{ padding:"9px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>⬇️ Export CSV</button>
+                      <button onClick={async () => { if (!window.confirm("Supprimer les logs de +90 jours ?")) return; await fetch(`${API_URL}/api/audit/clear`,{method:"DELETE",headers:authHeaders()}); toast.success("Logs purgés"); fetchAuditLogs(1); fetchAuditStats(); }} style={{ padding:"9px 12px", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🗑️ Purger +90j</button>
+                    </div>
+                  </div>
+
+                  {/* KPIs */}
+                  {auditStats && (
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:12, marginBottom:20 }}>
+                      {[
+                        { icon:"📊", label:"Aujourd'hui",   value:auditStats.total_today,              color:"#0891b2" },
+                        { icon:"📅", label:"7 derniers j",  value:auditStats.total_7j,                 color:"#8b5cf6" },
+                        { icon:"📆", label:"30 derniers j", value:auditStats.total_30j,                color:"#059669" },
+                        { icon:"🚨", label:"Alertes (j.)",   value:auditStats.alertes_today,            color:BET_RED   },
+                        { icon:"✅", label:"Succès",         value:auditStats.par_statut?.success||0,   color:"#22c55e" },
+                        { icon:"⚠️", label:"Avertissements", value:auditStats.par_statut?.warning||0,   color:"#f59e0b" },
+                      ].map((k,i) => (
+                        <div key={i} style={{ background:"#fff", borderRadius:12, padding:"14px 16px", border:"1px solid #f1f5f9", boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+                          <div style={{ fontSize:18, marginBottom:4 }}>{k.icon}</div>
+                          <div style={{ fontWeight:900, fontSize:20, color:k.color }}>{k.value??0}</div>
+                          <div style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>{k.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Sous-vues */}
+                  <div style={{ display:"flex", gap:4, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+                    {[
+                      { key:"logs",   label:"📋 Journal complet" },
+                      { key:"stats",  label:"📊 Par module" },
+                      { key:"profil", label:"👤 Par profil" },
+                      { key:"centre", label:"📍 Par centre" },
+                    ].map(v => (
+                      <button key={v.key} onClick={() => setAuditView(v.key)} style={{ padding:"7px 14px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:12,
+                        background: auditView===v.key ? "#fff" : "transparent",
+                        color:      auditView===v.key ? BET_COLOR : "#6b7280",
+                        boxShadow:  auditView===v.key ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+                      }}>{v.label}</button>
+                    ))}
+                  </div>
+
+                  {/* VUE : JOURNAL COMPLET */}
+                  {auditView === "logs" && (
+                    <div>
+                      <div style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"14px 16px", marginBottom:16 }}>
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                          <input placeholder="🔍 Acteur, email, action, détail…" value={auditFilters.search}
+                            onChange={e => setAuditFilters(f => ({...f, search:e.target.value}))}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, minWidth:240, background:"#fff" }} />
+                          <select value={auditFilters.statut} onChange={e => setAuditFilters(f=>({...f,statut:e.target.value}))}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                            <option value="">Tous statuts</option>
+                            <option value="success">✅ Succès</option>
+                            <option value="warning">⚠️ Avertissement</option>
+                            <option value="danger">🚨 Alerte</option>
+                            <option value="info">ℹ️ Info</option>
+                          </select>
+                          <select value={auditFilters.module} onChange={e => setAuditFilters(f=>({...f,module:e.target.value}))}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                            <option value="">Tous modules</option>
+                            {Object.entries(MODULE_ICONS).map(([k,ico]) => <option key={k} value={k}>{ico} {k}</option>)}
+                          </select>
+                          <select value={auditFilters.centre} onChange={e => setAuditFilters(f=>({...f,centre:e.target.value}))}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                            <option value="">Tous centres</option>
+                            {CENTRES_LIST.map(c => <option key={c} value={c}>📍 {c}</option>)}
+                          </select>
+                          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                            <span style={{ fontSize:11, color:"#64748b" }}>Du</span>
+                            <input type="date" value={auditFilters.date_debut} onChange={e => setAuditFilters(f=>({...f,date_debut:e.target.value}))}
+                              style={{ padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, background:"#fff" }} />
+                            <span style={{ fontSize:11, color:"#64748b" }}>au</span>
+                            <input type="date" value={auditFilters.date_fin} onChange={e => setAuditFilters(f=>({...f,date_fin:e.target.value}))}
+                              style={{ padding:"7px 10px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:12, background:"#fff" }} />
+                          </div>
+                          <button onClick={() => { setAuditPage(1); fetchAuditLogs(1); }} style={{ padding:"8px 16px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:12 }}>Filtrer</button>
+                          <button onClick={() => { const empty={module:"",action_type:"",statut:"",centre:"",search:"",date_debut:"",date_fin:""}; setAuditFilters(empty); setAuditPage(1); fetchAuditLogs(1,empty); }} style={{ padding:"8px 12px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:8, cursor:"pointer", fontSize:12 }}>✕ Reset</button>
+                          <span style={{ fontSize:12, color:"#9ca3af", marginLeft:"auto" }}>{auditTotal.toLocaleString("fr-FR")} entrée{auditTotal>1?"s":""}</span>
+                        </div>
+                      </div>
+
+                      {auditLoading ? (
+                        <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>⏳ Chargement…</div>
+                      ) : auditLogs.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:60, color:"#9ca3af" }}>
+                          <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
+                          <div style={{ fontWeight:600, marginBottom:4 }}>Aucun événement trouvé</div>
+                          <div style={{ fontSize:12 }}>Ajustez vos filtres ou attendez les premières actions</div>
+                        </div>
+                      ) : (
+                        <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                            <thead>
+                              <tr style={{ background:"#f8fafc" }}>
+                                {["","Acteur","Action","Module","Détail","Centre","Date & Heure","IP"].map(h => (
+                                  <th key={h} style={{ padding:"10px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:"#64748b", borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auditLogs.map(log => <AuditRow key={log.id} log={log} />)}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {totalPages > 1 && (
+                        <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:16, flexWrap:"wrap" }}>
+                          <button onClick={() => { const p=Math.max(1,auditPage-1); setAuditPage(p); fetchAuditLogs(p); }} disabled={auditPage===1}
+                            style={{ padding:"6px 12px", borderRadius:6, border:"1px solid #e5e7eb", background:auditPage===1?"#f9fafb":"#fff", cursor:auditPage===1?"not-allowed":"pointer", fontSize:13, color:auditPage===1?"#d1d5db":"#374151" }}>‹</button>
+                          {Array.from({length:totalPages},(_,i)=>i+1).filter(n=>n===1||n===totalPages||Math.abs(n-auditPage)<=2).reduce((acc,n,i,arr)=>{if(i>0&&arr[i-1]!==n-1)acc.push("…");acc.push(n);return acc;},[]).map((n,i)=>
+                            n==="…"?<span key={`e${i}`} style={{padding:"6px 6px",fontSize:13,color:"#9ca3af"}}>…</span>
+                            :<button key={n} onClick={()=>{setAuditPage(n);fetchAuditLogs(n);}} style={{padding:"6px 12px",borderRadius:6,border:"1px solid",fontSize:13,cursor:"pointer",fontWeight:n===auditPage?700:400,background:n===auditPage?BET_COLOR:"#fff",color:n===auditPage?"#fff":"#374151",borderColor:n===auditPage?BET_COLOR:"#e5e7eb"}}>{n}</button>
+                          )}
+                          <button onClick={() => { const p=Math.min(totalPages,auditPage+1); setAuditPage(p); fetchAuditLogs(p); }} disabled={auditPage===totalPages}
+                            style={{ padding:"6px 12px", borderRadius:6, border:"1px solid #e5e7eb", background:auditPage===totalPages?"#f9fafb":"#fff", cursor:auditPage===totalPages?"not-allowed":"pointer", fontSize:13, color:auditPage===totalPages?"#d1d5db":"#374151" }}>›</button>
+                          <span style={{ alignSelf:"center", fontSize:11, color:"#9ca3af" }}>Page {auditPage}/{totalPages}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* VUE : PAR MODULE */}
+                  {auditView === "stats" && auditStats && (
+                    <div>
+                      <h3 style={{ margin:"0 0 16px", fontSize:14, fontWeight:700, color:"#0f172a" }}>📊 Activité par module</h3>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:14, marginBottom:28 }}>
+                        {(auditStats.par_module||[]).sort((a,b)=>b.count-a.count).map(m => {
+                          const maxCount = Math.max(...(auditStats.par_module||[]).map(x=>x.count),1);
+                          const pct = Math.round((m.count/maxCount)*100);
+                          return (
+                            <div key={m.module} style={{ background:"#fff", borderRadius:12, padding:"16px 18px", border:"1px solid #f1f5f9", cursor:"pointer" }}
+                              onClick={() => { setAuditFilters(f=>({...f,module:m.module})); setAuditView("logs"); setAuditPage(1); fetchAuditLogs(1,{...auditFilters,module:m.module}); }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                                <span style={{ fontSize:22 }}>{MODULE_ICONS[m.module]||"📦"}</span>
+                                <span style={{ fontWeight:900, fontSize:18, color:BET_COLOR }}>{m.count}</span>
+                              </div>
+                              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:8 }}>{m.module}</div>
+                              <div style={{ height:6, borderRadius:3, background:"#f1f5f9" }}>
+                                <div style={{ height:"100%", width:`${pct}%`, background:BET_COLOR, borderRadius:3 }} />
+                              </div>
+                              <div style={{ fontSize:10, color:"#94a3b8", marginTop:4 }}>{pct}% du max · Cliquer pour filtrer</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <h3 style={{ margin:"0 0 16px", fontSize:14, fontWeight:700, color:"#0f172a" }}>🏆 Top acteurs du jour</h3>
+                      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #f1f5f9", overflow:"hidden" }}>
+                        {(auditStats.top_acteurs||[]).length === 0
+                          ? <div style={{ padding:24, textAlign:"center", color:"#9ca3af", fontSize:13 }}>Aucune activité aujourd'hui</div>
+                          : (auditStats.top_acteurs||[]).map((a,i) => (
+                            <div key={i} style={{ display:"flex", alignItems:"center", gap:14, padding:"12px 18px", borderBottom:i<(auditStats.top_acteurs.length-1)?"1px solid #f8fafc":"none" }}>
+                              <div style={{ width:28, height:28, borderRadius:"50%", background:i===0?"#fef9c3":i===1?"#f1f5f9":"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13, flexShrink:0 }}>
+                                {i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`}
+                              </div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{a.acteur_nom||"Inconnu"}</div>
+                                <div style={{ fontSize:11, color:"#9ca3af" }}>{a.acteur_email||"—"}</div>
+                              </div>
+                              <span style={{ fontWeight:900, fontSize:16, color:BET_COLOR }}>{a.count}</span>
+                              <span style={{ fontSize:11, color:"#9ca3af" }}>actions</span>
+                            </div>
+                          ))
+                        }
+                      </div>
+                      {(auditStats.par_heure||[]).length > 0 && (
+                        <div style={{ marginTop:24 }}>
+                          <h3 style={{ margin:"0 0 16px", fontSize:14, fontWeight:700, color:"#0f172a" }}>⏱️ Activité par heure (aujourd'hui)</h3>
+                          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #f1f5f9", padding:"20px 24px" }}>
+                            <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:80 }}>
+                              {auditStats.par_heure.map((h,i) => {
+                                const maxH = Math.max(...auditStats.par_heure.map(x=>x.count),1);
+                                const pct = (h.count/maxH)*100;
+                                return (
+                                  <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                                    <div style={{ width:"100%", background:pct>0?BET_COLOR:"#f1f5f9", borderRadius:"3px 3px 0 0", height:`${Math.max(pct,4)}%`, minHeight:4 }} title={`${h.heure} : ${h.count}`} />
+                                    <span style={{ fontSize:8, color:"#94a3b8" }}>{h.heure}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* VUE : PAR PROFIL */}
+                  {auditView === "profil" && (
+                    <div>
+                      <div style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:"#374151", marginBottom:8 }}>Sélectionner un utilisateur :</div>
+                        <select onChange={e => { const u=users.find(x=>x.id===e.target.value); if(!u)return; setAuditSelectedProfile(u); fetchAuditByProfile(u.id); }}
+                          style={{ padding:"9px 14px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, background:"#fff", minWidth:300, cursor:"pointer" }}>
+                          <option value="">-- Choisir un utilisateur --</option>
+                          {users.map(u => <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.role})</option>)}
+                        </select>
+                      </div>
+                      {auditSelectedProfile && (
+                        auditProfileLogs.length === 0
+                          ? <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}><div style={{ fontSize:32, marginBottom:8 }}>📭</div>Aucun log</div>
+                          : <div>
+                              <div style={{ marginBottom:12, display:"flex", alignItems:"center", gap:10 }}>
+                                <div style={{ width:36, height:36, borderRadius:"50%", background:"#e0f2fe", color:BET_COLOR, fontWeight:800, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                                  {(auditSelectedProfile.prenom||"?")[0]}{(auditSelectedProfile.nom||"")[0]}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight:700, fontSize:14 }}>{auditSelectedProfile.prenom} {auditSelectedProfile.nom}</div>
+                                  <div style={{ fontSize:11, color:"#9ca3af" }}>{auditSelectedProfile.email} · {auditSelectedProfile.role} · {auditProfileLogs.length} actions</div>
+                                </div>
+                              </div>
+                              <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                                  <thead><tr style={{ background:"#f8fafc" }}>{["","Acteur","Action","Module","Détail","Centre","Date","IP"].map(h=><th key={h} style={{ padding:"10px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:"#64748b", borderBottom:"2px solid #e5e7eb" }}>{h}</th>)}</tr></thead>
+                                  <tbody>{auditProfileLogs.map(log=><AuditRow key={log.id} log={log}/>)}</tbody>
+                                </table>
+                              </div>
+                            </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* VUE : PAR CENTRE */}
+                  {auditView === "centre" && (
+                    <div>
+                      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:20 }}>
+                        {CENTRES_LIST.map(c => (
+                          <button key={c} onClick={() => { setAuditSelectedCentre(c); fetchAuditByCentre(c); }} style={{
+                            padding:"10px 18px", borderRadius:10, border:"2px solid", fontWeight:700, fontSize:13, cursor:"pointer", transition:"all .15s",
+                            background: auditSelectedCentre===c ? BET_COLOR : "#fff",
+                            color:      auditSelectedCentre===c ? "#fff" : "#374151",
+                            borderColor:auditSelectedCentre===c ? BET_COLOR : "#e5e7eb",
+                          }}>📍 {c.charAt(0).toUpperCase()+c.slice(1)}</button>
+                        ))}
+                      </div>
+                      {auditSelectedCentre && (
+                        auditCentreLogs.length === 0
+                          ? <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}><div style={{ fontSize:32, marginBottom:8 }}>📭</div>Aucun log pour ce centre</div>
+                          : <div>
+                              <div style={{ marginBottom:12, fontWeight:700, fontSize:14, color:"#0f172a" }}>📍 {auditSelectedCentre} — {auditCentreLogs.length} entrée{auditCentreLogs.length>1?"s":""}</div>
+                              <div style={{ overflowX:"auto", borderRadius:10, border:"1px solid #e5e7eb" }}>
+                                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                                  <thead><tr style={{ background:"#f8fafc" }}>{["","Acteur","Action","Module","Détail","Date","IP"].map(h=><th key={h} style={{ padding:"10px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:"#64748b", borderBottom:"2px solid #e5e7eb" }}>{h}</th>)}</tr></thead>
+                                  <tbody>{auditCentreLogs.map(log=><AuditRow key={log.id} log={log}/>)}</tbody>
+                                </table>
+                              </div>
+                            </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
 
             {/* ================= ONGLET LOGS SYSTÈME ================= */}
             {activeTab === "logs" && (
@@ -5252,6 +7609,26 @@ export default function SuperAdminDashboard() {
 
               return (
                 <>
+                {/* ── Sous-onglets Paiements ── */}
+                <div style={{ display:"flex", gap:4, marginBottom:20, background:"#f1f5f9", borderRadius:10, padding:4, width:"fit-content" }}>
+                  {[
+                    { key:"manuel",   label:"💳 Paiements manuels" },
+                    { key:"cinetpay", label:"🌐 CinetPay en ligne", badge: cinetpayPaiements.filter(p=>p.statut==="validé"&&!p.traitee).length },
+                  ].map(st => (
+                    <button key={st.key} onClick={() => setPaiementsSubTab(st.key)} style={{
+                      padding:"8px 16px", borderRadius:8, border:"none", cursor:"pointer", fontWeight:700, fontSize:13, position:"relative",
+                      background: paiementsSubTab===st.key ? "#fff" : "transparent",
+                      color:      paiementsSubTab===st.key ? BET_COLOR : "#6b7280",
+                      boxShadow:  paiementsSubTab===st.key ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+                    }}>
+                      {st.label}
+                      {st.badge > 0 && <span style={{ position:"absolute", top:4, right:4, background:"#dc2626", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:9, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800 }}>{st.badge}</span>}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Panel Manuel ── */}
+                {paiementsSubTab === "manuel" && (
                 <div>
                   {/* Header */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
@@ -5394,6 +7771,151 @@ export default function SuperAdminDashboard() {
                     </>
                   )}
                 </div>
+                )}
+
+                {/* ── Panel CinetPay ── */}
+                {paiementsSubTab === "cinetpay" && (() => {
+                  const STATUT_CP = {
+                    "validé":     { label:"✅ Validé",     bg:"#d1fae5", color:"#065f46" },
+                    "en_attente": { label:"⏳ En attente", bg:"#fef9c3", color:"#854d0e" },
+                    "échoué":     { label:"❌ Échoué",     bg:"#fee2e2", color:"#dc2626" },
+                    "annulé":     { label:"↩ Annulé",     bg:"#f3f4f6", color:"#6b7280" },
+                  };
+                  const filtered = cinetpayPaiements.filter(p => {
+                    const matchSearch = !cinetpaySearch ||
+                      (p.client_nom||"").toLowerCase().includes(cinetpaySearch.toLowerCase()) ||
+                      (p.client_email||"").toLowerCase().includes(cinetpaySearch.toLowerCase()) ||
+                      (p.client_telephone||"").includes(cinetpaySearch) ||
+                      (p.offre_label||"").toLowerCase().includes(cinetpaySearch.toLowerCase());
+                    const matchStatut = cinetpayStatutFiltre === "tous" || p.statut === cinetpayStatutFiltre;
+                    const matchTraitee = cinetpayTraiteeFiltre === "tous" || (cinetpayTraiteeFiltre === "non" ? !p.traitee : p.traitee);
+                    return matchSearch && matchStatut && matchTraitee;
+                  });
+                  const nouveaux = cinetpayPaiements.filter(p=>p.statut==="validé"&&!p.traitee).length;
+
+                  return (
+                    <div>
+                      {/* Header */}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                        <div>
+                          <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#0f172a" }}>🌐 Paiements CinetPay — En ligne</h2>
+                          <p style={{ margin:"3px 0 0", fontSize:12, color:"#9ca3af" }}>Transactions initiées via le formulaire en ligne</p>
+                        </div>
+                        <button onClick={fetchCinetpayPaiements} style={{ padding:"9px 14px", background:"#f1f5f9", color:"#374151", border:"none", borderRadius:6, cursor:"pointer", fontWeight:600, fontSize:12 }}>🔄 Actualiser</button>
+                      </div>
+
+                      {/* KPIs */}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
+                        <StatCard icon="💰" label="Total encaissé" value={formatMoney(cinetpayPaiements.filter(p=>p.statut==="validé").reduce((s,p)=>s+(p.montant||0),0))} color="#22c55e" sub="Paiements validés" />
+                        <StatCard icon="✅" label="Validés" value={cinetpayPaiements.filter(p=>p.statut==="validé").length} color="#22c55e" sub="Confirmés par CinetPay" />
+                        <StatCard icon="⏳" label="En attente" value={cinetpayPaiements.filter(p=>p.statut==="en_attente").length} color="#f59e0b" sub="À confirmer" />
+                        <StatCard icon="🔔" label="Non traités" value={nouveaux} color={nouveaux>0?BET_RED:"#22c55e"} sub="Inscription à finaliser" />
+                      </div>
+
+                      {/* Filtres */}
+                      <div style={{ background:"#f8fafc", border:"1px solid #e5e7eb", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                          <input placeholder="🔍 Nom, email, téléphone, offre…" value={cinetpaySearch}
+                            onChange={e => setCinetpaySearch(e.target.value)}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, minWidth:260, background:"#fff" }} />
+                          <select value={cinetpayStatutFiltre} onChange={e => setCinetpayStatutFiltre(e.target.value)}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                            <option value="tous">Tous statuts</option>
+                            <option value="validé">✅ Validés</option>
+                            <option value="en_attente">⏳ En attente</option>
+                            <option value="échoué">❌ Échoués</option>
+                            <option value="annulé">↩ Annulés</option>
+                          </select>
+                          <select value={cinetpayTraiteeFiltre} onChange={e => setCinetpayTraiteeFiltre(e.target.value)}
+                            style={{ padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, cursor:"pointer", background:"#fff" }}>
+                            <option value="tous">Tous</option>
+                            <option value="non">⚠️ Non traités</option>
+                            <option value="oui">✅ Traités</option>
+                          </select>
+                          <span style={{ fontSize:12, color:"#9ca3af", marginLeft:"auto" }}>{filtered.length} résultat{filtered.length!==1?"s":""}</span>
+                        </div>
+                      </div>
+
+                      {/* Table */}
+                      {cinetpayLoading ? (
+                        <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>Chargement…</div>
+                      ) : filtered.length === 0 ? (
+                        <div style={{ textAlign:"center", padding:40, color:"#9ca3af" }}>Aucun paiement trouvé</div>
+                      ) : (
+                        <div style={{ overflowX:"auto" }}>
+                          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                            <thead>
+                              <tr style={{ background:"#f8fafc" }}>
+                                {["Client","Email / Tél","Offre","Montant","Statut","Traité","Date","Actions"].map(h => (
+                                  <th key={h} style={{ padding:"10px 12px", textAlign:"left", fontWeight:700, fontSize:12, color:"#64748b", borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filtered.map((p, idx) => {
+                                const st = STATUT_CP[p.statut] || { label:p.statut||"—", bg:"#f3f4f6", color:"#374151" };
+                                const initiales = ((p.client_prenom||"").charAt(0)+(p.client_nom||"").charAt(0)).toUpperCase();
+                                return (
+                                  <tr key={p.id} style={{ background: idx%2===0?"#fff":"#f8fafc", borderBottom:"1px solid #f1f5f9" }}>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                        <div style={{ width:32, height:32, borderRadius:"50%", background:"#e0e7ff", color:"#4f46e5", fontWeight:800, fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{initiales||"?"}</div>
+                                        <div>
+                                          <div style={{ fontWeight:700, color:"#0f172a" }}>{p.client_prenom} {p.client_nom}</div>
+                                          <div style={{ fontSize:11, color:"#9ca3af" }}>{p.client_ville||"—"}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      <div style={{ fontSize:12, color:"#374151" }}>{p.client_email||"—"}</div>
+                                      <div style={{ fontSize:11, color:"#9ca3af" }}>{p.client_telephone||"—"}</div>
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      <div style={{ fontWeight:600, color:"#0f172a" }}>{p.offre_label||"—"}</div>
+                                      {p.offre_formule && <div style={{ fontSize:11, color:"#9ca3af" }}>{p.offre_formule}</div>}
+                                      {p.offre_type && <div style={{ fontSize:10, color:"#6b7280", background:"#f1f5f9", display:"inline-block", padding:"1px 6px", borderRadius:4, marginTop:2 }}>{p.offre_type}</div>}
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      <div style={{ fontWeight:800, fontSize:14, color:"#15803d" }}>{Number(p.montant||0).toLocaleString("fr-FR")} FCFA</div>
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      <span style={{ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:st.bg, color:st.color, whiteSpace:"nowrap" }}>{st.label}</span>
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      {p.traitee ? (
+                                        <span style={{ fontSize:11, color:"#16a34a", fontWeight:600 }}>✅ Traité</span>
+                                      ) : p.statut === "validé" ? (
+                                        <span style={{ fontSize:11, color:"#dc2626", fontWeight:700 }}>⚠️ À traiter</span>
+                                      ) : (
+                                        <span style={{ fontSize:11, color:"#9ca3af" }}>—</span>
+                                      )}
+                                    </td>
+                                    <td style={{ padding:"12px 12px", whiteSpace:"nowrap", fontSize:12, color:"#64748b" }}>
+                                      {p.created_at ? new Date(p.created_at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}) : "—"}
+                                    </td>
+                                    <td style={{ padding:"12px 12px" }}>
+                                      {p.statut === "validé" && !p.traitee && (
+                                        <button onClick={() => marquerTraite(p.id)}
+                                          style={{ padding:"6px 12px", background:BET_COLOR, color:"#fff", border:"none", borderRadius:6, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                                          ✅ Marquer traité
+                                        </button>
+                                      )}
+                                      {p.traitee && (
+                                        <span style={{ fontSize:11, color:"#9ca3af" }}>
+                                          {p.date_traitement ? new Date(p.date_traitement).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}) : "Traité"}
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── Modal détail paiement ── */}
                 {paiementModal && (() => {

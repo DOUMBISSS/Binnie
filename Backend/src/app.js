@@ -31,6 +31,12 @@ import avisRouter         from "./routes/avis.js";
 import groupesRouter      from "./routes/groupes.js";
 import contratsPrivesRouter from "./routes/contratsPrives.js";
 import plaintesRouter       from "./routes/plaintes.js";
+import configContactRouter  from "./routes/configContact.js";
+import faqRouter             from "./routes/faq.js";
+import carouselRouter        from "./routes/carousel.js";
+import offreMediaRouter      from "./routes/offreMedia.js";
+import cinetpayRouter        from "./routes/cinetpay.js";
+import auditRouter           from "./routes/audit.js";
 
 const app = express();
 
@@ -82,5 +88,11 @@ app.use("/api/avis",         avisRouter);
 app.use("/api/groupes",         groupesRouter);
 app.use("/api/contrats-prives", contratsPrivesRouter);
 app.use("/api/plaintes",        plaintesRouter);
+app.use("/api/config-contact",  configContactRouter);
+app.use("/api/faq",             faqRouter);
+app.use("/api/carousel",        carouselRouter);
+app.use("/api/offre-media",     offreMediaRouter);
+app.use("/api/cinetpay",        cinetpayRouter);
+app.use("/api/audit",           auditRouter);
 
 export default app;

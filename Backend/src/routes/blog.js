@@ -32,7 +32,7 @@ router.get("/", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("articles_blog")
-      .select("id, titre, extrait, categorie, image_url, auteur, read_time, created_at")
+      .select("id, titre, extrait, categorie, image_url, video_url, auteur, read_time, created_at")
       .eq("publie", true)
       .order("created_at", { ascending: false });
 
@@ -128,13 +128,13 @@ router.get("/admin/:id", authenticateAdmin, async (req, res) => {
 // ── Créer un article ─────────────────────────────────────
 router.post("/", authenticateAdmin, async (req, res) => {
   try {
-    const { titre, extrait, contenu, categorie, image_url, images, auteur, read_time, publie } = req.body;
+    const { titre, extrait, contenu, categorie, image_url, images, video_url, auteur, read_time, publie } = req.body;
     if (!titre) return res.status(400).json({ error: "Titre requis" });
     const cleanImages = (images || []).filter(u => u && u.trim());
 
     const { data, error } = await supabase
       .from("articles_blog")
-      .insert({ titre, extrait: extrait || null, contenu: contenu || null, categorie: categorie || "Actualités", image_url: image_url || null, images: cleanImages, auteur: auteur || "Admin", read_time: read_time || null, publie: publie ?? false })
+      .insert({ titre, extrait: extrait || null, contenu: contenu || null, categorie: categorie || "Actualités", image_url: image_url || null, images: cleanImages, video_url: video_url || null, auteur: auteur || "Admin", read_time: read_time || null, publie: publie ?? false })
       .select()
       .single();
 
@@ -148,13 +148,13 @@ router.post("/", authenticateAdmin, async (req, res) => {
 // ── Modifier un article ───────────────────────────────────
 router.put("/:id", authenticateAdmin, async (req, res) => {
   try {
-    const { titre, extrait, contenu, categorie, image_url, images, auteur, read_time, publie } = req.body;
+    const { titre, extrait, contenu, categorie, image_url, images, video_url, auteur, read_time, publie } = req.body;
     if (!titre) return res.status(400).json({ error: "Titre requis" });
     const cleanImages = (images || []).filter(u => u && u.trim());
 
     const { data, error } = await supabase
       .from("articles_blog")
-      .update({ titre, extrait: extrait || null, contenu: contenu || null, categorie: categorie || "Actualités", image_url: image_url || null, images: cleanImages, auteur: auteur || "Admin", read_time: read_time || null, publie: publie ?? false })
+      .update({ titre, extrait: extrait || null, contenu: contenu || null, categorie: categorie || "Actualités", image_url: image_url || null, images: cleanImages, video_url: video_url || null, auteur: auteur || "Admin", read_time: read_time || null, publie: publie ?? false })
       .eq("id", req.params.id)
       .select()
       .single();

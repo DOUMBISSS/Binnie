@@ -15,6 +15,7 @@ if (!document.querySelector("#pe-kf")) {
     @keyframes peFI { from{opacity:0} to{opacity:1} }
     @keyframes peSI { from{opacity:0;transform:scale(.97)} to{opacity:1;transform:scale(1)} }
     @keyframes peSpin{ to{transform:rotate(360deg)} }
+    @keyframes peTicker { from{transform:translateX(0)} to{transform:translateX(-50%)} }
     .pe-offer-card:hover { border-color:#1e3a8a !important; transform:translateY(-4px) !important; box-shadow:0 14px 36px rgba(0,0,0,.1) !important; }
     .pe-input:focus { border-color:#1e3a8a !important; box-shadow:0 0 0 3px rgba(30,58,138,.1) !important; outline:none; }
     .pe-plan:hover { transform:translateY(-3px) !important; box-shadow:0 12px 32px rgba(0,0,0,.1) !important; }
@@ -84,7 +85,17 @@ const BENEFITS = [
   { ico:"📜", title:"Certification incluse",        desc:"En fin de formation, chaque collaborateur reçoit un certificat BET officiel." },
 ];
 
-const CLIENTS = ["NSIA Assurances","Orange CI","Bolloré Africa","MTN CI","BICICI","SGBCI","Air Côte d'Ivoire","SODECI"];
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5001";
+
+const PARTNERS_FALLBACK = [
+  { nom:"dot.",                    logo_url:"/images/partners/dot.png" },
+  { nom:"Digital Opportunity Trust", logo_url:"/images/partners/dot_trust.png" },
+  { nom:"Business Scouts",         logo_url:"/images/partners/business_scouts.png" },
+  { nom:"GIZ",                     logo_url:"/images/partners/giz.png" },
+  { nom:"ENSEA",                   logo_url:"/images/partners/ensea.png" },
+  { nom:"Allianz",                 logo_url:"/images/partners/allianz.png" },
+  { nom:"GIZ Full",                logo_url:"/images/partners/giz_full.png" },
+];
 
 const SECTORS = ["Finance & Banque","Télécommunications","Pétrole & Gaz","Distribution & Commerce","Industrie & BTP","Santé & Pharmacie","Technologie & IT","Hôtellerie & Tourisme","ONG & Organisations Int.","Autre"];
 const SIZES   = ["1–10","11–50","51–100","101–250","250+"];
@@ -92,6 +103,15 @@ const BUDGETS = ["< 500 000 FCFA","500 000 – 1 M FCFA","1 M – 3 M FCFA","3 M
 
 export default function ParcoursEntreprise() {
   const navigate = useNavigate();
+
+  const [partners,   setPartners]   = useState(PARTNERS_FALLBACK);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/partenaires/publics`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data) && data.length > 0) setPartners(data); })
+      .catch(() => {});
+  }, []); // eslint-disable-line
 
   const [modal,      setModal]      = useState(null);
   const [selOffer,   setSelOffer]   = useState(null);
@@ -298,18 +318,6 @@ export default function ParcoursEntreprise() {
                   ))}
                 </div>
               </div>
-              <div className="pe-stats-card" style={{animation:heroInView?"peFU .7s ease .15s both":"none"}}>
-                <div style={S.heroStatsCard}>
-                  <p style={{fontSize:".76rem",fontWeight:800,color:"rgba(255,255,255,.45)",textTransform:"uppercase",letterSpacing:".07em",margin:"0 0 14px"}}>Nos résultats entreprises</p>
-                  {[["500+","Entreprises auditées"],["96%","Taux de satisfaction RH"],["24h","Délai de réponse garanti"],["FDFP","Financement disponible"]].map(([num,lbl],i)=>(
-                    <div key={i} style={S.heroStatRow}>
-                      <span style={{fontFamily:"'Montserrat','Segoe UI',sans-serif",fontSize:"1.4rem",color:i%2===0?"#f87171":"#93c5fd"}}>{num}</span>
-                      <span style={{fontSize:".82rem",color:"rgba(255,255,255,.7)",fontWeight:500}}>{lbl}</span>
-                    </div>
-                  ))}
-                  <button style={{...S.btnBlue,width:"100%",marginTop:16}} onClick={()=>openModal("audit")}>🔍 Demander mon audit gratuit</button>
-                </div>
-              </div>
             </div>
           </div>
           <div style={{lineHeight:0}}><svg viewBox="0 0 1440 48" style={{display:"block",width:"100%"}} preserveAspectRatio="none"><path fill="#f8fafc" d="M0,24 C480,48 960,0 1440,24 L1440,48 L0,48 Z"/></svg></div>
@@ -391,10 +399,32 @@ export default function ParcoursEntreprise() {
               ))}
             </div>
 
-            <div style={S.clientsBlock}>
-              <p style={{fontSize:".78rem",fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em",margin:"0 0 16px",textAlign:"center"}}>Ils nous font confiance</p>
-              <div className="pe-clients-row" style={S.clientsRow}>
-                {CLIENTS.map((c,i)=><div key={i} style={S.clientPill}>{c}</div>)}
+            {/* ── Partenaires dynamiques ── */}
+            <div style={{ padding:"48px 0", background:"#fff", borderTop:"1px solid #f1f5f9", overflow:"hidden" }}>
+              <div style={{ maxWidth:1180, margin:"0 auto 24px", padding:"0 24px", textAlign:"center" }}>
+                <p style={{ fontSize:".78rem", color:"#94a3b8", fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", marginBottom:4 }}>
+                  Ils nous accordent leur confiance
+                </p>
+                <h2 style={{ margin:0, fontSize:"1.3rem", fontWeight:800, color:"#0f172a" }}>Nos partenaires entreprises</h2>
+              </div>
+              <div style={{ overflow:"hidden", position:"relative" }}>
+                <div style={{ position:"absolute", left:0, top:0, bottom:0, width:80, background:"linear-gradient(to right,#fff,transparent)", zIndex:2, pointerEvents:"none" }} />
+                <div style={{ position:"absolute", right:0, top:0, bottom:0, width:80, background:"linear-gradient(to left,#fff,transparent)", zIndex:2, pointerEvents:"none" }} />
+                <div style={{ display:"flex", width:"fit-content", animation:"peTicker 28s linear infinite" }}>
+                  {[...partners, ...partners].map((p, i) => (
+                    <div key={i} style={{ flexShrink:0, height:72, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 48px" }}>
+                      {p.site_web ? (
+                        <a href={p.site_web} target="_blank" rel="noopener noreferrer" title={p.nom} style={{ display:"flex", alignItems:"center" }}>
+                          <img src={p.logo_url} alt={p.nom} style={{ maxHeight:56, maxWidth:140, objectFit:"contain", opacity:0.7, filter:"grayscale(.2)", transition:"opacity .2s" }}
+                            onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                            onMouseLeave={e=>e.currentTarget.style.opacity="0.7"} />
+                        </a>
+                      ) : (
+                        <img src={p.logo_url} alt={p.nom} style={{ maxHeight:56, maxWidth:140, objectFit:"contain", opacity:0.7, filter:"grayscale(.2)" }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 

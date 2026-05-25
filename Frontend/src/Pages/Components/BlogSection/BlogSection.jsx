@@ -3,6 +3,15 @@ import { Link } from "react-router-dom";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
+const buildEmbedUrl = (url) => {
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}?rel=0&modestbranding=1&controls=0&mute=1&autoplay=1&loop=1&playlist=${yt[1]}`;
+  const vm = url.match(/vimeo\.com\/(\d+)/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}?autoplay=1&muted=1&loop=1&background=1`;
+  return null; // fichier direct (MP4)
+};
+
 /* ─── Inject fonts & keyframes once ──────────────────── */
 if (!document.querySelector("#bet-blog-kf")) {
   const s = document.createElement("style");
@@ -60,6 +69,37 @@ const CAT_COLORS = {
 const getCatStyle = (cat) =>
   CAT_COLORS[cat] || { bg: "#f1f5f9", text: "#475569" };
 
+/* ── Miniature vidéo ou photo ────────────────────────── */
+const BlogMediaThumb = ({ video_url, image, title, className, style }) => {
+  const embedUrl = video_url ? buildEmbedUrl(video_url) : null;
+  const isDirectVideo = video_url && !embedUrl;
+
+  if (embedUrl) {
+    return (
+      <iframe
+        className={className}
+        src={embedUrl}
+        title={title}
+        frameBorder="0"
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        style={{ ...style, pointerEvents:"none", border:"none" }}
+      />
+    );
+  }
+  if (isDirectVideo) {
+    return (
+      <video
+        className={className}
+        src={video_url}
+        autoPlay muted loop playsInline
+        style={{ ...style, objectFit:"cover" }}
+      />
+    );
+  }
+  return <img className={className} src={image} alt={title} style={style} />;
+};
+
 /* ─────────────────────────────────────────────────────── */
 const BlogSection = () => {
   const [ref, inView] = useInView();
@@ -71,14 +111,15 @@ const BlogSection = () => {
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(({ articles }) => setPosts(
         (articles || []).map(a => ({
-          id:       a.id,
-          title:    a.titre,
-          excerpt:  a.extrait,
-          category: a.categorie,
-          image:    a.image_url || "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=800&q=80",
-          date:     a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
-          readTime: a.read_time,
-          author:   a.auteur,
+          id:        a.id,
+          title:     a.titre,
+          excerpt:   a.extrait,
+          category:  a.categorie,
+          image:     a.image_url || "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=800&q=80",
+          video_url: a.video_url || null,
+          date:      a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
+          readTime:  a.read_time,
+          author:    a.auteur,
         }))
       ))
       .catch(() => {})
@@ -140,16 +181,17 @@ const BlogSection = () => {
             style={S.heroCard}
           >
             <div style={S.heroImgWrap}>
-              <img
+              <BlogMediaThumb
                 className="bet-blog-hero-img"
-                src={hero.image}
-                alt={hero.title}
+                video_url={hero.video_url}
+                image={hero.image}
+                title={hero.title}
                 style={S.heroImg}
               />
               <div style={S.heroOverlay} />
               {/* Category tag */}
               <div style={{ ...S.catTag, background: heroCat.bg, color: heroCat.text }}>
-                {hero.category}
+                {hero.video_url ? "🎬 " : ""}{hero.category}
               </div>
               {/* Numéro éditorial */}
               <div style={S.heroNum}>01</div>
@@ -188,14 +230,15 @@ const BlogSection = () => {
                   }}
                 >
                   <div style={S.cardImgWrap}>
-                    <img
+                    <BlogMediaThumb
                       className="bet-blog-card-img"
-                      src={post.image}
-                      alt={post.title}
+                      video_url={post.video_url}
+                      image={post.image}
+                      title={post.title}
                       style={S.cardImg}
                     />
                     <div style={{ ...S.catTag, ...S.catTagCard, background: c.bg, color: c.text }}>
-                      {post.category}
+                      {post.video_url ? "🎬 " : ""}{post.category}
                     </div>
                     <div style={S.cardNum}>0{idx + 2}</div>
                   </div>

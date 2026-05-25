@@ -1,6 +1,7 @@
 import express from "express";
 import supabase from "../config/supabase.js";
 import { authenticateUser } from "../middlewares/auth.js";
+import { logAudit } from "../middlewares/logAudit.js";
 
 const router = express.Router();
 
@@ -35,6 +36,21 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: authError.message });
     }
 
+    logAudit({
+      acteur_id:    authData.user.id,
+      acteur_nom:   `${prenom} ${nom}`,
+      acteur_email: email,
+      acteur_role:  "apprenant",
+      action_type:  "REGISTER",
+      module:       "auth",
+      entite_type:  "user",
+      entite_id:    authData.user.id,
+      detail:       `Inscription apprenant : ${prenom} ${nom} (${email})`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.status(201).json({
       message: "Inscription réussie",
       user: {
@@ -63,11 +79,36 @@ router.post("/login", async (req, res) => {
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      logAudit({
+        acteur_email: email,
+        action_type:  "LOGIN_FAILED",
+        module:       "auth",
+        detail:       `Échec de connexion pour ${email}`,
+        ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+        user_agent:   req.headers["user-agent"] || null,
+        statut:       "danger",
+      }).catch(() => {});
       return res.status(401).json({ error: "Email ou mot de passe incorrect" });
     }
 
     // Récupérer les métadonnées
     const metadata = data.user.user_metadata;
+
+    logAudit({
+      acteur_id:    data.user.id,
+      acteur_nom:   `${metadata?.prenom || ""} ${metadata?.nom || ""}`.trim() || email,
+      acteur_email: data.user.email,
+      acteur_role:  "apprenant",
+      action_type:  "LOGIN_SUCCESS",
+      module:       "auth",
+      entite_type:  "user",
+      entite_id:    data.user.id,
+      detail:       `Connexion réussie : ${email}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.json({
       message: "Connexion réussie",
       session: data.session,         // contient access_token, refresh_token

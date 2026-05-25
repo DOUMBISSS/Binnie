@@ -95,20 +95,16 @@ const INIT_PLANNINGS = [
 ];
 
 const CHECKLIST_ITEMS = [
-  { id:"bienvenue",  label:"Message de bienvenue envoyé à l'apprenant" },
-  { id:"acces",      label:"Accès EspaceApprenant créés (login + mot de passe)" },
-  { id:"kit",        label:"Kit de démarrage envoyé (règlement + guide)" },
-  { id:"planning",   label:"Planning des séances créé et envoyé" },
-  { id:"fiche",      label:"Fiche apprenant transmise au coach" },
-  { id:"briefing",   label:"Briefing coach effectué (objectifs + profil)" },
-  { id:"1ere",       label:"1ère séance confirmée et réalisée" },
-  { id:"feedback",   label:"Retour apprenant après 1ère séance recueilli" },
+  { id:"bienvenue", label:"Email de bienvenue envoyé",        icon:"✉️" },
+  { id:"acces",     label:"Lien espace apprenant transmis",   icon:"🔗" },
+  { id:"kit",       label:"Lien matériel de cours envoyé",    icon:"📚" },
+  { id:"planning",  label:"Planning des séances envoyé",      icon:"📅" },
 ];
 
 const INIT_SUIVIS = [
-  { id:1, apprenantId:1, apprenantNom:"Adjoua Koné",    coach:"Prof. Martin", dateDebut:"2026-01-13", checklist:{ bienvenue:true,acces:false,kit:false,planning:false,fiche:false,briefing:false,"1ere":false,feedback:false }, notes:"" },
-  { id:2, apprenantId:2, apprenantNom:"Ibrahim Traoré", coach:"Prof. Smith",  dateDebut:"2026-01-14", checklist:{ bienvenue:true,acces:true,kit:true,planning:true,fiche:true,briefing:true,"1ere":false,feedback:false },  notes:"Apprenant très motivé, niveau réel peut-être B1" },
-  { id:3, apprenantId:6, apprenantNom:"Kofi Mensah",    coach:"Prof. Smith",  dateDebut:"2026-01-15", checklist:{ bienvenue:true,acces:true,kit:false,planning:false,fiche:false,briefing:false,"1ere":false,feedback:false }, notes:"" },
+  { id:1, apprenantId:1, apprenantNom:"Adjoua Koné",    coach:"Prof. Martin", dateDebut:"2026-01-13", checklist:{ bienvenue:true,acces:false,kit:false,planning:false }, notes:"" },
+  { id:2, apprenantId:2, apprenantNom:"Ibrahim Traoré", coach:"Prof. Smith",  dateDebut:"2026-01-14", checklist:{ bienvenue:true,acces:true,kit:true,planning:true },  notes:"Apprenant très motivé, niveau réel peut-être B1" },
+  { id:3, apprenantId:6, apprenantNom:"Kofi Mensah",    coach:"Prof. Smith",  dateDebut:"2026-01-15", checklist:{ bienvenue:true,acces:true,kit:false,planning:false }, notes:"" },
 ];
 
 const INIT_BILANS = [
@@ -399,8 +395,9 @@ export default function OnboardingDashboard() {
   const formatDate = (d) => d ? new Date(d).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "–";
 
   const pctChecklist = (cl) => {
-    const vals = Object.values(cl);
-    return vals.length ? Math.round((vals.filter(Boolean).length / vals.length)*100) : 0;
+    const keys = CHECKLIST_ITEMS.map(i => i.id);
+    const vals = keys.map(k => cl[k] || false);
+    return Math.round((vals.filter(Boolean).length / keys.length) * 100);
   };
 
   const toggleCheck = (suiviId, itemId) => {
@@ -550,7 +547,7 @@ export default function OnboardingDashboard() {
         id: Date.now(), apprenantId: dossierTarget.id,
         apprenantNom: `${dossierForm.prenom} ${dossierForm.nom}`.trim() || dossierTarget.nom,
         coach: coachNom, dateDebut: dossierForm.date_debut_supposee || new Date().toISOString().slice(0,10),
-        checklist:{ bienvenue:false,acces:false,kit:false,planning:false,fiche:false,briefing:false,"1ere":false,feedback:false },
+        checklist:{ bienvenue:false,acces:false,kit:false,planning:false },
         notes: dossierForm.attentes || "",
       }]);
       toast.success(`✅ ${dossierForm.nom} → ${coachNom} → ${groupeNom} — Onboarding démarré !`);
@@ -1084,15 +1081,17 @@ export default function OnboardingDashboard() {
             {activeTab==="suivi" && (
               <div>
                 <div style={{ marginBottom:18 }}>
-                  <h2 style={{ margin:0,fontSize:17,fontWeight:800,color:"#0f172a" }}>Suivi de démarrage</h2>
-                  <p style={{ margin:"4px 0 0",fontSize:12,color:"#6b7280" }}>Checklist de chaque apprenant en cours d'onboarding</p>
+                  <h2 style={{ margin:0,fontSize:17,fontWeight:800,color:"#0f172a" }}>🚀 Kick-off & Onboarding apprenant</h2>
+                  <p style={{ margin:"4px 0 0",fontSize:12,color:"#6b7280" }}>Envoi automatique : email de bienvenue · lien espace apprenant · lien matériel de cours · planning</p>
                 </div>
                 <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
                   {suivis.map(s=>{
                     const pct=pctChecklist(s.checklist);
                     const app=apprenants.find(a=>a.id===s.apprenantId);
+                    const tousEnvoyes = CHECKLIST_ITEMS.every(it=>s.checklist[it.id]);
                     return (
                       <div key={s.id} style={{ background:"#fff",borderRadius:14,border:"1px solid #e5e7eb",padding:20 }}>
+                        {/* En-tête apprenant */}
                         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16 }}>
                           <div style={{ display:"flex",gap:12,alignItems:"center" }}>
                             <div style={{ width:42,height:42,borderRadius:"50%",background:C_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:15,color:C }}>
@@ -1105,38 +1104,52 @@ export default function OnboardingDashboard() {
                             </div>
                           </div>
                           <div style={{ textAlign:"center" }}>
-                            <div style={{ fontSize:24,fontWeight:900,color:pct>=80?"#22c55e":pct>=40?C:"#d97706" }}>{pct}%</div>
-                            <div style={{ fontSize:10,color:"#9ca3af" }}>complété</div>
+                            <div style={{ fontSize:24,fontWeight:900,color:pct===100?"#22c55e":pct>=50?C:"#d97706" }}>{pct}%</div>
+                            <div style={{ fontSize:10,color:"#9ca3af" }}>envoyé</div>
                           </div>
                         </div>
                         {/* Barre de progression */}
-                        <div style={{ height:8,background:"#e5e7eb",borderRadius:4,overflow:"hidden",marginBottom:16 }}>
-                          <div style={{ height:"100%",width:`${pct}%`,background:pct>=80?"#22c55e":pct>=40?C:"#d97706",borderRadius:4,transition:"width .3s" }}/>
+                        <div style={{ height:6,background:"#e5e7eb",borderRadius:4,overflow:"hidden",marginBottom:16 }}>
+                          <div style={{ height:"100%",width:`${pct}%`,background:pct===100?"#22c55e":pct>=50?C:"#d97706",borderRadius:4,transition:"width .3s" }}/>
                         </div>
-                        {/* Checklist */}
-                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-                          {CHECKLIST_ITEMS.map(item=>(
-                            <Checkbox
-                              key={item.id}
-                              checked={s.checklist[item.id]||false}
-                              onChange={()=>toggleCheck(s.id,item.id)}
-                              label={item.label}
-                            />
-                          ))}
+                        {/* 4 envois kick-off */}
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
+                          {CHECKLIST_ITEMS.map(item=>{
+                            const fait = s.checklist[item.id]||false;
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={()=>toggleCheck(s.id,item.id)}
+                                style={{
+                                  display:"flex",alignItems:"center",gap:10,
+                                  padding:"10px 14px",borderRadius:10,cursor:"pointer",
+                                  border:`1.5px solid ${fait?"#bbf7d0":"#e5e7eb"}`,
+                                  background:fait?"#f0fdf4":"#f8fafc",
+                                  textAlign:"left",width:"100%"
+                                }}
+                              >
+                                <span style={{ fontSize:18,flexShrink:0 }}>{fait?"✅":item.icon}</span>
+                                <div>
+                                  <div style={{ fontSize:12,fontWeight:700,color:fait?"#166534":"#374151" }}>{item.label}</div>
+                                  <div style={{ fontSize:10,color:fait?"#22c55e":"#9ca3af" }}>{fait?"Envoyé":"En attente"}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                         {s.notes&&(
-                          <div style={{ marginTop:12,padding:"8px 12px",borderRadius:8,background:"#f8fafc",border:"1px solid #e2e8f0",fontSize:12,color:"#374151",fontStyle:"italic" }}>📝 {s.notes}</div>
+                          <div style={{ padding:"8px 12px",borderRadius:8,background:"#f8fafc",border:"1px solid #e2e8f0",fontSize:12,color:"#374151",fontStyle:"italic" }}>📝 {s.notes}</div>
                         )}
-                        {pct===100&&(
+                        {tousEnvoyes&&(
                           <div style={{ marginTop:12,padding:"10px 14px",borderRadius:10,background:"#dcfce7",border:"1px solid #bbf7d0",fontSize:13,color:"#166534",fontWeight:700,textAlign:"center" }}>
-                            🎉 Onboarding complet ! L'apprenant est pleinement intégré.
+                            🎉 Kick-off complet ! Tous les envois ont été effectués.
                           </div>
                         )}
                       </div>
                     );
                   })}
                   {suivis.length===0&&(
-                    <div style={{ textAlign:"center",padding:40,color:"#9ca3af",fontSize:13 }}>Aucun suivi en cours — démarrez l'onboarding depuis l'onglet "Nouveaux apprenants"</div>
+                    <div style={{ textAlign:"center",padding:40,color:"#9ca3af",fontSize:13 }}>Aucun onboarding en cours — démarrez depuis l'onglet "Nouveaux apprenants"</div>
                   )}
                 </div>
               </div>
@@ -2258,18 +2271,18 @@ export default function OnboardingDashboard() {
             <div style={{ fontSize:13,color:"#374151",lineHeight:1.6 }}>{selectedApprenant.objectif}</div>
           </div>
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12,fontWeight:700,color:"#374151",marginBottom:10 }}>✅ Actions d'onboarding à réaliser</div>
+            <div style={{ fontSize:12,fontWeight:700,color:"#374151",marginBottom:10 }}>🚀 Envois Kick-off à déclencher</div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
               {CHECKLIST_ITEMS.map(item=>(
                 <div key={item.id} style={{ padding:"8px 12px",borderRadius:8,background:"#f8fafc",border:"1px solid #e5e7eb",fontSize:12,display:"flex",alignItems:"center",gap:8 }}>
-                  <span style={{ fontSize:16,flexShrink:0 }}>⬜</span>{item.label}
+                  <span style={{ fontSize:16,flexShrink:0 }}>{item.icon}</span>{item.label}
                 </div>
               ))}
             </div>
           </div>
           <div style={{ display:"flex",gap:10 }}>
             {selectedApprenant.statut==="en_attente"&&(
-              <button onClick={()=>{ setApprenants(prev=>prev.map(a=>a.id===selectedApprenant.id?{...a,statut:"en_cours"}:a)); setSuivis(prev=>[...prev,{id:Date.now(),apprenantId:selectedApprenant.id,apprenantNom:selectedApprenant.nom,coach:selectedApprenant.coach,dateDebut:new Date().toISOString().slice(0,10),checklist:{bienvenue:false,acces:false,kit:false,planning:false,fiche:false,briefing:false,"1ere":false,feedback:false},notes:""}]); toast.success(`Onboarding démarré pour ${selectedApprenant.nom} ✓`); setShowAppModal(false); setActiveTab("suivi"); }} style={{ ...btnP,background:"#22c55e" }}>🚀 Démarrer l'onboarding</button>
+              <button onClick={()=>{ setApprenants(prev=>prev.map(a=>a.id===selectedApprenant.id?{...a,statut:"en_cours"}:a)); setSuivis(prev=>[...prev,{id:Date.now(),apprenantId:selectedApprenant.id,apprenantNom:selectedApprenant.nom,coach:selectedApprenant.coach,dateDebut:new Date().toISOString().slice(0,10),checklist:{bienvenue:false,acces:false,kit:false,planning:false},notes:""}]); toast.success(`Onboarding démarré pour ${selectedApprenant.nom} ✓`); setShowAppModal(false); setActiveTab("suivi"); }} style={{ ...btnP,background:"#22c55e" }}>🚀 Démarrer l'onboarding</button>
             )}
             <button onClick={()=>{ setShowAppModal(false); setSelectedApprenant(null); }} style={btnS}>Fermer</button>
           </div>

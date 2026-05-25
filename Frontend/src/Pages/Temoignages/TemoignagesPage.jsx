@@ -63,12 +63,22 @@ if (!document.querySelector("#bet-temo-page-kf")) {
   document.head.appendChild(s);
 }
 
+/* ── Embed URL helper (YouTube / Vimeo / fichier direct) ── */
+function buildEmbedUrl(url) {
+  if (!url) return null;
+  const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}?rel=0&modestbranding=1`;
+  const vm = url.match(/vimeo\.com\/(\d+)/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  return null; // MP4 direct
+}
+
 /* ── Fallback data ── */
 const FALLBACK = [
-  { id:"f1", avatar:"👩🏾‍⚖️", nom:"Awa Koné",        role:"Étudiante en droit",          score:"TOEIC 850",  texte:"En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", etoiles:5, couleur:"#d97706" },
-  { id:"f2", avatar:"👨🏿‍💼", nom:"Kouamé Brou",      role:"Directeur Commercial · NSIA", score:"IELTS 7.5",  texte:"La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", etoiles:5, couleur:"#0891b2" },
-  { id:"f3", avatar:"👩🏽‍💻", nom:"Fatoumata Diallo", role:"Ingénieure IT · MTN CI",      score:"TOEFL 104",  texte:"Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", etoiles:5, couleur:"#1e4080" },
-  { id:"f4", avatar:"👨🏽‍🎓", nom:"Sonia Ravin",      role:"Étudiante · Université HEC",  score:"TOEIC 920",  texte:"Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", etoiles:5, couleur:"#e93747" },
+  { id:"f1", avatar:"👩🏾‍⚖️", nom:"Awa Koné",        role:"Étudiante en droit",          score:"TOEIC 850",  texte:"En 3 mois j'ai décroché 850 au TOEIC. Les méthodes sont vraiment efficaces et le suivi personnalisé fait toute la différence. Je recommande à 100% !", etoiles:5, couleur:"#d97706", video_url:null, photo_url:null },
+  { id:"f2", avatar:"👨🏿‍💼", nom:"Kouamé Brou",      role:"Directeur Commercial · NSIA", score:"IELTS 7.5",  texte:"La formation entreprise a transformé notre relation client internationale. Nos équipes communiquent maintenant avec confiance en anglais.", etoiles:5, couleur:"#0891b2", video_url:null, photo_url:null },
+  { id:"f3", avatar:"👩🏽‍💻", nom:"Fatoumata Diallo", role:"Ingénieure IT · MTN CI",      score:"TOEFL 104",  texte:"Préparé mon TOEFL en ligne depuis Abidjan. Les corrections rapides et la disponibilité des profs m'ont permis d'atteindre mon score cible.", etoiles:5, couleur:"#1e4080", video_url:null, photo_url:null },
+  { id:"f4", avatar:"👨🏽‍🎓", nom:"Sonia Ravin",      role:"Étudiante · Université HEC",  score:"TOEIC 920",  texte:"Programme d'immersion qui a littéralement changé ma vie. 920 points au TOEIC — des portes que je croyais fermées se sont ouvertes.", etoiles:5, couleur:"#e93747", video_url:null, photo_url:null },
 ];
 
 const SCORES = ["Tous", "TOEIC", "TOEFL", "IELTS", "Anglais Pro"];
@@ -78,33 +88,75 @@ const F = "'Montserrat', 'Segoe UI', sans-serif";
 /* ══════════════════════════════════════════════
    CARD COMPOSANT
 ══════════════════════════════════════════════ */
+const TemoVideoPlayer = ({ t }) => {
+  const videoRef = React.useRef(null);
+  const [playing, setPlaying] = React.useState(false);
+  const embedUrl = buildEmbedUrl(t.video_url);
+
+  if (embedUrl) {
+    return (
+      <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#000", flexShrink: 0 }}>
+        <iframe src={embedUrl} title={t.nom} frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+        <span style={{ position:"absolute", top:8, left:10, background:"rgba(0,0,0,.55)", backdropFilter:"blur(6px)", color:"#fff", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:5 }}>{t.nom}</span>
+      </div>
+    );
+  }
+
+  // Fichier direct MP4
+  const toggle = () => {
+    if (!videoRef.current) return;
+    if (playing) { videoRef.current.pause(); setPlaying(false); }
+    else { videoRef.current.play(); setPlaying(true); }
+  };
+  return (
+    <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#000", cursor: "pointer", flexShrink: 0 }} onClick={toggle}>
+      <video ref={videoRef} src={t.video_url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onEnded={() => setPlaying(false)} />
+      <span style={{ position:"absolute", top:8, left:10, background:"rgba(0,0,0,.55)", backdropFilter:"blur(6px)", color:"#fff", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:5 }}>{t.nom}</span>
+      {!playing && (
+        <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,.15)" }}>
+          <div style={{ width:52, height:52, borderRadius:"50%", background:"rgba(255,255,255,.9)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 20px rgba(0,0,0,.3)" }}>
+            <div style={{ width:0, height:0, borderTop:"9px solid transparent", borderBottom:"9px solid transparent", borderLeft:`15px solid ${t.couleur||"#1e4080"}`, marginLeft:3 }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TemoCard = ({ t, delay = 0 }) => (
   <div className="tpg-card" style={{ animationDelay: `${delay}ms` }}>
-    {/* Bande couleur */}
-    <div style={{ height: 5, background: t.couleur || "#1e4080", flexShrink: 0 }} />
 
-    <div style={{ padding: "22px 22px 18px", flex: 1, display: "flex", flexDirection: "column" }}>
+    {/* Vidéo en tête de carte (si disponible) */}
+    {t.video_url ? (
+      <TemoVideoPlayer t={t} />
+    ) : (
+      <div style={{ height: 5, background: t.couleur || "#1e4080", flexShrink: 0 }} />
+    )}
+
+    <div style={{ padding: "20px 22px 18px", flex: 1, display: "flex", flexDirection: "column" }}>
       {/* Étoiles */}
-      <div style={{ marginBottom: 12, fontSize: "1rem", letterSpacing: 1 }}>
+      <div style={{ marginBottom: 10, fontSize: "1rem", letterSpacing: 1 }}>
         <span style={{ color: "#f59e0b" }}>{"★".repeat(t.etoiles || 5)}</span>
         <span style={{ color: "#e5e7eb" }}>{"☆".repeat(5 - (t.etoiles || 5))}</span>
       </div>
 
       {/* Texte */}
-      <p style={{ fontFamily: F, fontSize: ".92rem", color: "#334155", lineHeight: 1.7, fontStyle: "italic", margin: "0 0 20px", flex: 1 }}>
+      <p style={{ fontFamily: F, fontSize: ".92rem", color: "#334155", lineHeight: 1.7, fontStyle: "italic", margin: "0 0 16px", flex: 1 }}>
         « {t.texte} »
       </p>
 
-      {/* Photo diplôme si disponible */}
-      {t.photo_url && (
-        <div style={{ margin: "0 0 14px", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0", maxHeight: 140 }}>
-          <img src={t.photo_url} alt={`Diplôme de ${t.nom}`} style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }} />
+      {/* Photo diplôme (seulement si pas de vidéo) */}
+      {!t.video_url && t.photo_url && (
+        <div style={{ margin: "0 0 14px", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+          <img src={t.photo_url} alt={`Diplôme de ${t.nom}`} style={{ width: "100%", height: 130, objectFit: "cover", display: "block" }} />
         </div>
       )}
 
       {/* Identité */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
-        <div style={{ width: 46, height: 46, borderRadius: "50%", background: `${t.couleur || "#1e4080"}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
+        <div style={{ width: 44, height: 44, borderRadius: "50%", background: `${t.couleur || "#1e4080"}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", flexShrink: 0 }}>
           {t.avatar || "🎓"}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -134,7 +186,7 @@ const TemoignagesPage = () => {
     window.scrollTo(0, 0);
     supabase
       .from("temoignages")
-      .select("id, nom, role, score, texte, avatar, photo_url, couleur, etoiles, ordre")
+      .select("id, nom, role, score, texte, avatar, photo_url, video_url, couleur, etoiles, ordre")
       .eq("actif", true)
       .eq("statut", "actif")
       .order("ordre", { ascending: true })

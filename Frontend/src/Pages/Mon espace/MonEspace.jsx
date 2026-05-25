@@ -190,19 +190,6 @@ const ProspectView = ({ user, session, activeTab, setActiveTab, prospectInfo }) 
         </div>
       )}
 
-      {/* Bandeau CTA upgrade */}
-      <div style={S.upgradeBanner}>
-        <div>
-          <strong style={{ color:"#1e3a8a" }}>Devenez apprenant BET</strong>
-          <span style={{ color:"#475569", fontSize:".85rem", marginLeft:10 }}>
-            Accédez à vos cours, certifications et suivi personnalisé.
-          </span>
-        </div>
-        <Link to="/parcours/particulier">
-          <button style={S.upgradeBtn}>S'inscrire maintenant →</button>
-        </Link>
-      </div>
-
       {/* Onglets */}
       <div className="me-tabs" style={S.tabs}>
         {TABS.map(t => {

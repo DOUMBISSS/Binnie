@@ -76,7 +76,7 @@ export function UserProvider({ children }) {
     }
 
     const timeout = setTimeout(() => {
-      toast.error("Session expirée");
+      toast.error("Votre session a expiré. Vous allez être déconnecté automatiquement.");
       logout();
     }, expires - now);
 

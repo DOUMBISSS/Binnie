@@ -50,7 +50,10 @@ import BookingCalendar from './Pages/Components/BookingCalendar/BookingCalendar.
 import SimulateurButton from './Pages/Outils/SimulateurButton.jsx';
 // import ParentDashboard from './Pages/ParentDashboard/ParentDashboard.jsx';
 import MonEspace from './Pages/Mon espace/MonEspace.jsx';
+import PaiementRetour from './Pages/Paiement/PaiementRetour.jsx';
+import Boutique from './Pages/Boutique/Boutique.jsx';
 import UpdatePassword from './Pages/Components/Password/UpdatePassword.jsx';
+import FAQ from './Pages/FAQ/FAQ.jsx';
 import { supabase } from './config/supabase.js';
 import { captureUTM } from './utils/utm.js';
 
@@ -132,6 +135,9 @@ const App = () => {
                   <Route path="/lead-magnet/audit-gratuit" element={<LeadMagnetAudit />} />
                   <Route path="/lead-magnet/merci" element={<LeadThankYou />} />
                   <Route path="/update-password" element={<UpdatePassword />} />
+                  <Route path="/faq" element={<FAQ />} />
+                  <Route path="/paiement/retour" element={<PaiementRetour />} />
+                  <Route path="/boutique" element={<Boutique />} />
                 </Routes>
                 {/* <SimulateurButton /> */}
                 <WhatsAppButton />

@@ -111,6 +111,22 @@ const MOCK_COURSE = {
   ],
 };
 
+function extractYoutubeId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+function buildHeroEmbedUrl(url) {
+  if (!url) return null;
+  const ytId = extractYoutubeId(url);
+  if (ytId) return `https://www.youtube.com/embed/${ytId}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1`;
+  if (/vimeo\.com\/(\d+)/.test(url)) {
+    const id = url.match(/vimeo\.com\/(\d+)/)[1];
+    return `https://player.vimeo.com/video/${id}?controls=1`;
+  }
+  return url;
+}
+
 const Stars=({rating=5,size=14})=><span style={{display:"inline-flex",gap:1}}>{Array.from({length:5}).map((_,i)=><span key={i} style={{fontSize:size,color:i<Math.floor(rating)?"#f59e0b":"#d1d5db"}}>★</span>)}</span>;
 
 const FAQItem=({item})=>{
@@ -261,6 +277,16 @@ const CourseDetail=()=>{
     return () => window.removeEventListener("storage", onStorage);
   }, [type]); // eslint-disable-line
 
+  // ── Média hero (configurable par type d'offre) ───────────────────────────
+  const [heroMedia, setHeroMedia] = useState(null);
+  useEffect(() => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/offre-media/${type}/publiques`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.media?.length) setHeroMedia(d.media[0]); })
+      .catch(() => {});
+  }, [type]);
+
   const[activeTab,setActiveTab]=useState("apercu");
   const[openSections,setOpenSections]=useState({0:true});
   const[showAllCurr,setShowAllCurr]=useState(false);
@@ -314,6 +340,8 @@ const CourseDetail=()=>{
   const[isApprenantBET,setIsApprenantBET]=useState(false);
   const[avisDejaPoste,setAvisDejaPoste]=useState(false);
   const heroRef=useRef(null);
+  const iframeRef=useRef(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   const prefillForm=(u)=>{
     const m=u?.user_metadata||{};
@@ -532,6 +560,12 @@ const CourseDetail=()=>{
       setInscLoading(false);
     }
   };
+  const sendYTCmd=(func,args=[])=>{
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args}),"*");
+  };
+  const handleMute=()=>{ sendYTCmd(isMuted?"unMute":"mute"); setIsMuted(m=>!m); };
+  const handleReplay=()=>{ sendYTCmd("seekTo",[0,true]); sendYTCmd("playVideo"); };
+
   const handleDevis=async()=>{
     try{
       const API=process.env.REACT_APP_API_URL||"http://localhost:5001";
@@ -556,36 +590,128 @@ const CourseDetail=()=>{
   return(
     <div className="course-detail-root" style={S.page}>
       {/* HERO */}
-      <div ref={heroRef} style={S.hero}>
-        <div className="course-detail-hero-inner" style={S.heroInner}>
-          <div style={S.heroMain}>
-            <div style={S.breadcrumb}>
-              <span style={S.bLink} onClick={()=>navigate("/")}>Accueil</span><span style={S.bSep}>/</span>
-              <span style={S.bLink} onClick={()=>navigate(-1)}>Cours</span><span style={S.bSep}>/</span>
-              <span style={{color:"#e2e8f0"}}>{course.title}</span>
-            </div>
-            <h1 className="course-detail-hero-title" style={S.heroTitle}>
-              {type==="cabinet"&&selectedCentre?selectedCentre.name:course.title}
-            </h1>
-            <p style={S.heroSub}>
-              {type==="cabinet"&&selectedCentre
-                ?(selectedCentre.subtitle||`Cours en cabinet · ${selectedCentre.ville}`)
-                :course.subtitle}
-            </p>
-            <div style={S.heroMeta}>
-              <span style={S.heroBadge}>⭐ BESTSELLER</span>
-              <span style={S.heroRating}>{course.rating}</span>
-              <Stars rating={course.rating} size={13}/>
-              <span style={S.heroRatingCount}>({course.ratingCount?.toLocaleString()} avis)</span>
-              <span style={S.heroDot}>•</span>
-              <span style={S.heroMetaTxt}>👥 {course.students?.toLocaleString()} participants</span>
-            </div>
-            <div style={S.heroCreator}>Créé par <span style={S.heroCreatorLink}>{course.creator}</span></div>
-            <div style={S.heroPills}>
-              {[`🕐 Màj : ${course.lastUpdate}`,`🌐 ${course.language}`,`📊 ${course.level}`,`🎥 ${course.duration}`,`📋 ${course.lectureCount} leçons`].map((t,i)=><span key={i} style={S.heroPill}>{t}</span>)}
+      <div ref={heroRef} style={heroMedia ? {
+        position:"relative", overflow:"hidden",
+        height: heroMedia.type==="video" ? "clamp(500px, 56.25vw, 620px)" : 480,
+        background:"#07111f",
+      } : S.hero}>
+
+        {/* ── Fond media plein écran ── */}
+        {heroMedia && heroMedia.type==="video" && (
+          <iframe
+            ref={iframeRef}
+            src={buildHeroEmbedUrl(heroMedia.url)}
+            title={heroMedia.titre||"Présentation"}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            style={{
+              position:"absolute", top:"50%", left:"50%",
+              width:"100%", height:"56.25vw",
+              minWidth:"177.78vh", minHeight:"100%",
+              transform:"translate(-50%,-50%)",
+              zIndex:1,
+            }}
+          />
+        )}
+        {heroMedia && heroMedia.type==="image" && (
+          <div style={{
+            position:"absolute", inset:0, zIndex:1,
+            backgroundImage:`url(${heroMedia.url})`,
+            backgroundSize:"cover", backgroundPosition:"center",
+          }}/>
+        )}
+
+        {/* Gradient cinématique : transparent haut → sombre bas */}
+        {heroMedia && (
+          <div style={{
+            position:"absolute", inset:0, zIndex:2, pointerEvents:"none",
+            background: heroMedia.type==="video"
+              ? "linear-gradient(to bottom, rgba(7,17,31,0) 20%, rgba(7,17,31,.45) 58%, rgba(7,17,31,.96) 100%)"
+              : "linear-gradient(135deg, rgba(7,17,31,.86) 0%, rgba(7,17,31,.48) 100%)",
+          }}/>
+        )}
+
+        {/* Breadcrumb flottant en haut */}
+        {heroMedia && (
+          <div style={{position:"absolute",top:22,left:0,right:0,zIndex:4,maxWidth:1180,margin:"0 auto",padding:"0 32px",display:"flex",alignItems:"center",gap:6,fontSize:".76rem"}}>
+            <span onClick={()=>navigate("/")} style={{color:"rgba(255,255,255,.5)",cursor:"pointer",transition:"color .2s"}} onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color="rgba(255,255,255,.5)"}>Accueil</span>
+            <span style={{color:"rgba(255,255,255,.2)"}}>›</span>
+            <span onClick={()=>navigate(-1)} style={{color:"rgba(255,255,255,.5)",cursor:"pointer",transition:"color .2s"}} onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color="rgba(255,255,255,.5)"}>Cours</span>
+            <span style={{color:"rgba(255,255,255,.2)"}}>›</span>
+            <span style={{color:"rgba(255,255,255,.7)",maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{heroMedia?.titre||course.title}</span>
+          </div>
+        )}
+
+        {/* Zone titre ancrée en bas */}
+        {heroMedia ? (
+          <div style={{position:"absolute",bottom:0,left:0,right:0,zIndex:3,padding:"0 0 36px"}}>
+            <div style={{maxWidth:1180,margin:"0 auto",padding:"0 32px",display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:20,flexWrap:"wrap"}}>
+              {/* Colonne gauche : badge + titre */}
+              <div style={{flex:1,minWidth:0}}>
+                {/* Badge type d'offre */}
+                <div style={{marginBottom:12}}>
+                  <span style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"rgba(255,255,255,.1)",backdropFilter:"blur(12px)",
+                    border:"1px solid rgba(255,255,255,.18)",
+                    color:"rgba(255,255,255,.9)",borderRadius:100,
+                    padding:"5px 16px",fontSize:".7rem",fontWeight:700,
+                    letterSpacing:".1em",textTransform:"uppercase",
+                  }}>
+                    {type==="en-ligne"?"📱 En ligne":type==="domicile"?"🏠 À domicile":type==="cabinet"?"🏫 En cabinet":"📚 Formation"}
+                  </span>
+                </div>
+                {/* Accent + Titre */}
+                <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+                  <div style={{width:4,minHeight:52,borderRadius:4,background:"linear-gradient(to bottom,#3b82f6,#1e40af)",flexShrink:0,marginTop:4}}/>
+                  <div>
+                    <h1 className="course-detail-hero-title" style={{
+                      fontFamily:FD,fontSize:"clamp(1.7rem,4vw,3rem)",
+                      color:"#fff",margin:"0 0 8px",fontWeight:800,
+                      lineHeight:1.1,textShadow:"0 2px 28px rgba(0,0,0,.55)",
+                    }}>
+                      {type==="cabinet"&&selectedCentre ? selectedCentre.name : (heroMedia?.titre||course.title)}
+                    </h1>
+                    {type==="cabinet"&&selectedCentre&&(
+                      <p style={{color:"rgba(255,255,255,.65)",fontSize:".95rem",margin:0,lineHeight:1.5}}>
+                        {selectedCentre.subtitle||`Cours en cabinet · ${selectedCentre.ville}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* Colonne droite : boutons vidéo */}
+              {heroMedia.type==="video"&&(
+                <div style={{display:"flex",gap:8,flexShrink:0,paddingBottom:4}}>
+                  <button onClick={handleReplay} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,.12)",backdropFilter:"blur(10px)",border:"1.5px solid rgba(255,255,255,.25)",color:"#fff",borderRadius:100,padding:"8px 18px",fontSize:".78rem",fontWeight:700,cursor:"pointer",letterSpacing:".04em"}}>
+                    ↺ Rejouer
+                  </button>
+                  <button onClick={handleMute} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,.12)",backdropFilter:"blur(10px)",border:"1.5px solid rgba(255,255,255,.25)",color:"#fff",borderRadius:100,padding:"8px 18px",fontSize:".78rem",fontWeight:700,cursor:"pointer",letterSpacing:".04em"}}>
+                    {isMuted?"🔊 Son":"🔇 Muet"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        ) : (
+          /* Layout original sans media */
+          <div className="course-detail-hero-inner" style={{...S.heroInner,position:"relative",zIndex:3}}>
+            <div style={S.heroMain}>
+              <div style={S.breadcrumb}>
+                <span style={S.bLink} onClick={()=>navigate("/")}>Accueil</span><span style={S.bSep}>/</span>
+                <span style={S.bLink} onClick={()=>navigate(-1)}>Cours</span><span style={S.bSep}>/</span>
+                <span style={{color:"#e2e8f0"}}>{course.title}</span>
+              </div>
+              <h1 className="course-detail-hero-title" style={S.heroTitle}>
+                {type==="cabinet"&&selectedCentre ? selectedCentre.name : course.title}
+              </h1>
+              {type==="cabinet"&&selectedCentre&&(
+                <p style={S.heroSub}>{selectedCentre.subtitle||`Cours en cabinet · ${selectedCentre.ville}`}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SÉLECTEUR DE CENTRE (type cabinet uniquement) */}
@@ -1061,7 +1187,6 @@ const CourseDetail=()=>{
             <button className="course-detail-btn-enroll" style={{...S.btnEnroll,opacity:selectedFormat?1:.55,pointerEvents:selectedFormat?"auto":"none"}} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={()=>selectedFormat&&setModalOpen(true)}>
               {selectedFormat?"✍️ S'inscrire — "+selectedFormat.price:"Choisissez d'abord une formule"}
             </button>
-            <button className="course-detail-btn-quote" style={S.btnDevis} onMouseEnter={e=>{e.currentTarget.style.background="#1e3a8a";e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="#1e3a8a";}} onClick={()=>{if(!sbUser){setDevisAuthGate(true);setDevisOpen(true);}else{prefillDevisForm(sbUser);setDevisOpen(true);}}}>🏢 Devis entreprise</button>
             <p style={{textAlign:"center",fontSize:".76rem",color:"#64748b",padding:"0 18px 14px",margin:0}}>✓ Garantie satisfait ou remboursé 30 jours</p>
             <div style={{padding:"14px 18px",borderTop:"1px solid #f1f5f9"}}>
               <p style={{fontWeight:700,fontSize:".82rem",color:"#0f172a",margin:"0 0 10px"}}>Ce cours comprend :</p>

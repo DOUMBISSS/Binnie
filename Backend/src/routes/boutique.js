@@ -1,6 +1,7 @@
 import express from "express";
 import supabase from "../config/supabase.js";
 import { authenticateAdmin } from "../middlewares/requireAdmin.js";
+import { logAudit } from "../middlewares/logAudit.js";
 
 const router = express.Router();
 
@@ -49,6 +50,22 @@ router.post("/produits", authenticateAdmin, async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "admin",
+      action_type:  "PRODUIT_CREATED",
+      module:       "boutique",
+      entite_type:  "produit",
+      entite_id:    data.id,
+      detail:       `Produit créé : ${nom} (prix : ${prix}, stock : ${stock || 0})`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -73,6 +90,22 @@ router.patch("/produits/:id", authenticateAdmin, async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "admin",
+      action_type:  "PRODUIT_UPDATED",
+      module:       "boutique",
+      entite_type:  "produit",
+      entite_id:    id,
+      detail:       `Produit ${id} mis à jour — champs : ${Object.keys(updates).join(", ")}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -84,6 +117,22 @@ router.delete("/produits/:id", authenticateAdmin, async (req, res) => {
   try {
     const { error } = await supabase.from("produits").delete().eq("id", req.params.id);
     if (error) throw error;
+
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "admin",
+      action_type:  "PRODUIT_DELETED",
+      module:       "boutique",
+      entite_type:  "produit",
+      entite_id:    req.params.id,
+      detail:       `Produit ${req.params.id} supprimé`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "warning",
+    }).catch(() => {});
+
     res.json({ message: "Produit supprimé" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -120,6 +169,20 @@ router.post("/commandes", async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+
+    logAudit({
+      acteur_email: client_email || null,
+      acteur_nom:   client_nom   || null,
+      action_type:  "COMMANDE_CREATED",
+      module:       "boutique",
+      entite_type:  "commande",
+      entite_id:    data.id,
+      detail:       `Nouvelle commande de ${client_nom} — total : ${total} FCFA (${items.length} article(s))`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -142,6 +205,22 @@ router.patch("/commandes/:id", authenticateAdmin, async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "admin",
+      action_type:  "COMMANDE_UPDATED",
+      module:       "boutique",
+      entite_type:  "commande",
+      entite_id:    id,
+      detail:       `Commande ${id} mise à jour — champs : ${Object.keys(updates).join(", ")}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

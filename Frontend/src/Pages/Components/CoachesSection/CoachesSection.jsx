@@ -23,8 +23,8 @@ function useInView(t = 0.15) {
   return [ref, v];
 }
 
-/* ── Données ─────────────────────────────────────────── */
-const COACHES = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, img: `/team${i + 1}.jpeg` }));
+/* ── Données fallback ────────────────────────────────── */
+const COACHES_FALLBACK = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, img: `/team${i + 1}.jpeg`, nom: "", grade: "" }));
 
 /* ── Carte coach ─────────────────────────────────────── */
 const CoachCard = ({ coach }) => {
@@ -86,8 +86,23 @@ const CoachCard = ({ coach }) => {
 ══════════════════════════════════════════════════════ */
 const CoachesSection = () => {
   const [ref, inView] = useInView();
-  const row1 = COACHES.slice(0, 10);
-  const row2 = COACHES.slice(10, 20);
+  const [coaches, setCoaches] = useState(COACHES_FALLBACK);
+
+  useEffect(() => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/equipe-photos/publics`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCoaches(data.map(c => ({ id: c.id, img: c.photo_url, nom: c.nom || "", grade: c.titre || "" })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const half = Math.ceil(coaches.length / 2);
+  const row1 = coaches.slice(0, half);
+  const row2 = coaches.slice(half);
 
   const FF = "'Montserrat','Segoe UI',sans-serif";
   const FD = "'DM Serif Display',Georgia,serif";

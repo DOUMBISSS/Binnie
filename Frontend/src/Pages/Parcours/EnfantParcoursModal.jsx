@@ -126,6 +126,7 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
   const [centreAssistantesMap,setCentreAssistantesMap]= useState({});
   const [assistantes,         setAssistantes]         = useState([]);
   const [loadingAss,          setLoadingAss]          = useState(false);
+  const [loadingAssLigne,     setLoadingAssLigne]     = useState(false);
 
   // Form
   const [enfant,       setEnfant]       = useState({ prenom:"", nom:"", tranche_age:"" });
@@ -218,7 +219,7 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
     setOffreChoisie(null);
   };
 
-  // ── Confirmer centre → step 3 (assistantes)
+  // ── Confirmer centre → step 3 (assistantes présentiel)
   const confirmerCentre = async (centre) => {
     setCentreChoisi(centre);
     setLoadingAss(true); setAssistantes([]);
@@ -228,6 +229,18 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
       setAssistantes(d.assistantes || []);
     } catch {}
     finally { setLoadingAss(false); }
+    setStep(3);
+  };
+
+  // ── En ligne → step 3 (assistantes disponibles non-assignées)
+  const continuerEnLigne = async () => {
+    setLoadingAssLigne(true); setAssistantes([]);
+    try {
+      const r = await fetch(`${API}/api/parcours/assistantes-ligne`);
+      const d = await r.json();
+      setAssistantes(d.assistantes || []);
+    } catch {}
+    finally { setLoadingAssLigne(false); }
     setStep(3);
   };
 
@@ -467,16 +480,9 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
                             })}
                           </div>
 
-                          <div style={{ display:"flex", alignItems:"flex-start", gap:8, background:"#fffbeb", border:"1px solid #fde68a", borderRadius:8, padding:"8px 12px", marginBottom:14 }}>
-                            <span style={{ flexShrink:0 }}>💡</span>
-                            <p style={{ margin:0, fontSize:".73rem", color:"#92400e", lineHeight:1.5 }}>
-                              Les assistantes en ligne pour enfants seront assignées prochainement.
-                            </p>
-                          </div>
-
-                          <button onClick={() => setStep(4)} disabled={!offreEnLigne}
-                            style={{ ...primaryBtn, opacity: offreEnLigne ? 1 : .45 }}>
-                            Continuer →
+                          <button onClick={continuerEnLigne} disabled={!offreEnLigne || loadingAssLigne}
+                            style={{ ...primaryBtn, opacity: offreEnLigne ? 1 : .45, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                            {loadingAssLigne ? <><Spinner/>Chargement…</> : "Choisir mon assistante →"}
                           </button>
                         </div>
                       )}
@@ -494,7 +500,10 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
                                 {centres.map(c => {
                                   const master    = findMaster(c);
                                   const color     = master?.color || BET_NAVY;
-                                  const offres    = (master?.offres || []).filter(off => off.actif !== false);
+                                  const allOffres = (master?.offres || []).filter(off => off.actif !== false);
+                                  const KW_ENFANT = ["enfant","junior","ado","adolescent","jeune","kid","child","6-","8-","11-","14-"];
+                                  const offresEnfant = allOffres.filter(o => KW_ENFANT.some(kw => (o.label||"").toLowerCase().includes(kw)));
+                                  const offres = offresEnfant.length > 0 ? offresEnfant : allOffres;
                                   const assistList= centreAssistantesMap[c.id] || [];
                                   const isOpenC   = selectedCentreCard === c.id;
                                   const offreOk   = isOpenC && offreChoisie && selectedCentreCard === c.id;
@@ -602,24 +611,41 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* ═══ STEP 3 : Assistantes du centre (présentiel) ═══ */}
+          {/* ═══ STEP 3 : Assistantes (présentiel = centre / en_ligne = disponibles) ═══ */}
           {step === 3 && (
             <div style={{ animation:"emFU .3s ease" }}>
               <button onClick={() => setStep(2)} style={backBtn}>← Retour</button>
 
-              {/* Recap centre + offre */}
-              {(centreChoisi || offreChoisie) && (
-                <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px", marginBottom:16 }}>
-                  <span style={{ fontSize:"1rem" }}>✅</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:700, fontSize:".82rem", color:"#065f46" }}>{offreChoisie?.label || centreChoisi?.nom}</div>
-                    <div style={{ fontSize:".72rem", color:"#047857" }}>{centreChoisi?.nom}{offreChoisie ? ` · ${offreChoisie.prix}` : ""}</div>
-                  </div>
-                  <button onClick={() => setStep(2)} style={{ background:"none", border:"none", fontSize:".7rem", color:"#059669", cursor:"pointer", fontWeight:700 }}>Changer</button>
+              {/* Recap */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 14px", marginBottom:16 }}>
+                <span style={{ fontSize:"1rem" }}>✅</span>
+                <div style={{ flex:1 }}>
+                  {modeCours === "en_ligne" ? (
+                    <>
+                      <div style={{ fontWeight:700, fontSize:".82rem", color:"#065f46" }}>{offreEnLigne?.label}</div>
+                      <div style={{ fontSize:".72rem", color:"#047857" }}>En ligne · {offreEnLigne?.prix}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight:700, fontSize:".82rem", color:"#065f46" }}>{offreChoisie?.label || centreChoisi?.nom}</div>
+                      <div style={{ fontSize:".72rem", color:"#047857" }}>{centreChoisi?.nom}{offreChoisie ? ` · ${offreChoisie.prix}` : ""}</div>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => setStep(2)} style={{ background:"none", border:"none", fontSize:".7rem", color:"#059669", cursor:"pointer", fontWeight:700 }}>Changer</button>
+              </div>
+
+              {/* Titre contextuel */}
+              {modeCours === "en_ligne" && (
+                <div style={{ display:"flex", alignItems:"flex-start", gap:10, background:"#eff6ff", border:"1.5px solid #bae6fd", borderRadius:10, padding:"10px 14px", marginBottom:16 }}>
+                  <span style={{ flexShrink:0, fontSize:"1.1rem" }}>💻</span>
+                  <p style={{ margin:0, fontSize:".8rem", color:"#1e40af", lineHeight:1.6 }}>
+                    Choisissez votre <strong>assistante en ligne</strong>. Elle vous accompagnera tout au long du parcours de votre enfant.
+                  </p>
                 </div>
               )}
 
-              {loadingAss ? (
+              {(loadingAss || loadingAssLigne) ? (
                 <div style={{ textAlign:"center", padding:40 }}>
                   <div style={{ width:32, height:32, border:"3px solid #e2e8f0", borderTopColor:BET_BLUE, borderRadius:"50%", animation:"emSpin .8s linear infinite", margin:"0 auto 12px" }} />
                   <p style={{ color:"#64748b", fontSize:".88rem", margin:0 }}>Recherche des assistantes…</p>
@@ -628,14 +654,17 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
                 <div style={{ textAlign:"center", padding:"28px 20px", background:"#f8fafc", borderRadius:14, border:"1.5px dashed #e2e8f0", marginBottom:16 }}>
                   <div style={{ fontSize:"1.8rem", marginBottom:10 }}>😔</div>
                   <p style={{ color:"#475569", fontSize:".86rem", lineHeight:1.6, margin:0 }}>
-                    Aucune assistante assignée à ce centre pour le moment.<br/>
-                    <strong>Continuez</strong> et un conseiller vous recontactera.
+                    {modeCours === "en_ligne"
+                      ? <>Aucune assistante disponible pour le moment.<br/><strong>Continuez</strong> et un conseiller vous sera assigné sous 24h.</>
+                      : <>Aucune assistante assignée à ce centre pour le moment.<br/><strong>Continuez</strong> et un conseiller vous recontactera.</>
+                    }
                   </p>
                 </div>
               ) : (
                 <>
                   <p style={{ color:"#64748b", fontSize:".84rem", marginBottom:14 }}>
-                    {assistantes.length} assistante{assistantes.length > 1 ? "s" : ""} — {centreChoisi?.nom}
+                    {assistantes.length} assistante{assistantes.length > 1 ? "s" : ""} disponible{assistantes.length > 1 ? "s" : ""}
+                    {modeCours === "presentiel" && centreChoisi ? ` — ${centreChoisi.nom}` : " en ligne"}
                   </p>
                   <div className="em-assist-grid" style={{ marginBottom:14 }}>
                     {assistantes.map(a => (
@@ -647,6 +676,11 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
                         <div style={{ fontWeight:800, fontSize:".88rem", color:BET_DARK, marginBottom:2 }}>{a.prenom} {a.nom}</div>
                         <div style={{ fontSize:".7rem", color:"#94a3b8", marginBottom: a.telephone ? 4 : 10 }}>Assistante BET</div>
                         {a.telephone && <div style={{ fontSize:".7rem", color:BET_BLUE, fontWeight:700, marginBottom:10 }}>📞 {a.telephone}</div>}
+                        {modeCours === "en_ligne" && (
+                          <div style={{ fontSize:".64rem", color:"#16a34a", fontWeight:700, marginBottom:6, background:"#f0fdf4", borderRadius:6, padding:"2px 8px", display:"inline-block" }}>
+                            🟢 Disponible en ligne
+                          </div>
+                        )}
                         <div style={{ background:`linear-gradient(135deg,${BET_NAVY},${BET_BLUE})`, color:"#fff", borderRadius:999, padding:"7px 0", fontWeight:800, fontSize:".74rem", fontFamily:F }}>
                           Choisir →
                         </div>
@@ -666,7 +700,7 @@ export default function EnfantParcoursModal({ isOpen, onClose }) {
           {/* ═══ STEP 4 : Paiement ═══ */}
           {step === 4 && (
             <div style={{ animation:"emFU .3s ease" }}>
-              <button onClick={() => setStep(modeCours === "presentiel" ? 3 : 2)} style={backBtn}>← Retour</button>
+              <button onClick={() => setStep(3)} style={backBtn}>← Retour</button>
 
               {/* Recap */}
               <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:14, padding:"14px 16px", marginBottom:20 }}>

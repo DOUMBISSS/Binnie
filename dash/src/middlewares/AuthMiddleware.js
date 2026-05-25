@@ -10,7 +10,7 @@ const AuthMiddleware = ({ children }) => {
         const userToken = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).token : null;
         if (!userToken || userToken === 'undefined') {
             setIsLoggedIn(false);
-            toast.error("Session expirée. Veuillez vous reconnecter.");
+            toast.error("Votre session a expiré. Reconnectez-vous pour continuer.");
             return navigate('/');
         } else {
             setIsLoggedIn(true);

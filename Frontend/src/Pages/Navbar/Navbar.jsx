@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import "./navbar.css";
 import { supabase } from '../../config/supabase';
 import ParcoursModal from "../Parcours/ParcoursModal";
@@ -38,6 +38,7 @@ const IcoEyeOff  = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="n
 const searchableItems = [
   { type:"page",          title:"Accueil",                path:"/",                     keywords:["accueil","home"] },
   { type:"page",          title:"À propos",               path:"/about",                keywords:["à propos","about"] },
+  { type:"page",          title:"FAQ",                    path:"/faq",                  keywords:["faq","questions","réponses","aide"] },
   { type:"cours",         title:"Cours en ligne",         path:"/cours/en-ligne",        keywords:["en ligne","online","distance"] },
   { type:"cours",         title:"Cours aux cabinets",     path:"/cours/cabinet",         keywords:["cabinet","présentiel"] },
   { type:"cours",         title:"Cours à domicile",       path:"/cours/domicile",        keywords:["domicile","particulier"] },
@@ -84,13 +85,150 @@ const plansEnfant = [
 ];
 
 const NAV_DROPDOWNS = [
-  { key:"offres",         label:"Nos offres",     links:[
-    // {to:"/parcours/particulier",l:"Particuliers"},
-    {to:"/parcours/entreprise",l:"Entreprises"},
-    // {to:"/parcours/enfant",l:"Enfants"},
-    {to:"/service/interpretariat",l:"Interprétariat"}] },
   { key:"cours",          label:"Nos cours",      links:[{to:"/cours/en-ligne",l:"Cours en ligne"},{to:"/cours/cabinet",l:"Cours aux cabinets"},{to:"/cours/domicile",l:"Cours à domicile"}] },
   { key:"certifications", label:"Certifications", links:[{to:"/certification/toeic",l:"TOEIC"},{to:"/certification/toefl",l:"TOEFL"},{to:"/certification/ielts",l:"IELTS"}] },
+  { key:"communaute",     label:"Communauté",     links:[{to:"/temoignages",l:"Témoignages"},{to:"/blog",l:"Blog"}] },
+];
+
+const OFFRES_DATA = [
+  {
+    key: "adultes",
+    emoji: "🎓",
+    titre: "Adultes",
+    tagline: "Apprenez à votre rythme",
+    couleur: "#1e3a8a",
+    bg: "#eff6ff",
+    description: "Cours d'anglais général ou professionnel pour adultes actifs. Formats flexibles adaptés à votre emploi du temps : en ligne, en cabinet ou à domicile.",
+    details: [
+      { icon:"📍", label:"Formats", val:"En ligne · Cabinet · Domicile" },
+      { icon:"📊", label:"Niveaux", val:"A1 → C2 (tous niveaux)" },
+      { icon:"👨‍🏫", label:"Formateurs", val:"Natifs & certifiés CELTA/DELTA" },
+      { icon:"📅", label:"Fréquence", val:"2 à 5 cours / semaine" },
+      { icon:"⏱️", label:"Durée séance", val:"1h à 1h30" },
+      { icon:"📜", label:"Attestation", val:"Remise à la fin du programme" },
+    ],
+    plans: [
+      { nom:"Découverte", prix:"15 000 FCFA/mois", detail:"2 cours/sem · Accès 3 mois" },
+      { nom:"Intensif",   prix:"30 000 FCFA/mois", detail:"5 cours/sem · Coach perso", popular:true },
+      { nom:"Premium",    prix:"50 000 FCFA/mois", detail:"Cours illimités · Tuteur natif" },
+    ],
+    ctas: [{ label:"S'inscrire", to:"/parcours/particulier", primary:true },{ label:"Test de niveau gratuit", to:"/test-niveau" }],
+  },
+  {
+    key: "enfants",
+    emoji: "🧒",
+    titre: "Enfants & Ados",
+    tagline: "6 à 17 ans · Méthode ludique",
+    couleur: "#7c3aed",
+    bg: "#f3e8ff",
+    description: "Programme d'anglais conçu pour les enfants et adolescents avec une pédagogie adaptée à chaque tranche d'âge. Classes homogènes par niveau.",
+    details: [
+      { icon:"🎂", label:"Tranches d'âge", val:"Junior (6-10 ans) · Ado (11-17 ans)" },
+      { icon:"🏫", label:"Format", val:"En cabinet · À domicile" },
+      { icon:"📊", label:"Niveaux", val:"A1 → B2" },
+      { icon:"📅", label:"Fréquence", val:"2 à 3 cours / semaine" },
+      { icon:"📝", label:"Prépa exams", val:"Examens scolaires & Junior Cert" },
+      { icon:"👨‍👩‍👧", label:"Suivi parents", val:"Rapport mensuel inclus" },
+    ],
+    plans: [
+      { nom:"Junior (6-10 ans)",   prix:"12 000 FCFA/mois", detail:"2 cours/sem · Niveaux A1-A2" },
+      { nom:"Ado (11-17 ans)",     prix:"20 000 FCFA/mois", detail:"3 cours/sem · Prépa examens", popular:true },
+      { nom:"Intensif Junior",     prix:"35 000 FCFA/mois", detail:"5 cours/sem · Tuteur natif" },
+    ],
+    ctas: [{ label:"Inscrire mon enfant", to:"/parcours/inscription", primary:true },{ label:"En savoir plus", to:"/contact" }],
+  },
+  {
+    key: "entreprises",
+    emoji: "🏢",
+    titre: "Entreprises",
+    tagline: "Formations sur-mesure pour vos équipes",
+    couleur: "#0891b2",
+    bg: "#e0f2fe",
+    description: "Solutions de formation professionnelle adaptées aux besoins de votre entreprise. Cours intra, programmes sur-mesure et tableau de bord RH inclus.",
+    details: [
+      { icon:"👥", label:"Effectif", val:"À partir de 1 employé (dégressif 5+)" },
+      { icon:"📍", label:"Format", val:"Intra-entreprise · En ligne · Cabinet" },
+      { icon:"📊", label:"Niveaux", val:"Tous niveaux · Anglais des affaires" },
+      { icon:"📈", label:"Suivi RH", val:"Dashboard & rapports mensuels" },
+      { icon:"📜", label:"Attestations", val:"Remises à chaque apprenant" },
+      { icon:"🤝", label:"Chef de projet", val:"Attitré dès le plan Business" },
+    ],
+    plans: [
+      { nom:"Starter",    prix:"75 000 FCFA/mois", detail:"Jusqu'à 5 employés · Support email" },
+      { nom:"Business",   prix:"150 000 FCFA/mois", detail:"Jusqu'à 20 employés · Dashboard RH", popular:true },
+      { nom:"Enterprise", prix:"Sur devis",          detail:"Effectif illimité · Programme sur-mesure" },
+    ],
+    ctas: [{ label:"Demander un devis", to:"/parcours/entreprise", primary:true },{ label:"Contactez-nous", to:"/contact" }],
+  },
+  {
+    key: "certifications",
+    emoji: "🏆",
+    titre: "Certifications",
+    tagline: "TOEIC · TOEFL · IELTS",
+    couleur: "#d97706",
+    bg: "#fef3c7",
+    description: "Préparation intensive aux grandes certifications internationales avec des formateurs spécialisés. Moyenne de 750+ au TOEIC dès le 1er passage.",
+    details: [
+      { icon:"🎯", label:"Certifications", val:"TOEIC · TOEFL iBT · IELTS" },
+      { icon:"📊", label:"Score moyen", val:"750+ au TOEIC (1er passage)" },
+      { icon:"👨‍🏫", label:"Formateurs", val:"Spécialisés & certifiés" },
+      { icon:"📝", label:"Simulations", val:"Examens blancs réguliers" },
+      { icon:"📅", label:"Durée", val:"3 à 6 mois selon objectif" },
+      { icon:"📍", label:"Format", val:"En ligne · Cabinet · À domicile" },
+    ],
+    plans: [
+      { nom:"Prépa TOEIC",  prix:"25 000 FCFA/mois", detail:"3 cours/sem · Examens blancs" },
+      { nom:"Prépa IELTS",  prix:"30 000 FCFA/mois", detail:"3 cours/sem · Coach dédié", popular:true },
+      { nom:"Prépa TOEFL",  prix:"30 000 FCFA/mois", detail:"3 cours/sem · Suivi individuel" },
+    ],
+    ctas: [{ label:"Préparer ma certification", to:"/parcours/particulier", primary:true },{ label:"Test de niveau", to:"/test-niveau" }],
+  },
+  {
+    key: "interpretariat",
+    emoji: "🌍",
+    titre: "Interprétariat",
+    tagline: "Conférences · Réunions · Événements",
+    couleur: "#059669",
+    bg: "#f0fdf4",
+    description: "Services d'interprétation professionnelle assurés par des interprètes certifiés pour vos événements, conférences et réunions d'affaires.",
+    details: [
+      { icon:"🎤", label:"Types", val:"Simultané · Consécutif · Liaison" },
+      { icon:"🌐", label:"Langues", val:"Anglais · Français · et autres" },
+      { icon:"📍", label:"Déplacement", val:"Abidjan & déplacements sur demande" },
+      { icon:"📅", label:"Disponibilité", val:"7j/7 · Sur réservation" },
+      { icon:"📜", label:"Certification", val:"Interprètes certifiés AIIC" },
+      { icon:"⚡", label:"Délai", val:"Devis sous 24h" },
+    ],
+    plans: [
+      { nom:"Demi-journée",  prix:"Sur devis", detail:"Jusqu'à 4h · 1 interprète" },
+      { nom:"Journée",       prix:"Sur devis", detail:"Journée complète · 1-2 interprètes", popular:true },
+      { nom:"Événement",     prix:"Sur devis", detail:"Multi-jours · Équipe dédiée" },
+    ],
+    ctas: [{ label:"Demander un devis", to:"/service/interpretariat", primary:true },{ label:"Nous contacter", to:"/contact" }],
+  },
+  {
+    key: "traduction",
+    emoji: "📄",
+    titre: "Traduction",
+    tagline: "Documents · Contrats · Certifiée",
+    couleur: "#dc2626",
+    bg: "#fef2f2",
+    description: "Service de traduction professionnelle de documents juridiques, commerciaux et techniques. Traductions certifiées disponibles pour vos démarches officielles.",
+    details: [
+      { icon:"📋", label:"Documents", val:"Contrats · Actes · Brochures · Sites web" },
+      { icon:"🌐", label:"Langues", val:"Anglais ↔ Français (+ autres sur demande)" },
+      { icon:"📜", label:"Certifiée", val:"Traductions certifiées disponibles" },
+      { icon:"⚡", label:"Délais", val:"Express 24h · Standard 3-5 jours" },
+      { icon:"🔒", label:"Confidentialité", val:"NDA disponible sur demande" },
+      { icon:"💬", label:"Révisions", val:"1 révision gratuite incluse" },
+    ],
+    plans: [
+      { nom:"Standard",  prix:"Sur devis", detail:"3-5 jours ouvrés · Tarif /mot" },
+      { nom:"Express",   prix:"Sur devis", detail:"24-48h · Majoration urgence", popular:true },
+      { nom:"Certifiée", prix:"Sur devis", detail:"Avec cachet officiel · Légalisation" },
+    ],
+    ctas: [{ label:"Obtenir un devis", to:"/contact", primary:true },{ label:"En savoir plus", to:"/service/interpretariat" }],
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════════════
@@ -176,6 +314,8 @@ function loadCenters() {
 ════════════════════════════════════════════════════════════════════════════ */
 const Navbar = () => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isHome = pathname === "/";
 
   const [scrolled,       setScrolled]       = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null);
@@ -224,6 +364,27 @@ const Navbar = () => {
   const [searchQuery,   setSearchQuery]   = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const searchInputRef = useRef(null);
+
+  /* Offres modal ── */
+  const [showOffresModal,  setShowOffresModal]  = useState(false);
+  const [offresSelected,   setOffresSelected]   = useState(null);
+  const [dynInterp, setDynInterp] = useState(() => { try { const s=localStorage.getItem("bet_service_interpretariat"); return s?JSON.parse(s):null; } catch{return null;} });
+  const [dynTrad,   setDynTrad]   = useState(() => { try { const s=localStorage.getItem("bet_service_traduction");    return s?JSON.parse(s):null; } catch{return null;} });
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === "bet_service_interpretariat") { try { setDynInterp(JSON.parse(e.newValue)); } catch{} }
+      if (e.key === "bet_service_traduction")    { try { setDynTrad(JSON.parse(e.newValue));   } catch{} }
+    };
+    window.addEventListener("storage", onStorage);
+    // Load from Supabase once
+    supabase.from("plateforme_config").select("key,valeur").in("key",["service_interpretariat","service_traduction"]).then(({ data }) => {
+      (data||[]).forEach(row => {
+        if (row.key === "service_interpretariat" && row.valeur) { localStorage.setItem("bet_service_interpretariat", JSON.stringify(row.valeur)); setDynInterp(row.valeur); }
+        if (row.key === "service_traduction"     && row.valeur) { localStorage.setItem("bet_service_traduction",    JSON.stringify(row.valeur)); setDynTrad(row.valeur);   }
+      });
+    });
+    return () => window.removeEventListener("storage", onStorage);
+  }, []); // eslint-disable-line
 
   /* Parcours modal ── */
   const [showParcoursModal,      setShowParcoursModal]      = useState(false);
@@ -718,7 +879,7 @@ const Navbar = () => {
      RENDER
   ════════════════════════════════════════════════════════════ */
   return (
-    <div className={`navbar-container ${scrolled ? "scrolled" : ""}`}>
+    <div className={`navbar-container ${scrolled ? "scrolled" : ""} ${isHome && !scrolled ? "at-hero" : ""}`}>
       <div className="marquee-bar">
         <div className="marquee-track">
           {[...marqueeItems, ...marqueeItems].map((item, i) => {
@@ -760,6 +921,12 @@ const Navbar = () => {
           </button>
            <button className="parcours-btn parcours-btn--b2b" onClick={() => setShowEntrepriseModal(true)}>
             <IcoBuild /> Je suis une entreprise
+          </button>
+          <button className="lang-btn parcours-lang-btn" onClick={() => setLang(l => l==="FR"?"EN":"FR")}>
+            <IcoGlobe />
+            <span>{lang === "FR" ? "🇫🇷 FR" : "🇬🇧 EN"}</span>
+            <span className="lang-slash">/</span>
+            <span className="lang-other">{lang === "FR" ? "EN" : "FR"}</span>
           </button>
           {/* <button
             className="parcours-btn"
@@ -808,6 +975,11 @@ const Navbar = () => {
         <ul className={`nav-links ${menuOpen ? "active" : ""}`}>
           <li><NavLink to="/" onClick={handleNavClick}>Accueil</NavLink></li>
           <li><NavLink to="/test-niveau" onClick={handleNavClick}>Test de niveau</NavLink></li>
+          <li>
+            <button className="nav-centres-btn" onClick={() => { setShowOffresModal(true); setOffresSelected(null); handleNavClick(); }}>
+              Nos offres
+            </button>
+          </li>
           {NAV_DROPDOWNS.map(({ key, label, links }) => (
             <li key={key} className="dropdown">
               <div className="dropdown-trigger" onClick={() => toggleDropdown(key)}>
@@ -829,31 +1001,23 @@ const Navbar = () => {
           </li>
           <li><NavLink to="/bet-for-business" onClick={handleNavClick}>BET for Business</NavLink></li>
           <li><NavLink to="/about" onClick={handleNavClick}>À propos</NavLink></li>
+          <li><NavLink to="/faq" onClick={handleNavClick}>FAQ</NavLink></li>
+          <li><NavLink to="/boutique" onClick={handleNavClick}>🛍️ Boutique</NavLink></li>
           <li><NavLink to="/contact" onClick={handleNavClick}>Contact</NavLink></li>
         </ul>
 
         <div className="nav-right">
           <button className="icon-btn" onClick={openSearch} aria-label="Rechercher"><IcoSearch /></button>
-          <button className="lang-btn" onClick={() => setLang(l => l==="FR"?"EN":"FR")}>
-            <IcoGlobe />
-            <span>{lang === "FR" ? "🇫🇷 FR" : "🇬🇧 EN"}</span>
-            <span className="lang-slash">/</span>
-            <span className="lang-other">{lang === "FR" ? "EN" : "FR"}</span>
-          </button>
 
           {!user ? (
             <button className="btn-login" onClick={() => setIsModalOpen(true)}>Connexion</button>
           ) : (
             <div className="profile-wrap" ref={profileRef}>
-              <button className="profile-btn" onClick={() => setProfileMenuOpen(p => !p)}>
+              <button className="profile-btn" onClick={() => setProfileMenuOpen(p => !p)} title={user?.name || user?.email?.split("@")[0] || "Utilisateur"}>
                 <div className="profile-avatar">
                   {user.avatar ? <img src={user.avatar} alt="" /> : <span>{initials(user.name)}</span>}
                   <span className="online-dot" />
                 </div>
-               <span className="profile-name">
-  {user?.name || user?.email?.split("@")[0] || "Utilisateur"}
-</span>
-                <span className={`chevron ${profileMenuOpen?"open":""}`}><IcoChevron /></span>
               </button>
               {profileMenuOpen && (
                 <div className="profile-dropdown">
@@ -1371,6 +1535,158 @@ const Navbar = () => {
               )}
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL NOS OFFRES ────────────────────────────────── */}
+      {showOffresModal && (
+        <div className="tunnel-overlay" onClick={(e) => { if (e.target === e.currentTarget) { setShowOffresModal(false); setOffresSelected(null); } }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background:"#fff", borderRadius:24, width:"100%", maxWidth:980,
+            maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)",
+            display:"flex", flexDirection:"column", animation:"slideUp .28s ease",
+          }}>
+
+            {/* Header */}
+            <div style={{
+              background:"linear-gradient(135deg,#0b1f40 0%,#1e3a8a 60%,#2563eb 100%)",
+              borderRadius:"24px 24px 0 0", padding:"22px 28px",
+              display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0,
+            }}>
+              <div>
+                {offresSelected
+                  ? <button onClick={() => setOffresSelected(null)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontWeight:700, fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+                      ← Toutes les offres
+                    </button>
+                  : <div>
+                      <div style={{ color:"#fff", fontWeight:800, fontSize:"1.15rem" }}>Nos offres</div>
+                      <div style={{ color:"rgba(255,255,255,.65)", fontSize:".82rem", marginTop:2 }}>Choisissez l'offre qui vous correspond</div>
+                    </div>
+                }
+              </div>
+              <button onClick={() => { setShowOffresModal(false); setOffresSelected(null); }} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", width:34, height:34, borderRadius:"50%", cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+            </div>
+
+            {/* ── Vue grille ── */}
+            {!offresSelected && (
+              <div className="offres-grid" style={{ padding:"28px 28px 32px", display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+                {OFFRES_DATA.map(offre => {
+                  const dyn = offre.key==="interpretariat" ? dynInterp : offre.key==="traduction" ? dynTrad : null;
+                  const o = dyn ? { ...offre, description:dyn.description||offre.description, tagline:dyn.tagline||offre.tagline, plans:dyn.plans||offre.plans } : offre;
+                  return (
+                  <button key={o.key} onClick={(e) => { e.stopPropagation(); setOffresSelected(o.key); }}
+                    style={{
+                      background:o.bg, border:`2px solid ${o.couleur}22`,
+                      borderRadius:16, padding:"22px 18px", cursor:"pointer", textAlign:"left",
+                      transition:"all .22s ease", display:"flex", flexDirection:"column", gap:10,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px)"; e.currentTarget.style.boxShadow=`0 12px 32px ${o.couleur}28`; e.currentTarget.style.borderColor=o.couleur; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="none"; e.currentTarget.style.borderColor=`${o.couleur}22`; }}
+                  >
+                    <div style={{ width:48, height:48, borderRadius:12, background:`${o.couleur}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>{o.emoji}</div>
+                    <div>
+                      <div style={{ fontWeight:800, fontSize:"1rem", color:"#0f172a", marginBottom:4 }}>{o.titre}</div>
+                      <div style={{ fontSize:".78rem", color:o.couleur, fontWeight:600 }}>{o.tagline}</div>
+                    </div>
+                    <div style={{ fontSize:".8rem", color:"#475569", lineHeight:1.5 }}>{o.description.slice(0,90)}…</div>
+                    <div style={{ marginTop:"auto", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <span style={{ fontSize:".75rem", background:`${o.couleur}18`, color:o.couleur, borderRadius:20, padding:"3px 10px", fontWeight:700 }}>{o.plans.length} formules</span>
+                      <span style={{ color:o.couleur, fontWeight:800, fontSize:".82rem" }}>Voir →</span>
+                    </div>
+                  </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── Vue détail ── */}
+            {offresSelected && (() => {
+              const base = OFFRES_DATA.find(o => o.key === offresSelected);
+              if (!base) return null;
+              const dyn = base.key==="interpretariat" ? dynInterp : base.key==="traduction" ? dynTrad : null;
+              const offre = dyn ? { ...base, description:dyn.description||base.description, tagline:dyn.tagline||base.tagline, details:dyn.details||base.details, plans:dyn.plans||base.plans } : base;
+              return (
+                <div className="offres-detail-grid" style={{ padding:"28px 32px 36px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:28 }}>
+
+                  {/* Colonne gauche : infos */}
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:18 }}>
+                      <div style={{ width:60, height:60, borderRadius:16, background:`${offre.couleur}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>{offre.emoji}</div>
+                      <div>
+                        <h2 style={{ margin:0, fontSize:"1.3rem", fontWeight:900, color:"#0f172a" }}>{offre.titre}</h2>
+                        <p style={{ margin:0, fontSize:".85rem", color:offre.couleur, fontWeight:600 }}>{offre.tagline}</p>
+                      </div>
+                    </div>
+                    <p style={{ fontSize:".9rem", color:"#475569", lineHeight:1.7, marginBottom:20 }}>{offre.description}</p>
+
+                    <div className="offres-detail-sub" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                      {offre.details.map((d,i) => (
+                        <div key={i} style={{ background:"#f8fafc", borderRadius:10, padding:"10px 12px", display:"flex", gap:8, alignItems:"flex-start" }}>
+                          <span style={{ fontSize:16, flexShrink:0 }}>{d.icon}</span>
+                          <div>
+                            <div style={{ fontSize:".7rem", fontWeight:700, color:"#9ca3af", textTransform:"uppercase", letterSpacing:".04em" }}>{d.label}</div>
+                            <div style={{ fontSize:".8rem", fontWeight:600, color:"#1e293b", marginTop:1 }}>{d.val}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Colonne droite : formules + CTAs */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                    <h3 style={{ margin:"0 0 4px", fontSize:".9rem", fontWeight:800, color:"#0f172a" }}>Nos formules</h3>
+                    {offre.plans.map((p,i) => (
+                      <div key={i} style={{
+                        borderRadius:12, padding:"14px 16px",
+                        border:`2px solid ${p.popular ? offre.couleur : "#e2e8f0"}`,
+                        background: p.popular ? `${offre.couleur}08` : "#fafafa",
+                        position:"relative",
+                      }}>
+                        {p.popular && (
+                          <span style={{ position:"absolute", top:-10, left:14, background:offre.couleur, color:"#fff", fontSize:".68rem", fontWeight:800, borderRadius:20, padding:"2px 10px" }}>Populaire</span>
+                        )}
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                          <div>
+                            <div style={{ fontWeight:800, fontSize:".95rem", color:"#0f172a" }}>{p.nom}</div>
+                            <div style={{ fontSize:".78rem", color:"#64748b", marginTop:2 }}>{p.detail}</div>
+                          </div>
+                          <div style={{ fontWeight:800, fontSize:".9rem", color:offre.couleur, textAlign:"right", flexShrink:0, marginLeft:8 }}>{p.prix}</div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
+                      {offre.ctas.map((cta,i) => (
+                        <NavLink key={i} to={cta.to} onClick={() => { setShowOffresModal(false); setOffresSelected(null); }}
+                          style={{
+                            display:"block", textAlign:"center", padding:"12px 20px",
+                            borderRadius:10, fontWeight:700, fontSize:".9rem", textDecoration:"none",
+                            background: cta.primary ? offre.couleur : "transparent",
+                            color: cta.primary ? "#fff" : offre.couleur,
+                            border:`2px solid ${offre.couleur}`,
+                            transition:"opacity .2s",
+                          }}
+                        >
+                          {cta.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Footer */}
+            {!offresSelected && (
+              <div style={{ borderTop:"1px solid #f1f5f9", padding:"14px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", background:"#fafafa", borderRadius:"0 0 24px 24px", flexShrink:0 }}>
+                <span style={{ fontSize:".8rem", color:"#9ca3af" }}>Besoin d'aide pour choisir ?</span>
+                <NavLink to="/contact" onClick={() => { setShowOffresModal(false); setOffresSelected(null); }}
+                  style={{ fontSize:".82rem", fontWeight:700, color:"#1e3a8a", textDecoration:"none" }}>
+                  Parler à un conseiller →
+                </NavLink>
+              </div>
+            )}
           </div>
         </div>
       )}

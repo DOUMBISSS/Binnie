@@ -6,6 +6,7 @@ import {
   requireSuperAdmin,
   requirePermission,
 } from "../middlewares/requireAdmin.js";
+import { logAudit } from "../middlewares/logAudit.js";
 
 // Client utilisateur temporaire pour les opérations MFA (nécessite la session de l'utilisateur)
 const getUserClient = async (accessToken, refreshToken) => {
@@ -83,6 +84,15 @@ router.post("/login", async (req, res) => {
     const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
     if (error) {
       console.error("Supabase auth error:", error.message);
+      logAudit({
+        acteur_email: email,
+        action_type:  "LOGIN_FAILED",
+        module:       "auth",
+        detail:       `Échec de connexion admin pour ${email}`,
+        ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+        user_agent:   req.headers["user-agent"] || null,
+        statut:       "danger",
+      }).catch(() => {});
       return res.status(401).json({ error: "Email ou mot de passe incorrect" });
     }
 
@@ -229,6 +239,21 @@ router.post("/login", async (req, res) => {
       statut:     "success",
     }).then(() => {}).catch(() => {});
 
+    logAudit({
+      acteur_id:    user.id,
+      acteur_nom:   `${profil.prenom} ${profil.nom}`,
+      acteur_email: profil.email,
+      acteur_role:  profil.role,
+      action_type:  "LOGIN_SUCCESS",
+      module:       "auth",
+      entite_type:  "admin",
+      entite_id:    user.id,
+      detail:       `Connexion admin — rôle : ${profil.role}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.json({ message: "Connexion réussie", session: data.session, profil: profilPublic });
   } catch (err) {
     console.error("Erreur login admin :", err);
@@ -369,6 +394,21 @@ router.post("/profils", authenticateAdmin, requireSuperAdmin, async (req, res) =
       statut:     "success",
     });
 
+    logAudit({
+      acteur_id:    req.profil.id,
+      acteur_nom:   `${req.profil.prenom} ${req.profil.nom}`,
+      acteur_email: req.profil.email,
+      acteur_role:  req.role || req.profil.role,
+      action_type:  "USER_CREATED",
+      module:       "users",
+      entite_type:  "profil_admin",
+      entite_id:    newUserId,
+      detail:       `Profil admin ${profil_type} créé pour ${prenom} ${nom} (${email})`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     // 5. Réponse (inclut le mdp temporaire pour que le super_admin le transmette)
     res.status(201).json({
       message:      `Profil ${LABELS_TYPE[profil_type]} créé pour ${prenom} ${nom}`,
@@ -443,6 +483,21 @@ router.patch("/profils/:id", authenticateAdmin, requireSuperAdmin, async (req, r
       detail:     `Profil de ${cible.prenom} ${cible.nom} modifié — champs : ${Object.keys(updates).join(", ")}`,
       statut:     "warning",
     });
+
+    logAudit({
+      acteur_id:    req.profil.id,
+      acteur_nom:   `${req.profil.prenom} ${req.profil.nom}`,
+      acteur_email: req.profil.email,
+      acteur_role:  req.role || req.profil.role,
+      action_type:  "USER_UPDATED",
+      module:       "users",
+      entite_type:  "profil_admin",
+      entite_id:    id,
+      detail:       `Profil admin de ${cible.prenom} ${cible.nom} modifié — champs : ${Object.keys(updates).join(", ")}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "warning",
+    }).catch(() => {});
 
     res.json({ message: "Profil mis à jour", profil: updated });
   } catch (err) {
@@ -749,6 +804,21 @@ router.post("/utilisateurs", authenticateAdmin, requireSuperAdmin, async (req, r
       statut: "success",
     });
 
+    logAudit({
+      acteur_id:    req.profil.id,
+      acteur_nom:   `${req.profil.prenom} ${req.profil.nom}`,
+      acteur_email: req.profil.email,
+      acteur_role:  req.role || req.profil.role,
+      action_type:  "USER_CREATED",
+      module:       "users",
+      entite_type:  "utilisateur",
+      entite_id:    authData.user.id,
+      detail:       `Utilisateur ${role} créé : ${prenom} ${nom} (${email})`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.status(201).json({ message: "Utilisateur créé", utilisateur, mdp_temporaire: mdpTemp });
   } catch (err) {
     console.error(err);
@@ -821,6 +891,28 @@ router.patch("/utilisateurs/:id", authenticateAdmin, requireSuperAdmin, async (r
       console.error("PATCH utilisateur error:", JSON.stringify(error));
       throw error;
     }
+
+    // Determine the most significant action for audit
+    const isRoleChange   = role    !== undefined;
+    const isDeactivation = actif   === false;
+    const auditActionType = isRoleChange ? "ROLE_CHANGED" : "USER_UPDATED";
+    const auditStatut     = isDeactivation ? "warning" : isRoleChange ? "warning" : "success";
+
+    logAudit({
+      acteur_id:    req.profil?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email,
+      acteur_role:  req.role || req.profil?.role,
+      action_type:  auditActionType,
+      module:       "users",
+      entite_type:  "utilisateur",
+      entite_id:    id,
+      detail:       `Mise à jour utilisateur ${id} — champs : ${Object.keys(updates).join(", ")}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       auditStatut,
+    }).catch(() => {});
+
     res.json({ message: "Utilisateur mis à jour", utilisateur: data });
   } catch (err) {
     console.error(err);

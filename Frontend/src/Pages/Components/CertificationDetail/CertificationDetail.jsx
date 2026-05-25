@@ -129,6 +129,27 @@ const CertificationDetail=()=>{
   const[isApprenantBET,setIsApprenantBET]=useState(false);
   const[avisDejaPoste,setAvisDejaPoste]=useState(false);
   const heroRef=useRef(null);
+  const iframeRef=useRef(null);
+  const [isMuted, setIsMuted] = useState(false);
+
+  // ── Média hero configurable ─────────────────────────────────────────────
+  const [heroMedia, setHeroMedia] = useState(null);
+  useEffect(() => {
+    const API = process.env.REACT_APP_API_URL || "http://localhost:5001";
+    fetch(`${API}/api/offre-media/${certId?.toLowerCase()}/publiques`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.media?.length) setHeroMedia(d.media[0]); })
+      .catch(() => {});
+  }, [certId]);
+
+  function buildHeroEmbedUrl(url) {
+    if (!url) return null;
+    const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
+    if (m) return `https://www.youtube.com/embed/${m[1]}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1`;
+    const vm = url.match(/vimeo\.com\/(\d+)/);
+    if (vm) return `https://player.vimeo.com/video/${vm[1]}?controls=1`;
+    return url;
+  }
 
   const prefillForm=(u)=>{
     const m=u?.user_metadata||{};
@@ -224,6 +245,12 @@ const CertificationDetail=()=>{
   },[]);
 
   useEffect(()=>{const h=()=>setStickyBar(window.scrollY>(heroRef.current?.offsetHeight||400)-80);window.addEventListener("scroll",h);return()=>window.removeEventListener("scroll",h);},[]);
+
+  const sendYTCmd=(func,args=[])=>{
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args}),"*");
+  };
+  const handleMute=()=>{ sendYTCmd(isMuted?"unMute":"mute"); setIsMuted(m=>!m); };
+  const handleReplay=()=>{ sendYTCmd("seekTo",[0,true]); sendYTCmd("playVideo"); };
 
   // Injection des styles responsives une seule fois
   useEffect(() => {
@@ -435,14 +462,68 @@ const CertificationDetail=()=>{
   return(
     <div className="cert-detail-root" style={S.page}>
       {/* HERO */}
-      <div ref={heroRef} style={{...S.hero,backgroundImage:`linear-gradient(135deg,rgba(10,20,50,.88) 0%,rgba(30,58,138,.7) 100%), url(${cert.heroImage})`,backgroundSize:"cover",backgroundPosition:"center"}}>
-        <div className="cert-detail-hero-inner" style={S.heroInner}>
+      <div ref={heroRef} style={heroMedia ? {
+          ...S.hero,
+          backgroundImage: heroMedia.type==="image" ? undefined : `linear-gradient(135deg,rgba(10,20,50,.88) 0%,rgba(30,58,138,.7) 100%), url(${cert.heroImage})`,
+          backgroundSize:"cover", backgroundPosition:"center",
+          minHeight: heroMedia.type==="video" ? 500 : 420,
+        } : {
+          ...S.hero,
+          backgroundImage:`linear-gradient(135deg,rgba(10,20,50,.88) 0%,rgba(30,58,138,.7) 100%), url(${cert.heroImage})`,
+          backgroundSize:"cover", backgroundPosition:"center",
+        }}>
+        {/* ── Fond media plein hero ── */}
+        {heroMedia && heroMedia.type==="video" && (
+          <iframe
+            ref={iframeRef}
+            src={buildHeroEmbedUrl(heroMedia.url)}
+            title={heroMedia.titre||"Présentation"}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            style={{
+              position:"absolute", top:"50%", left:"50%",
+              width:"100%", height:"56.25vw",
+              minWidth:"177.78vh", minHeight:"100%",
+              transform:"translate(-50%,-50%)",
+              zIndex:1,
+            }}
+          />
+        )}
+        {heroMedia && heroMedia.type==="image" && (
+          <div style={{
+            position:"absolute", inset:0, zIndex:1,
+            backgroundImage:`url(${heroMedia.url})`,
+            backgroundSize:"cover", backgroundPosition:"center",
+          }}/>
+        )}
+        {heroMedia && (
+          <div style={{
+            position:"absolute", inset:0, zIndex:2, pointerEvents:"none",
+            background: heroMedia.type==="video"
+              ? "linear-gradient(to bottom, rgba(0,0,0,.08) 0%, rgba(8,16,40,.75) 100%)"
+              : "linear-gradient(135deg, rgba(10,20,50,.75) 0%, rgba(30,58,138,.55) 100%)",
+          }}/>
+        )}
+
+        {heroMedia&&heroMedia.type==="video"&&(
+          <div style={{position:"absolute",bottom:18,right:20,display:"flex",gap:8,zIndex:4}}>
+            <button onClick={handleReplay} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,.15)",backdropFilter:"blur(8px)",border:"1.5px solid rgba(255,255,255,.3)",color:"#fff",borderRadius:100,padding:"6px 14px",fontSize:".8rem",fontWeight:600,cursor:"pointer"}}>
+              ↺ Rejouer
+            </button>
+            <button onClick={handleMute} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,.15)",backdropFilter:"blur(8px)",border:"1.5px solid rgba(255,255,255,.3)",color:"#fff",borderRadius:100,padding:"6px 14px",fontSize:".8rem",fontWeight:600,cursor:"pointer"}}>
+              {isMuted?"🔊 Son":"🔇 Muet"}
+            </button>
+          </div>
+        )}
+
+        <div className="cert-detail-hero-inner" style={{ ...S.heroInner, position:"relative", zIndex:3 }}>
           <div style={S.breadcrumb}><span style={S.bLink} onClick={()=>navigate("/")}>Accueil</span><span style={S.bSep}>/</span><span style={S.bLink} onClick={()=>navigate(-1)}>Certifications</span><span style={S.bSep}>/</span><span style={{color:"#e2e8f0"}}>{cert.name}</span></div>
           <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
             <span style={S.tagBlue}>🏆 CERTIFICATION OFFICIELLE</span>
             <span style={S.tagGold}>📊 {cert.level}</span>
           </div>
-          <h1 className="cert-detail-hero-title" style={S.heroTitle}>{cert.name}</h1>
+          <h1 className="cert-detail-hero-title" style={S.heroTitle}>{heroMedia?.titre||cert.name}</h1>
           <p style={{color:"rgba(255,255,255,.6)",fontSize:".9rem",margin:"0 0 10px",fontStyle:"italic"}}>{cert.fullName}</p>
           <p style={{color:"rgba(255,255,255,.85)",fontSize:"1.05rem",margin:"0 0 18px",lineHeight:1.6,maxWidth:600}}>{cert.tagline}</p>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
@@ -702,7 +783,6 @@ const CertificationDetail=()=>{
               />
             </div>
             <button className="cert-detail-btn-enroll" style={S.btnEnroll} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={()=>setModalOpen(true)}>S'inscrire à la préparation</button>
-            <button className="cert-detail-btn-quote" style={S.btnDevis} onMouseEnter={e=>{e.currentTarget.style.background="#1e3a8a";e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="#1e3a8a";}} onClick={()=>{if(!sbUser){setDevisAuthGate(true);setDevisOpen(true);}else{prefillDevisForm(sbUser);setDevisOpen(true);}}}>🏢 Devis entreprise</button>
             <p style={{textAlign:"center",fontSize:".76rem",color:"#64748b",padding:"0 18px 14px",margin:0}}>✓ Garantie satisfait ou remboursé 30 jours</p>
             <div style={{padding:"14px 18px",borderTop:"1px solid #f1f5f9"}}>
               <p style={{fontWeight:700,fontSize:".82rem",color:"#0f172a",margin:"0 0 10px"}}>La préparation comprend :</p>

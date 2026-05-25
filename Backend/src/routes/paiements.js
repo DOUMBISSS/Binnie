@@ -1,6 +1,7 @@
 import express from "express";
 import supabase from "../config/supabase.js";
 import { authenticateAdmin } from "../middlewares/requireAdmin.js";
+import { logAudit } from "../middlewares/logAudit.js";
 
 const router = express.Router();
 console.log("✅ Route paiements chargée");
@@ -55,6 +56,21 @@ router.post("/submit", authenticateAdmin, async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "commercial",
+      action_type:  "PAIEMENT_CREATED",
+      module:       "paiements",
+      entite_type:  "paiement",
+      entite_id:    data.id,
+      detail:       `Paiement enregistré pour ${client.trim()} — montant reçu : ${data.montant_recu} (statut : ${data.statut})`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.status(201).json({ message: "Paiement enregistré", paiement: data });
   } catch (err) {
     console.error("Erreur serveur paiement:", err);
@@ -89,6 +105,22 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
+
+    logAudit({
+      acteur_id:    req.user?.id,
+      acteur_nom:   req.profil ? `${req.profil.prenom} ${req.profil.nom}` : null,
+      acteur_email: req.profil?.email || req.user?.email,
+      acteur_role:  req.role || "commercial",
+      action_type:  "PAIEMENT_UPDATED",
+      module:       "paiements",
+      entite_type:  "paiement",
+      entite_id:    req.params.id,
+      detail:       `Paiement ${req.params.id} mis à jour — champs : ${Object.keys(updates).join(", ")}`,
+      ip_address:   req.headers["x-forwarded-for"] || req.ip || null,
+      user_agent:   req.headers["user-agent"] || null,
+      statut:       "success",
+    }).catch(() => {});
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: "Erreur interne" });

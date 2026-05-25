@@ -37,20 +37,30 @@ const BlogList = () => {
   const [search,  setSearch]  = useState("");
   const [activeCat, setActiveCat] = useState("Tous");
 
+  const getYoutubeThumbnail = (url) => {
+    if (!url) return null;
+    const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null;
+  };
+
   useEffect(() => {
     fetch(`${API_BASE}/api/blog`)
       .then(r => r.ok ? r.json() : { articles: [] })
       .then(({ articles }) => setPosts(
-        (articles || []).map(a => ({
-          id:       a.id,
-          title:    a.titre,
-          excerpt:  a.extrait,
-          category: a.categorie,
-          image:    a.image_url || "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=800&q=80",
-          date:     a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
-          readTime: a.read_time,
-          author:   a.auteur,
-        }))
+        (articles || []).map(a => {
+          const ytThumb = !a.image_url ? getYoutubeThumbnail(a.video_url) : null;
+          return {
+            id:        a.id,
+            title:     a.titre,
+            excerpt:   a.extrait,
+            category:  a.categorie,
+            image:     a.image_url || ytThumb || null,
+            videoOnly: !a.image_url && !!a.video_url && !ytThumb,
+            date:      a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
+            readTime:  a.read_time,
+            author:    a.auteur,
+          };
+        })
       ))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -149,13 +159,27 @@ const BlogList = () => {
                     border:"1.5px solid #e2e8f0", transition:"transform .3s ease, box-shadow .3s ease",
                     animation:`blFadeUp .5s ease ${idx * 80}ms both`,
                   }}>
-                    {/* Image */}
-                    <div style={{ position:"relative", height:210, overflow:"hidden" }}>
-                      <img className="bl-card-img" src={post.image} alt={post.title} style={{ width:"100%", height:"100%", objectFit:"cover", transition:"transform .5s ease" }} />
+                    {/* Image / Vidéo */}
+                    <div style={{ position:"relative", height:210, overflow:"hidden", background:"#0f172a" }}>
+                      {post.image ? (
+                        <img className="bl-card-img" src={post.image} alt={post.title} style={{ width:"100%", height:"100%", objectFit:"cover", transition:"transform .5s ease" }} />
+                      ) : (
+                        <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10 }}>
+                          <div style={{ width:64, height:64, borderRadius:"50%", background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#fff" }}>▶</div>
+                          <span style={{ color:"rgba(255,255,255,.5)", fontSize:".75rem", fontWeight:600 }}>Vidéo</span>
+                        </div>
+                      )}
                       <div style={{ position:"absolute", inset:0, background:"linear-gradient(180deg,transparent 50%,rgba(15,23,42,.3))" }} />
+                      {/* Overlay play sur thumbnail YouTube */}
+                      {post.image?.includes("youtube") && (
+                        <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", width:50, height:50, borderRadius:"50%", background:"rgba(220,38,38,.85)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, color:"#fff", pointerEvents:"none" }}>▶</div>
+                      )}
                       <div style={{ position:"absolute", top:13, left:13, ...c, borderRadius:999, padding:"3px 11px", fontSize:".65rem", fontWeight:800, letterSpacing:".05em" }}>
                         {post.category}
                       </div>
+                      {(post.videoOnly || post.image?.includes("youtube")) && (
+                        <div style={{ position:"absolute", top:13, right:13, background:"rgba(220,38,38,.9)", color:"#fff", borderRadius:999, padding:"3px 10px", fontSize:".62rem", fontWeight:800 }}>▶ VIDÉO</div>
+                      )}
                     </div>
                     {/* Body */}
                     <div style={{ padding:"20px 22px 24px", flex:1, display:"flex", flexDirection:"column" }}>

@@ -351,7 +351,6 @@ const CenterDetail=()=>{
               ))}
             </div>
             <div style={{padding:"0 18px 14px",display:"flex",flexDirection:"column",gap:10}}>
-              <button className="center-detail-btn-enroll" style={S.btnEnroll} onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"} onMouseLeave={e=>e.currentTarget.style.background="#dc2626"} onClick={()=>setModalOpen(true)}>🏢 Devis entreprise</button>
               <button className="center-detail-btn-quote" style={S.btnDevis} onMouseEnter={e=>{e.currentTarget.style.background="#1e3a8a";e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="#1e3a8a";}} onClick={()=>window.open(`tel:${center.phone}`)}>📞 Appeler le centre</button>
               <button style={{...S.btnDevis}} onMouseEnter={e=>{e.currentTarget.style.background="#1e3a8a";e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="#1e3a8a";}} onClick={()=>setActiveTab("contact")}>🗺️ Voir l'itinéraire</button>
             </div>

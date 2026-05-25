@@ -5,6 +5,15 @@ import { supabase } from "../../../config/supabase";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
 
+const buildBlogEmbedUrl = (url) => {
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}?rel=0&modestbranding=1`;
+  const vm = url.match(/vimeo\.com\/(\d+)/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  return null;
+};
+
 /* ─── Inject fonts & keyframes once ──────────────────── */
 if (!document.querySelector("#bet-blog-detail-kf")) {
   const s = document.createElement("style");
@@ -297,6 +306,14 @@ const BlogDetail = () => {
   const [comments, setComments] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [isMuted,  setIsMuted]  = useState(true);
+  const iframeRef = useRef(null);
+
+  const sendYTCmd = (cmd) => {
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event:"command", func:cmd, args:[] }), "*");
+  };
+  const handleMute   = () => { sendYTCmd(isMuted ? "unMute" : "mute"); setIsMuted(m => !m); };
+  const handleReplay = () => { sendYTCmd("seekTo"); sendYTCmd("playVideo"); };
 
   useEffect(() => {
     setLoading(true); setNotFound(false);
@@ -306,16 +323,17 @@ const BlogDetail = () => {
         if (!data) return;
         const a = data.article;
         setCurrent({
-          id:       a.id,
-          title:    a.titre,
-          excerpt:  a.extrait,
-          content:  a.contenu,
-          category: a.categorie,
-          image:    a.image_url || "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1200&q=80",
-          images:   (a.images || []).filter(u => u && u.trim()),
-          date:     a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
-          readTime: a.read_time,
-          author:   a.auteur,
+          id:        a.id,
+          title:     a.titre,
+          excerpt:   a.extrait,
+          content:   a.contenu,
+          category:  a.categorie,
+          image:     a.image_url || "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1200&q=80",
+          images:    (a.images || []).filter(u => u && u.trim()),
+          video_url: a.video_url || null,
+          date:      a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }) : "",
+          readTime:  a.read_time,
+          author:    a.auteur,
         });
         setComments(data.commentaires || []);
       })
@@ -384,16 +402,45 @@ const BlogDetail = () => {
 
         {/* ══════════════ HERO HEADER ══════════════ */}
         <div style={D.heroWrap}>
-          {/* Image pleine largeur */}
+          {/* Fond : vidéo ou image */}
           <div style={D.heroImg}>
-            <img src={current.image} alt={current.title} style={D.heroImgTag} />
+            {current.video_url ? (() => {
+              const embed = buildBlogEmbedUrl(current.video_url);
+              return embed ? (
+                <iframe
+                  ref={iframeRef}
+                  src={`${embed}&autoplay=1&mute=1&loop=1&controls=0&enablejsapi=1&playlist=${embed.split('/embed/')[1]?.split('?')[0] || ""}`}
+                  width="100%" height="100%" frameBorder="0" allowFullScreen
+                  allow="autoplay; encrypted-media"
+                  style={{ position:"absolute", inset:0, width:"100%", height:"100%", pointerEvents:"none" }}
+                  title={current.title} />
+              ) : (
+                <video ref={iframeRef} src={current.video_url} autoPlay muted loop playsInline
+                  style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+              );
+            })() : (
+              <img src={current.image} alt={current.title} style={D.heroImgTag} />
+            )}
             <div style={D.heroGrad} />
           </div>
 
-          {/* Contenu hero */}
-          <div style={D.heroContent}>
-            <div style={D.heroInner}>
-              {/* Breadcrumb */}
+          {/* Boutons mute / rejouer (uniquement si vidéo) */}
+          {current.video_url && (
+            <div style={{ position:"absolute", bottom:24, right:24, zIndex:4, display:"flex", gap:10 }}>
+              <button onClick={handleReplay}
+                style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,.18)", border:"1.5px solid rgba(255,255,255,.4)", color:"#fff", fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(6px)" }}>
+                ↺
+              </button>
+              <button onClick={handleMute}
+                style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,.18)", border:"1.5px solid rgba(255,255,255,.4)", color:"#fff", fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(6px)" }}>
+                {isMuted ? "🔇" : "🔊"}
+              </button>
+            </div>
+          )}
+
+          {/* Breadcrumb top-left */}
+          <div style={{ position:"absolute", top:20, left:0, right:0, zIndex:4 }}>
+            <div style={{ maxWidth:1180, margin:"0 auto", padding:"0 28px" }}>
               <div style={D.breadcrumb}>
                 <Link to="/" style={D.breadLink}>Accueil</Link>
                 <span style={{ color: "rgba(255,255,255,.4)", margin: "0 8px" }}>›</span>
@@ -401,10 +448,15 @@ const BlogDetail = () => {
                 <span style={{ color: "rgba(255,255,255,.4)", margin: "0 8px" }}>›</span>
                 <span style={{ color: "rgba(255,255,255,.65)", fontSize: ".78rem" }}>{current.title?.slice(0, 32)}…</span>
               </div>
+            </div>
+          </div>
 
+          {/* Contenu hero — ancré en bas */}
+          <div style={D.heroContent}>
+            <div style={D.heroInner}>
               {/* Category */}
               <div style={{ ...D.heroTag, background: cat.bg, color: cat.text }}>
-                {current.category}
+                {current.video_url ? "🎬 " : ""}{current.category}
               </div>
 
               {/* Title */}
@@ -456,6 +508,22 @@ const BlogDetail = () => {
                   style={D.prose}
                   dangerouslySetInnerHTML={{ __html: current.content }}
                 />
+
+                {/* Vidéo de l'article */}
+                {current.video_url && (() => {
+                  const embed = buildBlogEmbedUrl(current.video_url);
+                  return (
+                    <div style={{ marginTop:32, marginBottom:8, borderRadius:14, overflow:"hidden", boxShadow:"0 4px 24px rgba(0,0,0,.12)" }}>
+                      {embed ? (
+                        <iframe src={embed} width="100%" height="420" frameBorder="0" allowFullScreen
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          style={{ display:"block" }} title="Vidéo de l'article" />
+                      ) : (
+                        <video src={current.video_url} controls style={{ width:"100%", maxHeight:420, display:"block", background:"#000" }} />
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Galerie images du contenu */}
                 {current.images?.length > 0 && (
@@ -603,7 +671,7 @@ const D = {
   page: { fontFamily: F, color: "#0f172a", background: "#f8fafc", minHeight: "100vh" },
 
   /* Hero */
-  heroWrap: { position: "relative", height: "clamp(360px,50vw,520px)", overflow: "hidden" },
+  heroWrap: { position: "relative", height: "clamp(420px,56.25vw,600px)", overflow: "hidden" },
   heroImg: { position: "absolute", inset: 0 },
   heroImgTag: { width: "100%", height: "100%", objectFit: "cover" },
   heroGrad: { position: "absolute", inset: 0, background: "linear-gradient(180deg,rgba(10,20,50,.3) 0%,rgba(10,20,50,.82) 100%)" },
